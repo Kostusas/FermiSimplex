@@ -65,7 +65,6 @@ def build_runtime(
     component_rows: np.ndarray,
     component_cols: np.ndarray,
     component_key_indices: np.ndarray,
-    refinement_depth: int = 0,
 ):
     _require_native_extension()
     model = tb_to_tight_binding_model(tb)
@@ -75,6 +74,5 @@ def build_runtime(
         np.ascontiguousarray(np.asarray(component_rows, dtype=np.int64)),
         np.ascontiguousarray(np.asarray(component_cols, dtype=np.int64)),
         np.ascontiguousarray(np.asarray(component_key_indices, dtype=np.int64)),
-        int(refinement_depth) + 1,
         float(_GEOM_TOL),
     )

@@ -61,7 +61,6 @@ struct ChargeIntegrateResult {
     std::int64_t n_active_simplices = 0;
     std::int64_t n_active_vertices = 0;
     bool converged = false;
-    bool error_estimate_available = true;
 };
 
 struct DensityIntegrateResult {
@@ -73,7 +72,6 @@ struct DensityIntegrateResult {
     std::int64_t n_active_simplices = 0;
     std::int64_t n_active_vertices = 0;
     bool converged = false;
-    bool error_estimate_available = true;
 };
 
 }  // namespace lineartetrahedron

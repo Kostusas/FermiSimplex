@@ -27,23 +27,6 @@ TightBindingModel::TightBindingModel(KeyArray keys, HoppingMatrixArray matrices)
     }
 }
 
-nb::ndarray<nb::numpy, std::int64_t> TightBindingModel::keys_array() const {
-    return make_array(std::vector<std::int64_t>(keys_), {nterms_, ndim_});
-}
-
-nb::ndarray<nb::numpy, std::complex<double>> TightBindingModel::matrices_array() const {
-    std::vector<std::complex<double>> out(nterms_ * ndof_ * ndof_);
-    for (size_t term = 0; term < nterms_; ++term) {
-        for (size_t row = 0; row < ndof_; ++row) {
-            for (size_t col = 0; col < ndof_; ++col) {
-                out[(term * ndof_ + row) * ndof_ + col] =
-                    matrices_[(term * ndof_ + col) * ndof_ + row];
-            }
-        }
-    }
-    return make_array(std::move(out), {nterms_, ndof_, ndof_});
-}
-
 nb::ndarray<nb::numpy, std::complex<double>> TightBindingModel::evaluate_point(
     PointArray point
 ) const {

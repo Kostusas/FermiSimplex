@@ -7,7 +7,7 @@ from .backend import (
     build_runtime,
     tb_to_tight_binding_model,
 )
-from .results import ChargeIntegrationInfo, DensityIntegrationInfo, FixedFillingInfo
+from .results import DensityIntegrationInfo
 from .solve import (
     density_matrix_at_mu_zero_temp,
     full_density_components,
@@ -15,9 +15,7 @@ from .solve import (
 )
 
 __all__ = [
-    "ChargeIntegrationInfo",
     "DensityIntegrationInfo",
-    "FixedFillingInfo",
     "IntegrationRuntime",
     "NATIVE_AVAILABLE",
     "TightBindingModel",

@@ -107,7 +107,6 @@ def test_fixed_mu_density_matches_dense_reference():
 
     assert max_density_error(rho, reference.rho) <= 5e-3
     assert max(float(np.max(block)) for block in error.values()) <= 5e-3
-    assert info.error_estimate_available is True
     assert info.n_cached_nodes > 0
 
 
@@ -126,7 +125,6 @@ def test_fixed_filling_workflow_is_driven_from_python():
         component_rows=prepared.rows,
         component_cols=prepared.cols,
         component_key_indices=prepared.key_indices,
-        refinement_depth=0,
     )
 
     charge_calls = 0

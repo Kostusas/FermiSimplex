@@ -17,8 +17,6 @@ public:
     size_t ndof() const noexcept { return ndof_; }
     size_t nterms() const noexcept { return nterms_; }
 
-    nb::ndarray<nb::numpy, std::int64_t> keys_array() const;
-    nb::ndarray<nb::numpy, std::complex<double>> matrices_array() const;
     nb::ndarray<nb::numpy, std::complex<double>> evaluate_point(PointArray point) const;
 
     std::vector<std::complex<double>> evaluate_point_raw(const double *point) const;

@@ -5,12 +5,17 @@
 
 #include <adaptivesimplex/adaptive/adaptive_loop.h>
 
-#include <algorithm>
 #include <cmath>
 #include <utility>
 
 namespace lineartetrahedron {
 namespace adaptive = adaptivesimplex::adaptive;
+
+namespace {
+
+constexpr std::uint32_t kPreviewDepth = 1;
+
+}  // namespace
 
 IntegrationRuntime::IntegrationRuntime(
     std::shared_ptr<TightBindingModel> model,
@@ -18,7 +23,6 @@ IntegrationRuntime::IntegrationRuntime(
     ComponentIndexArray component_rows,
     ComponentIndexArray component_cols,
     ComponentIndexArray component_key_indices,
-    std::int64_t preview_depth,
     double tol
 ) : state_(
         std::move(model),
@@ -27,8 +31,7 @@ IntegrationRuntime::IntegrationRuntime(
         component_cols,
         component_key_indices,
         tol
-    ),
-    preview_depth_(static_cast<std::uint32_t>(std::max<std::int64_t>(preview_depth, 1))) {
+    ) {
 }
 
 adaptive::Options IntegrationRuntime::options(
@@ -38,7 +41,7 @@ adaptive::Options IntegrationRuntime::options(
     return adaptive::Options{
         .target_error = target,
         .max_refinements = max_refinements,
-        .preview_depth = preview_depth_,
+        .preview_depth = kPreviewDepth,
         .min_refinement_batch_size = 1,
         .max_refinement_batch_size = 100,
     };
@@ -60,7 +63,6 @@ ChargeIntegrateResult IntegrationRuntime::integrate_charge(
         .n_active_simplices = n_active_simplices(),
         .n_active_vertices = n_active_vertices(),
         .converged = raw.converged,
-        .error_estimate_available = true,
     };
 }
 
@@ -84,7 +86,6 @@ DensityIntegrateResult IntegrationRuntime::integrate_density(
     result.n_active_simplices = n_active_simplices();
     result.n_active_vertices = n_active_vertices();
     result.converged = raw.converged;
-    result.error_estimate_available = true;
     return result;
 }
 

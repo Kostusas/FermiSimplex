@@ -17,8 +17,6 @@ NB_MODULE(_native, m) {
         .def_prop_ro("ndim", &TightBindingModel::ndim)
         .def_prop_ro("ndof", &TightBindingModel::ndof)
         .def_prop_ro("nterms", &TightBindingModel::nterms)
-        .def("keys_array", &TightBindingModel::keys_array)
-        .def("matrices_array", &TightBindingModel::matrices_array)
         .def("evaluate_point", &TightBindingModel::evaluate_point, "point"_a);
 
     nb::class_<ChargeIntegrateResult>(m, "ChargeIntegrateResult")
@@ -29,11 +27,7 @@ NB_MODULE(_native, m) {
         .def_prop_ro("refinements", [](const ChargeIntegrateResult &self) { return self.refinements; })
         .def_prop_ro("n_active_simplices", [](const ChargeIntegrateResult &self) { return self.n_active_simplices; })
         .def_prop_ro("n_active_vertices", [](const ChargeIntegrateResult &self) { return self.n_active_vertices; })
-        .def_prop_ro("converged", [](const ChargeIntegrateResult &self) { return self.converged; })
-        .def_prop_ro(
-            "error_estimate_available",
-            [](const ChargeIntegrateResult &self) { return self.error_estimate_available; }
-        );
+        .def_prop_ro("converged", [](const ChargeIntegrateResult &self) { return self.converged; });
 
     nb::class_<DensityIntegrateResult>(m, "DensityIntegrateResult")
         .def(
@@ -56,28 +50,22 @@ NB_MODULE(_native, m) {
         .def_prop_ro("refinements", [](const DensityIntegrateResult &self) { return self.refinements; })
         .def_prop_ro("n_active_simplices", [](const DensityIntegrateResult &self) { return self.n_active_simplices; })
         .def_prop_ro("n_active_vertices", [](const DensityIntegrateResult &self) { return self.n_active_vertices; })
-        .def_prop_ro("converged", [](const DensityIntegrateResult &self) { return self.converged; })
-        .def_prop_ro(
-            "error_estimate_available",
-            [](const DensityIntegrateResult &self) { return self.error_estimate_available; }
-        );
+        .def_prop_ro("converged", [](const DensityIntegrateResult &self) { return self.converged; });
 
     nb::class_<IntegrationRuntime>(m, "IntegrationRuntime")
         .def(
-            nb::init<std::shared_ptr<TightBindingModel>, KeyArray, ComponentIndexArray, ComponentIndexArray, ComponentIndexArray, std::int64_t, double>(),
+            nb::init<std::shared_ptr<TightBindingModel>, KeyArray, ComponentIndexArray, ComponentIndexArray, ComponentIndexArray, double>(),
             "model"_a,
             "keys"_a,
             "component_rows"_a,
             "component_cols"_a,
             "component_key_indices"_a,
-            "preview_depth"_a = 1,
             "tol"_a = 1e-14
         )
         .def_prop_ro("ndim", &IntegrationRuntime::ndim)
         .def_prop_ro("ndof", &IntegrationRuntime::ndof)
         .def_prop_ro("density_component_count", &IntegrationRuntime::density_component_count)
         .def_prop_ro("n_cached_nodes", &IntegrationRuntime::n_cached_nodes)
-        .def_prop_ro("n_kernel_evals", &IntegrationRuntime::n_kernel_evals)
         .def_prop_ro("n_active_simplices", &IntegrationRuntime::n_active_simplices)
         .def_prop_ro("n_active_vertices", &IntegrationRuntime::n_active_vertices)
         .def(

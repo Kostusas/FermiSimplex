@@ -136,7 +136,6 @@ VertexSpectra VertexSpectraEvaluator::diagonalize_reduced_point(
     auto h = model_->evaluate_point_raw(k_point.data());
     VertexSpectra entry;
     diagonalize_hermitian_in_place(h, entry.eigenvalues, model_->ndof());
-    ++n_kernel_evals_;
     entry.eigenvectors = std::move(h);
     return entry;
 }

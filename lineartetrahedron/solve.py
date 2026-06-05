@@ -126,14 +126,11 @@ def prepare_density_components(
 
 def _density_info(result, runtime) -> DensityIntegrationInfo:
     return DensityIntegrationInfo(
-        n_kernel_evals=int(runtime.n_kernel_evals),
-        unique_evals=int(runtime.n_cached_nodes),
         n_evaluator_evals=int(result.work),
         n_cached_nodes=int(runtime.n_cached_nodes),
         n_active_simplices=int(result.n_active_simplices),
         n_active_vertices=int(result.n_active_vertices),
         subdivisions=int(result.refinements),
-        error_estimate_available=bool(result.error_estimate_available),
     )
 
 
@@ -144,11 +141,8 @@ def density_matrix_at_mu_zero_temp(
     keys: list[tuple[int, ...]],
     density_components,
     density_atol: float,
-    density_rtol: float = 0.0,
     max_subdivisions: int | None = None,
-    refinement_depth: int = 0,
 ):
-    del density_rtol
     prepared = prepare_density_components(h, keys, density_components)
     runtime = build_runtime(
         h,
@@ -156,7 +150,6 @@ def density_matrix_at_mu_zero_temp(
         component_rows=prepared.rows,
         component_cols=prepared.cols,
         component_key_indices=prepared.key_indices,
-        refinement_depth=refinement_depth,
     )
     result = runtime.integrate_density(
         float(mu),

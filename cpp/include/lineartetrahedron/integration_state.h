@@ -35,7 +35,6 @@ public:
     size_t ndof() const noexcept { return ndof_; }
     size_t density_component_count() const noexcept { return components_.size(); }
     size_t n_cached_nodes() const noexcept { return cache_.size(); }
-    std::uint64_t n_kernel_evals() const noexcept { return evaluator_.n_kernel_evals(); }
     std::int64_t n_active_simplices() const noexcept {
         return static_cast<std::int64_t>(geometry_.simplices().n_active());
     }

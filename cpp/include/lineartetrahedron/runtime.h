@@ -32,18 +32,14 @@ public:
 
     ChargeIntegrateResult integrate_charge(
         double mu,
-        double charge_atol,
-        std::int64_t max_refinements
+        const adaptivesimplex::adaptive::Options &options
     );
     DensityIntegrateResult integrate_density(
         double mu,
-        double density_atol,
-        std::int64_t max_refinements
+        const adaptivesimplex::adaptive::Options &options
     );
 
 private:
-    adaptivesimplex::adaptive::Options options(double target, std::int64_t max_refinements) const;
-
     IntegrationState state_;
 };
 

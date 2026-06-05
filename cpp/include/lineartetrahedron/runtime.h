@@ -35,14 +35,36 @@ public:
         double charge_atol,
         std::int64_t max_refinements
     );
+    ChargeIntegrateResult integrate_charge(
+        double mu,
+        double charge_atol,
+        std::int64_t max_refinements,
+        std::int64_t num_threads
+    );
     DensityIntegrateResult integrate_density(
         double mu,
         double density_atol,
         std::int64_t max_refinements
     );
+    DensityIntegrateResult integrate_density(
+        double mu,
+        double density_atol,
+        std::int64_t max_refinements,
+        std::int64_t num_threads
+    );
 
 private:
     adaptivesimplex::adaptive::Options options(double target, std::int64_t max_refinements) const;
+    ChargeIntegrateResult integrate_charge_impl(
+        double mu,
+        double charge_atol,
+        std::int64_t max_refinements
+    );
+    DensityIntegrateResult integrate_density_impl(
+        double mu,
+        double density_atol,
+        std::int64_t max_refinements
+    );
 
     IntegrationState state_;
 };

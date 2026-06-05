@@ -5,10 +5,11 @@ from typing import Any
 import numpy as np
 
 try:
-    from ._native import IntegrationRuntime, TightBindingModel
+    from ._native import HAS_OPENMP, IntegrationRuntime, TightBindingModel
 
     NATIVE_AVAILABLE = True
 except ImportError:  # pragma: no cover - exercised when extension is unavailable
+    HAS_OPENMP = False
     IntegrationRuntime = None
     TightBindingModel = None
     NATIVE_AVAILABLE = False

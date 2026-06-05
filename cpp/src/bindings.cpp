@@ -11,6 +11,11 @@ namespace lineartetrahedron {
 
 NB_MODULE(_native, m) {
     m.doc() = "Native runtime for lineartetrahedron";
+#ifdef LINEARTETRAHEDRON_HAS_OPENMP
+    m.attr("HAS_OPENMP") = true;
+#else
+    m.attr("HAS_OPENMP") = false;
+#endif
 
     nb::class_<TightBindingModel>(m, "TightBindingModel")
         .def(nb::init<KeyArray, HoppingMatrixArray>(), "keys"_a, "matrices"_a)
@@ -70,17 +75,51 @@ NB_MODULE(_native, m) {
         .def_prop_ro("n_active_vertices", &IntegrationRuntime::n_active_vertices)
         .def(
             "integrate_charge",
-            &IntegrationRuntime::integrate_charge,
+            static_cast<ChargeIntegrateResult (IntegrationRuntime::*)(
+                double,
+                double,
+                std::int64_t
+            )>(&IntegrationRuntime::integrate_charge),
             "mu"_a,
             "charge_atol"_a,
             "max_refinements"_a = -1
         )
         .def(
+            "integrate_charge",
+            static_cast<ChargeIntegrateResult (IntegrationRuntime::*)(
+                double,
+                double,
+                std::int64_t,
+                std::int64_t
+            )>(&IntegrationRuntime::integrate_charge),
+            "mu"_a,
+            "charge_atol"_a,
+            "max_refinements"_a,
+            "num_threads"_a
+        )
+        .def(
             "integrate_density",
-            &IntegrationRuntime::integrate_density,
+            static_cast<DensityIntegrateResult (IntegrationRuntime::*)(
+                double,
+                double,
+                std::int64_t
+            )>(&IntegrationRuntime::integrate_density),
             "mu"_a,
             "density_atol"_a,
             "max_refinements"_a = -1
+        )
+        .def(
+            "integrate_density",
+            static_cast<DensityIntegrateResult (IntegrationRuntime::*)(
+                double,
+                double,
+                std::int64_t,
+                std::int64_t
+            )>(&IntegrationRuntime::integrate_density),
+            "mu"_a,
+            "density_atol"_a,
+            "max_refinements"_a,
+            "num_threads"_a
         );
 }
 

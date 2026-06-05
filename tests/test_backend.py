@@ -4,6 +4,7 @@ import numpy as np
 import pytest
 
 from lineartetrahedron import (
+    HAS_OPENMP,
     build_runtime,
     density_matrix_at_mu_zero_temp,
     full_density_components,
@@ -161,3 +162,58 @@ def test_fixed_filling_workflow_is_driven_from_python():
     assert charge_calls > 1
     assert abs(residual(mu)) <= 2e-3
     assert max_density_error(rho, reference.rho) <= 5e-3
+
+
+@requires_native
+def test_runtime_accepts_native_thread_count_when_available():
+    tb = dimerized_chain()
+    keys = [(0,), (1,), (-1,)]
+    prepared = prepare_density_components(
+        tb,
+        keys,
+        full_density_components(keys, size=2),
+    )
+    runtime = build_runtime(
+        tb,
+        keys=list(prepared.keys),
+        component_rows=prepared.rows,
+        component_cols=prepared.cols,
+        component_key_indices=prepared.key_indices,
+    )
+
+    charge_by_keyword = runtime.integrate_charge(0.0, 2e-3, 32, num_threads=1)
+    charge_by_position = runtime.integrate_charge(0.0, 2e-3, 32, 1)
+    density = runtime.integrate_density(0.0, 5e-3, 32, num_threads=1)
+
+    assert np.isfinite(charge_by_keyword.charge)
+    assert np.isfinite(charge_by_position.charge)
+    assert density.estimate_array().shape == (prepared.value_count,)
+
+    if not HAS_OPENMP:
+        with pytest.raises(RuntimeError, match="OpenMP thread controls"):
+            runtime.integrate_charge(0.0, 2e-3, 32, num_threads=2)
+        with pytest.raises(RuntimeError, match="OpenMP thread controls"):
+            runtime.integrate_density(0.0, 5e-3, 32, num_threads=2)
+
+
+@requires_native
+def test_runtime_rejects_nonpositive_native_thread_count():
+    tb = dimerized_chain()
+    keys = [(0,), (1,), (-1,)]
+    prepared = prepare_density_components(
+        tb,
+        keys,
+        full_density_components(keys, size=2),
+    )
+    runtime = build_runtime(
+        tb,
+        keys=list(prepared.keys),
+        component_rows=prepared.rows,
+        component_cols=prepared.cols,
+        component_key_indices=prepared.key_indices,
+    )
+
+    with pytest.raises(RuntimeError, match="num_threads must be positive"):
+        runtime.integrate_charge(0.0, 2e-3, 32, num_threads=0)
+    with pytest.raises(RuntimeError, match="num_threads must be positive"):
+        runtime.integrate_density(0.0, 5e-3, 32, num_threads=-1)

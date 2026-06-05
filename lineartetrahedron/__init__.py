@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from .backend import (
+    HAS_OPENMP,
     IntegrationRuntime,
     NATIVE_AVAILABLE,
     TightBindingModel,
@@ -16,6 +17,7 @@ from .solve import (
 
 __all__ = [
     "DensityIntegrationInfo",
+    "HAS_OPENMP",
     "IntegrationRuntime",
     "NATIVE_AVAILABLE",
     "TightBindingModel",

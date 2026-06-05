@@ -6,6 +6,7 @@
 #include <adaptivesimplex/adaptive/adaptive_loop.h>
 
 #include <cmath>
+#include <stdexcept>
 #include <utility>
 
 namespace lineartetrahedron {
@@ -14,6 +15,17 @@ namespace adaptive = adaptivesimplex::adaptive;
 namespace {
 
 constexpr std::uint32_t kPreviewDepth = 1;
+
+void validate_native_thread_request(std::int64_t num_threads) {
+    if (num_threads <= 0) {
+        throw std::runtime_error("num_threads must be positive");
+    }
+    if (num_threads != 1) {
+        throw std::runtime_error(
+            "lineartetrahedron was built without OpenMP thread controls"
+        );
+    }
+}
 
 }  // namespace
 
@@ -52,6 +64,24 @@ ChargeIntegrateResult IntegrationRuntime::integrate_charge(
     double charge_atol,
     std::int64_t max_refinements
 ) {
+    return integrate_charge_impl(mu, charge_atol, max_refinements);
+}
+
+ChargeIntegrateResult IntegrationRuntime::integrate_charge(
+    double mu,
+    double charge_atol,
+    std::int64_t max_refinements,
+    std::int64_t num_threads
+) {
+    validate_native_thread_request(num_threads);
+    return integrate_charge_impl(mu, charge_atol, max_refinements);
+}
+
+ChargeIntegrateResult IntegrationRuntime::integrate_charge_impl(
+    double mu,
+    double charge_atol,
+    std::int64_t max_refinements
+) {
     auto integrand = ChargeIntegrand(state_, mu);
     const auto raw = adaptive::run(state_.geometry(), integrand, options(charge_atol, max_refinements));
     return ChargeIntegrateResult{
@@ -67,6 +97,24 @@ ChargeIntegrateResult IntegrationRuntime::integrate_charge(
 }
 
 DensityIntegrateResult IntegrationRuntime::integrate_density(
+    double mu,
+    double density_atol,
+    std::int64_t max_refinements
+) {
+    return integrate_density_impl(mu, density_atol, max_refinements);
+}
+
+DensityIntegrateResult IntegrationRuntime::integrate_density(
+    double mu,
+    double density_atol,
+    std::int64_t max_refinements,
+    std::int64_t num_threads
+) {
+    validate_native_thread_request(num_threads);
+    return integrate_density_impl(mu, density_atol, max_refinements);
+}
+
+DensityIntegrateResult IntegrationRuntime::integrate_density_impl(
     double mu,
     double density_atol,
     std::int64_t max_refinements

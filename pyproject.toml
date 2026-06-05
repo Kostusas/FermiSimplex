@@ -1,0 +1,23 @@
+[build-system]
+requires = [
+    "nanobind>=2.2",
+    "scikit-build-core>=0.10",
+]
+build-backend = "scikit_build_core.build"
+
+[project]
+name = "lineartetrahedron"
+version = "0.1.0"
+description = "Zero-temperature linear tetrahedron backend for MeanFi"
+readme = "README.md"
+requires-python = ">=3.11"
+dependencies = [
+    "numpy>=2.0",
+]
+
+[tool.scikit-build]
+wheel.packages = ["lineartetrahedron"]
+cmake.source-dir = "."
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]

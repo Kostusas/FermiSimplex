@@ -11,12 +11,6 @@
 namespace lineartetrahedron {
 namespace adaptive = adaptivesimplex::adaptive;
 
-namespace {
-
-constexpr std::uint32_t kPreviewDepth = 1;
-
-}  // namespace
-
 IntegrationRuntime::IntegrationRuntime(
     std::shared_ptr<TightBindingModel> model,
     KeyArray keys,
@@ -34,26 +28,12 @@ IntegrationRuntime::IntegrationRuntime(
     ) {
 }
 
-adaptive::Options IntegrationRuntime::options(
-    double target,
-    std::int64_t max_refinements
-) const {
-    return adaptive::Options{
-        .target_error = target,
-        .max_refinements = max_refinements,
-        .preview_depth = kPreviewDepth,
-        .min_refinement_batch_size = 1,
-        .max_refinement_batch_size = 100,
-    };
-}
-
 ChargeIntegrateResult IntegrationRuntime::integrate_charge(
     double mu,
-    double charge_atol,
-    std::int64_t max_refinements
+    const adaptive::Options &options
 ) {
     auto integrand = ChargeIntegrand(state_, mu);
-    const auto raw = adaptive::run(state_.geometry(), integrand, options(charge_atol, max_refinements));
+    const auto raw = adaptive::run(state_.geometry(), integrand, options);
     return ChargeIntegrateResult{
         .charge = raw.value.charge,
         .charge_error = std::abs(raw.correction.charge),
@@ -68,11 +48,10 @@ ChargeIntegrateResult IntegrationRuntime::integrate_charge(
 
 DensityIntegrateResult IntegrationRuntime::integrate_density(
     double mu,
-    double density_atol,
-    std::int64_t max_refinements
+    const adaptive::Options &options
 ) {
     auto integrand = DensityIntegrand(state_, mu);
-    const auto raw = adaptive::run(state_.geometry(), integrand, options(density_atol, max_refinements));
+    const auto raw = adaptive::run(state_.geometry(), integrand, options);
 
     DensityIntegrateResult result;
     result.estimate = std::vector<std::complex<double>>(raw.value.values());

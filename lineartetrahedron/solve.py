@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import numpy as np
 
-from .backend import _tb_type, build_runtime
+from .backend import AdaptiveOptions, _tb_type, build_runtime
 from .results import DensityIntegrationInfo
 
 
@@ -142,6 +142,7 @@ def density_matrix_at_mu_zero_temp(
     density_components,
     density_atol: float,
     max_subdivisions: int | None = None,
+    adaptive_options=None,
 ):
     prepared = prepare_density_components(h, keys, density_components)
     runtime = build_runtime(
@@ -151,11 +152,13 @@ def density_matrix_at_mu_zero_temp(
         component_cols=prepared.cols,
         component_key_indices=prepared.key_indices,
     )
-    result = runtime.integrate_density(
-        float(mu),
-        float(density_atol),
-        -1 if max_subdivisions is None else int(max_subdivisions),
-    )
+    options = adaptive_options
+    if options is None:
+        options = AdaptiveOptions(
+            target_error=float(density_atol),
+            max_refinements=-1 if max_subdivisions is None else int(max_subdivisions),
+        )
+    result = runtime.integrate_density(float(mu), options)
     rho, error = prepared.values_and_errors_to_tb(
         result.estimate_array(),
         result.error_vector_array(),

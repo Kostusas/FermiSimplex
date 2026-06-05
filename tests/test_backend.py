@@ -4,6 +4,7 @@ import numpy as np
 import pytest
 
 from lineartetrahedron import (
+    AdaptiveOptions,
     build_runtime,
     density_matrix_at_mu_zero_temp,
     full_density_components,
@@ -47,6 +48,37 @@ def test_runtime_accepts_physical_dimensions(ndim):
 
     assert np.allclose(rho[key], np.diag([1.0, 0.0]), atol=1e-12)
     assert info.n_cached_nodes > 0
+
+
+@requires_native
+def test_runtime_accepts_adaptive_options():
+    tb = _constant_insulator(1)
+    key = (0,)
+    prepared = prepare_density_components(
+        tb,
+        [key],
+        full_density_components([key], size=2),
+    )
+    runtime = build_runtime(
+        tb,
+        keys=list(prepared.keys),
+        component_rows=prepared.rows,
+        component_cols=prepared.cols,
+        component_key_indices=prepared.key_indices,
+    )
+    options = AdaptiveOptions(
+        target_error=1e-12,
+        max_refinements=8,
+        preview_depth=2,
+        min_refinement_batch_size=1,
+        max_refinement_batch_size=100,
+    )
+
+    charge = runtime.integrate_charge(0.0, options)
+    density = runtime.integrate_density(0.0, options)
+
+    assert charge.charge == pytest.approx(1.0)
+    assert np.allclose(density.estimate_array(), np.diag([1.0, 0.0]).reshape(-1))
 
 
 @requires_native
@@ -132,7 +164,10 @@ def test_fixed_filling_workflow_is_driven_from_python():
     def residual(mu: float) -> float:
         nonlocal charge_calls
         charge_calls += 1
-        result = runtime.integrate_charge(mu, 2e-3, 512)
+        result = runtime.integrate_charge(
+            mu,
+            AdaptiveOptions(target_error=2e-3, max_refinements=512),
+        )
         return result.charge - 1.0
 
     lower = -3.0
@@ -151,7 +186,10 @@ def test_fixed_filling_workflow_is_driven_from_python():
             upper = mu
     else:  # pragma: no cover - loop always returns or breaks
         raise AssertionError("bisection did not converge")
-    density = runtime.integrate_density(mu, 5e-3, 512)
+    density = runtime.integrate_density(
+        mu,
+        AdaptiveOptions(target_error=5e-3, max_refinements=512),
+    )
     rho, _error = prepared.values_and_errors_to_tb(
         density.estimate_array(),
         density.error_vector_array(),

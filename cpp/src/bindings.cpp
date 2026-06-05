@@ -4,10 +4,32 @@
 
 #include "lineartetrahedron/runtime.h"
 
+#include <cstdint>
+#include <type_traits>
+#include <utility>
+
 namespace nb = nanobind;
 using namespace nb::literals;
 
 namespace lineartetrahedron {
+namespace adaptive = adaptivesimplex::adaptive;
+
+namespace {
+
+using MaxRefinements = std::remove_cvref_t<
+    decltype(std::declval<adaptive::Options>().max_refinements)
+>;
+using PreviewDepth = std::remove_cvref_t<
+    decltype(std::declval<adaptive::Options>().preview_depth)
+>;
+using MinRefinementBatchSize = std::remove_cvref_t<
+    decltype(std::declval<adaptive::Options>().min_refinement_batch_size)
+>;
+using MaxRefinementBatchSize = std::remove_cvref_t<
+    decltype(std::declval<adaptive::Options>().max_refinement_batch_size)
+>;
+
+}  // namespace
 
 NB_MODULE(_native, m) {
     m.doc() = "Native runtime for lineartetrahedron";
@@ -52,6 +74,39 @@ NB_MODULE(_native, m) {
         .def_prop_ro("n_active_vertices", [](const DensityIntegrateResult &self) { return self.n_active_vertices; })
         .def_prop_ro("converged", [](const DensityIntegrateResult &self) { return self.converged; });
 
+    nb::class_<adaptive::Options>(m, "AdaptiveOptions")
+        .def(
+            nb::init(
+                [](
+                    double target_error,
+                    std::int64_t max_refinements,
+                    std::uint32_t preview_depth,
+                    std::int64_t min_refinement_batch_size,
+                    std::int64_t max_refinement_batch_size
+                ) {
+                    return adaptive::Options{
+                        .target_error = target_error,
+                        .max_refinements = static_cast<MaxRefinements>(max_refinements),
+                        .preview_depth = static_cast<PreviewDepth>(preview_depth),
+                        .min_refinement_batch_size =
+                            static_cast<MinRefinementBatchSize>(min_refinement_batch_size),
+                        .max_refinement_batch_size =
+                            static_cast<MaxRefinementBatchSize>(max_refinement_batch_size),
+                    };
+                }
+            ),
+            "target_error"_a,
+            "max_refinements"_a = -1,
+            "preview_depth"_a = 1,
+            "min_refinement_batch_size"_a = 1,
+            "max_refinement_batch_size"_a = 100
+        )
+        .def_rw("target_error", &adaptive::Options::target_error)
+        .def_rw("max_refinements", &adaptive::Options::max_refinements)
+        .def_rw("preview_depth", &adaptive::Options::preview_depth)
+        .def_rw("min_refinement_batch_size", &adaptive::Options::min_refinement_batch_size)
+        .def_rw("max_refinement_batch_size", &adaptive::Options::max_refinement_batch_size);
+
     nb::class_<IntegrationRuntime>(m, "IntegrationRuntime")
         .def(
             nb::init<std::shared_ptr<TightBindingModel>, KeyArray, ComponentIndexArray, ComponentIndexArray, ComponentIndexArray, double>(),
@@ -72,15 +127,13 @@ NB_MODULE(_native, m) {
             "integrate_charge",
             &IntegrationRuntime::integrate_charge,
             "mu"_a,
-            "charge_atol"_a,
-            "max_refinements"_a = -1
+            "options"_a
         )
         .def(
             "integrate_density",
             &IntegrationRuntime::integrate_density,
             "mu"_a,
-            "density_atol"_a,
-            "max_refinements"_a = -1
+            "options"_a
         );
 }
 

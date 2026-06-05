@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from .backend import (
+    AdaptiveOptions,
     IntegrationRuntime,
     NATIVE_AVAILABLE,
     TightBindingModel,
@@ -16,6 +17,7 @@ from .solve import (
 
 __all__ = [
     "DensityIntegrationInfo",
+    "AdaptiveOptions",
     "IntegrationRuntime",
     "NATIVE_AVAILABLE",
     "TightBindingModel",

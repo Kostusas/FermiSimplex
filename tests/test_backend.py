@@ -5,6 +5,7 @@ import pytest
 
 from lineartetrahedron import (
     AdaptiveOptions,
+    ChargeEvaluator,
     build_runtime,
     density_matrix_at_mu_zero_temp,
     full_density_components,
@@ -75,9 +76,12 @@ def test_runtime_accepts_adaptive_options():
     )
 
     charge = runtime.integrate_charge(0.0, options)
+    fixed_charge = runtime.evaluate_charge(0.0, options)
     density = runtime.integrate_density(0.0, options)
 
     assert charge.charge == pytest.approx(1.0)
+    assert fixed_charge.charge == pytest.approx(1.0)
+    assert fixed_charge.refinements == 0
     assert np.allclose(density.estimate_array(), np.diag([1.0, 0.0]).reshape(-1))
 
 
@@ -143,7 +147,7 @@ def test_fixed_mu_density_matches_dense_reference():
 
 
 @requires_native
-def test_fixed_filling_workflow_is_driven_from_python():
+def test_charge_evaluator_does_not_change_active_simplex_count():
     tb = dimerized_chain()
     keys = [(0,), (1,), (-1,)]
     prepared = prepare_density_components(
@@ -158,44 +162,52 @@ def test_fixed_filling_workflow_is_driven_from_python():
         component_cols=prepared.cols,
         component_key_indices=prepared.key_indices,
     )
-
-    charge_calls = 0
-
-    def residual(mu: float) -> float:
-        nonlocal charge_calls
-        charge_calls += 1
-        result = runtime.integrate_charge(
-            mu,
-            AdaptiveOptions(target_error=2e-3, max_refinements=512),
-        )
-        return result.charge - 1.0
-
-    lower = -3.0
-    upper = 3.0
-    lower_residual = residual(lower)
-    upper_residual = residual(upper)
-    assert lower_residual <= 0.0 <= upper_residual
-    for _ in range(64):
-        mu = 0.5 * (lower + upper)
-        value = residual(mu)
-        if abs(value) <= 2e-3 or upper - lower <= 1e-6:
-            break
-        if value < 0.0:
-            lower = mu
-        else:
-            upper = mu
-    else:  # pragma: no cover - loop always returns or breaks
-        raise AssertionError("bisection did not converge")
-    density = runtime.integrate_density(
-        mu,
-        AdaptiveOptions(target_error=5e-3, max_refinements=512),
+    runtime.integrate_charge(
+        0.0,
+        AdaptiveOptions(target_error=2e-3, max_refinements=64),
     )
-    rho, _error = prepared.values_and_errors_to_tb(
-        density.estimate_array(),
-        density.error_vector_array(),
+    evaluator = ChargeEvaluator(
+        runtime,
+        AdaptiveOptions(target_error=2e-3, max_refinements=0, preview_depth=2),
     )
-    reference = dense_reference(tb, mu=mu, keys=keys, nk=2001)
 
-    assert charge_calls > 1
-    assert abs(residual(mu)) <= 2e-3
-    assert max_density_error(rho, reference.rho) <= 5e-3
+    active_before = runtime.n_active_simplices
+    values = [evaluator(mu) for mu in (-1.0, 0.0, 1.0, 0.25)]
+    active_after = runtime.n_active_simplices
+
+    assert active_after == active_before
+    assert all(len(value) == 3 for value in values)
+    assert all(np.isfinite(value[0]) for value in values)
+    assert all(value[1] >= 0.0 for value in values)
+
+
+@requires_native
+def test_charge_evaluator_matches_meanfi_solver_callback_contract():
+    tb = dimerized_chain()
+    keys = [(0,), (1,), (-1,)]
+    prepared = prepare_density_components(
+        tb,
+        keys,
+        full_density_components(keys, size=2),
+    )
+    runtime = build_runtime(
+        tb,
+        keys=list(prepared.keys),
+        component_rows=prepared.rows,
+        component_cols=prepared.cols,
+        component_key_indices=prepared.key_indices,
+    )
+    runtime.integrate_charge(
+        0.0,
+        AdaptiveOptions(target_error=2e-3, max_refinements=64),
+    )
+    evaluator = ChargeEvaluator(
+        runtime,
+        AdaptiveOptions(target_error=2e-3, max_refinements=0, preview_depth=2),
+    )
+
+    charge, charge_error, derivative = evaluator(0.0)
+
+    assert charge == pytest.approx(1.0, abs=2e-3)
+    assert charge_error <= 2e-3
+    assert derivative >= 0.0

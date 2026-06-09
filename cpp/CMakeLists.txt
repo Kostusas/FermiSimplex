@@ -2,6 +2,14 @@ find_package(Python COMPONENTS Interpreter Development.Module REQUIRED)
 find_package(nanobind CONFIG REQUIRED)
 find_package(adaptivesimplex CONFIG REQUIRED)
 find_package(LAPACK REQUIRED)
+if(APPLE AND DEFINED ENV{CONDA_PREFIX})
+  set(_lineartetrahedron_conda_libomp "$ENV{CONDA_PREFIX}/lib/libomp.dylib")
+  if(EXISTS "${_lineartetrahedron_conda_libomp}")
+    set(OpenMP_CXX_LIB_NAMES "omp" CACHE STRING "OpenMP CXX library names" FORCE)
+    set(OpenMP_omp_LIBRARY "${_lineartetrahedron_conda_libomp}" CACHE FILEPATH "OpenMP libomp path" FORCE)
+  endif()
+endif()
+find_package(OpenMP REQUIRED)
 
 include(CheckCXXSourceCompiles)
 
@@ -48,7 +56,7 @@ nanobind_add_module(
 )
 target_compile_features(_native PRIVATE cxx_std_20)
 target_include_directories(_native PRIVATE "${CMAKE_CURRENT_SOURCE_DIR}/include")
-target_link_libraries(_native PRIVATE adaptivesimplex::adaptive ${LAPACK_LIBRARIES})
+target_link_libraries(_native PRIVATE adaptivesimplex::adaptive OpenMP::OpenMP_CXX ${LAPACK_LIBRARIES})
 target_link_options(_native PRIVATE ${LAPACK_LINKER_FLAGS})
 target_compile_definitions(
   _native PRIVATE

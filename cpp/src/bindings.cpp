@@ -4,10 +4,9 @@
 
 #include "lineartetrahedron/runtime.h"
 
+#include <cstddef>
 #include <cstdint>
 #include <new>
-#include <type_traits>
-#include <utility>
 
 namespace nb = nanobind;
 using namespace nb::literals;
@@ -71,12 +70,12 @@ NB_MODULE(_native, m) {
             ) {
                 new (self) adaptive::Options{
                     .target_error = target_error,
-                    .max_refinements = static_cast<MaxRefinements>(max_refinements),
-                    .preview_depth = static_cast<PreviewDepth>(preview_depth),
+                    .max_refinements = static_cast<std::int64_t>(max_refinements),
+                    .preview_depth = static_cast<std::uint32_t>(preview_depth),
                     .min_refinement_batch_size =
-                        static_cast<MinRefinementBatchSize>(min_refinement_batch_size),
+                        static_cast<std::size_t>(min_refinement_batch_size),
                     .max_refinement_batch_size =
-                        static_cast<MaxRefinementBatchSize>(max_refinement_batch_size),
+                        static_cast<std::size_t>(max_refinement_batch_size),
                 };
             },
             "target_error"_a,

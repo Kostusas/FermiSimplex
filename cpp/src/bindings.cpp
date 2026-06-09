@@ -4,33 +4,15 @@
 
 #include "lineartetrahedron/runtime.h"
 
+#include <cstddef>
 #include <cstdint>
 #include <new>
-#include <type_traits>
-#include <utility>
 
 namespace nb = nanobind;
 using namespace nb::literals;
 
 namespace lineartetrahedron {
 namespace adaptive = adaptivesimplex::adaptive;
-
-namespace {
-
-using MaxRefinements = std::remove_cvref_t<
-    decltype(std::declval<adaptive::Options>().max_refinements)
->;
-using PreviewDepth = std::remove_cvref_t<
-    decltype(std::declval<adaptive::Options>().preview_depth)
->;
-using MinRefinementBatchSize = std::remove_cvref_t<
-    decltype(std::declval<adaptive::Options>().min_refinement_batch_size)
->;
-using MaxRefinementBatchSize = std::remove_cvref_t<
-    decltype(std::declval<adaptive::Options>().max_refinement_batch_size)
->;
-
-}  // namespace
 
 NB_MODULE(_native, m) {
     m.doc() = "Native runtime for lineartetrahedron";
@@ -88,12 +70,12 @@ NB_MODULE(_native, m) {
             ) {
                 new (self) adaptive::Options{
                     .target_error = target_error,
-                    .max_refinements = static_cast<MaxRefinements>(max_refinements),
-                    .preview_depth = static_cast<PreviewDepth>(preview_depth),
+                    .max_refinements = static_cast<std::int64_t>(max_refinements),
+                    .preview_depth = static_cast<std::uint32_t>(preview_depth),
                     .min_refinement_batch_size =
-                        static_cast<MinRefinementBatchSize>(min_refinement_batch_size),
+                        static_cast<std::size_t>(min_refinement_batch_size),
                     .max_refinement_batch_size =
-                        static_cast<MaxRefinementBatchSize>(max_refinement_batch_size),
+                        static_cast<std::size_t>(max_refinement_batch_size),
                 };
             },
             "target_error"_a,

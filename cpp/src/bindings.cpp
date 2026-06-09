@@ -5,7 +5,9 @@
 #include "lineartetrahedron/runtime.h"
 
 #include <cstdint>
-#include <cstddef>
+#include <new>
+#include <type_traits>
+#include <utility>
 
 namespace nb = nanobind;
 using namespace nb::literals;
@@ -58,7 +60,25 @@ NB_MODULE(_native, m) {
 
     nb::class_<adaptive::Options>(m, "AdaptiveOptions")
         .def(
-            nb::init<double, std::int64_t, std::uint32_t, std::size_t, std::size_t>(),
+            "__init__",
+            [](
+                adaptive::Options *self,
+                double target_error,
+                std::int64_t max_refinements,
+                std::uint32_t preview_depth,
+                std::int64_t min_refinement_batch_size,
+                std::int64_t max_refinement_batch_size
+            ) {
+                new (self) adaptive::Options{
+                    .target_error = target_error,
+                    .max_refinements = static_cast<MaxRefinements>(max_refinements),
+                    .preview_depth = static_cast<PreviewDepth>(preview_depth),
+                    .min_refinement_batch_size =
+                        static_cast<MinRefinementBatchSize>(min_refinement_batch_size),
+                    .max_refinement_batch_size =
+                        static_cast<MaxRefinementBatchSize>(max_refinement_batch_size),
+                };
+            },
             "target_error"_a,
             "max_refinements"_a = -1,
             "preview_depth"_a = 1,
@@ -90,6 +110,12 @@ NB_MODULE(_native, m) {
         .def(
             "integrate_charge",
             &IntegrationRuntime::integrate_charge,
+            "mu"_a,
+            "options"_a
+        )
+        .def(
+            "evaluate_charge",
+            &IntegrationRuntime::evaluate_charge,
             "mu"_a,
             "options"_a
         )

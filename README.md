@@ -9,18 +9,21 @@ MeanFi. It owns the physics-specific C++/Python boundary:
 - Python packaging and result conversion.
 
 The adaptive mesh mechanics come from the refactored C++20 AdaptiveSimplex
-library, which must be available as a CMake package.
+library. A pinned source-only copy is vendored as a fallback so normal Python
+package builds do not need a separate AdaptiveSimplex install. If an external
+AdaptiveSimplex CMake package is available, the build uses that package instead.
 
 ## Local Development
 
-```bash
-CMAKE_PREFIX_PATH=/path/to/adaptivesimplex/prefix pixi run test
-```
-
 The Pixi `test` task installs the package in editable mode and runs pytest.
-When AdaptiveSimplex is installed into a standard CMake prefix, the
-`CMAKE_PREFIX_PATH` override is not needed.
 
 ```bash
 pixi run test
+```
+
+To test against an external AdaptiveSimplex install instead of the vendored
+fallback, point CMake at that prefix:
+
+```bash
+CMAKE_PREFIX_PATH=/path/to/adaptivesimplex/prefix pixi run test
 ```

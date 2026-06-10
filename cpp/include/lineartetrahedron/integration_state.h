@@ -54,6 +54,9 @@ public:
     adaptivesimplex::core::Geometry &geometry() noexcept { return geometry_; }
     const adaptivesimplex::core::Geometry &geometry() const noexcept { return geometry_; }
     adaptivesimplex::core::VertexCache<VertexSpectra> &cache() noexcept { return cache_; }
+    const adaptivesimplex::core::VertexCache<VertexSpectra> &cache() const noexcept {
+        return cache_;
+    }
     VertexSpectra evaluate_vertex(
         const adaptivesimplex::core::Geometry &geometry,
         adaptivesimplex::core::VertexId vertex_id

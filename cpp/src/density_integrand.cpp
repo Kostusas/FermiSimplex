@@ -3,8 +3,10 @@
 #include "lineartetrahedron/adaptive_estimate.h"
 #include "lineartetrahedron/band_weights.h"
 
+#include <array>
 #include <cmath>
 #include <complex>
+#include <span>
 
 namespace lineartetrahedron {
 namespace adaptive = adaptivesimplex::adaptive;
@@ -12,19 +14,27 @@ namespace core = adaptivesimplex::core;
 
 namespace {
 
-std::complex<double> phase_for_key(
+void scaled_phases_for_keys(
     const std::vector<std::int64_t> &keys,
-    size_t key_index,
+    size_t key_count,
     size_t ndim,
-    const std::vector<double> &reduced_point
+    const std::vector<double> &reduced_point,
+    double scale,
+    std::span<std::complex<double>> out
 ) {
-    double phase_arg = 0.0;
+    std::array<double, 3> k_point{};
     for (size_t axis = 0; axis < ndim; ++axis) {
-        phase_arg +=
-            (2.0 * kPi * reduced_point[axis] - kPi) *
-            static_cast<double>(keys[key_index * ndim + axis]);
+        k_point[axis] = 2.0 * kPi * reduced_point[axis] - kPi;
     }
-    return std::exp(std::complex<double>(0.0, phase_arg));
+    for (size_t key_index = 0; key_index < key_count; ++key_index) {
+        double phase_arg = 0.0;
+        for (size_t axis = 0; axis < ndim; ++axis) {
+            phase_arg +=
+                k_point[axis] *
+                static_cast<double>(keys[key_index * ndim + axis]);
+        }
+        out[key_index] = scale * std::exp(std::complex<double>(0.0, phase_arg));
+    }
 }
 
 }  // namespace
@@ -57,6 +67,7 @@ adaptive::DenseValue<std::complex<double>> DensityIntegrand::simplex_value(
     const auto &simplex = geometry.simplices().simplex(simplex_id);
     const auto entries = gather_vertex_spectra(geometry, state_.cache(), simplex_id);
     const auto &vertex_ids = simplex.vertex_ids;
+    std::vector<std::complex<double>> beta(state_.key_count());
 
     for (size_t band = 0; band < state_.ndof(); ++band) {
         const auto weights = band_weights_on_simplex(
@@ -74,15 +85,22 @@ adaptive::DenseValue<std::complex<double>> DensityIntegrand::simplex_value(
             }
             const auto reduced_point = geometry.vertices().dyadic_vertex(vertex_ids[vertex]).to_point();
             const auto &eigenvectors = entries[vertex]->eigenvectors;
-            for (size_t comp = 0; comp < state_.components().size(); ++comp) {
-                const auto &component = state_.components()[comp];
+            scaled_phases_for_keys(
+                state_.keys(),
+                state_.key_count(),
+                state_.ndim(),
+                reduced_point,
+                weight,
+                beta
+            );
+            for (const auto &group : state_.component_pair_groups()) {
                 const std::complex<double> projector =
-                    eigenvectors[band * state_.ndof() + component.row] *
-                    std::conj(eigenvectors[band * state_.ndof() + component.col]);
-                result[comp] +=
-                    weight *
-                    phase_for_key(state_.keys(), component.key_index, state_.ndim(), reduced_point) *
-                    projector;
+                    eigenvectors[band * state_.ndof() + group.row] *
+                    std::conj(eigenvectors[band * state_.ndof() + group.col]);
+                for (const auto &contribution : group.contributions) {
+                    result[contribution.component_index] +=
+                        beta[contribution.key_index] * projector;
+                }
             }
         }
     }

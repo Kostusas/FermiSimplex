@@ -21,6 +21,15 @@ public:
         size_t col = 0;
         size_t key_index = 0;
     };
+    struct DensityComponentContribution {
+        size_t component_index = 0;
+        size_t key_index = 0;
+    };
+    struct DensityComponentPairGroup {
+        size_t row = 0;
+        size_t col = 0;
+        std::vector<DensityComponentContribution> contributions;
+    };
 
     IntegrationState(
         std::shared_ptr<TightBindingModel> model,
@@ -53,7 +62,11 @@ public:
     }
 
     const std::vector<std::int64_t> &keys() const noexcept { return keys_; }
+    size_t key_count() const noexcept { return n_keys_; }
     const std::vector<DensityComponent> &components() const noexcept { return components_; }
+    const std::vector<DensityComponentPairGroup> &component_pair_groups() const noexcept {
+        return component_pair_groups_;
+    }
     double tol() const noexcept { return tol_; }
 
 private:
@@ -67,6 +80,7 @@ private:
     size_t n_keys_ = 0;
     std::vector<std::int64_t> keys_;
     std::vector<DensityComponent> components_;
+    std::vector<DensityComponentPairGroup> component_pair_groups_;
 };
 
 }  // namespace lineartetrahedron

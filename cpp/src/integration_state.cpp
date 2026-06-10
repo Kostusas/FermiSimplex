@@ -1,5 +1,6 @@
 #include "lineartetrahedron/integration_state.h"
 
+#include <algorithm>
 #include <stdexcept>
 #include <utility>
 
@@ -66,9 +67,30 @@ IntegrationState::IntegrationState(
         if (static_cast<size_t>(key_index) >= n_keys_) {
             throw std::runtime_error("IntegrationState: selected key index out of bounds");
         }
+        const auto component_index = components_.size();
         components_.push_back(DensityComponent{
             static_cast<size_t>(row),
             static_cast<size_t>(col),
+            static_cast<size_t>(key_index),
+        });
+        auto group = std::find_if(
+            component_pair_groups_.begin(),
+            component_pair_groups_.end(),
+            [&](const DensityComponentPairGroup &candidate) {
+                return candidate.row == static_cast<size_t>(row) &&
+                    candidate.col == static_cast<size_t>(col);
+            }
+        );
+        if (group == component_pair_groups_.end()) {
+            component_pair_groups_.push_back(DensityComponentPairGroup{
+                static_cast<size_t>(row),
+                static_cast<size_t>(col),
+                {},
+            });
+            group = component_pair_groups_.end() - 1;
+        }
+        group->contributions.push_back(DensityComponentContribution{
+            component_index,
             static_cast<size_t>(key_index),
         });
     }

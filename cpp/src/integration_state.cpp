@@ -1,7 +1,9 @@
 #include "lineartetrahedron/integration_state.h"
 
 #include <algorithm>
+#include <cstdint>
 #include <stdexcept>
+#include <unordered_map>
 #include <utility>
 
 namespace lineartetrahedron {
@@ -23,6 +25,10 @@ size_t supported_dimension(const std::shared_ptr<TightBindingModel> &model) {
 core::Geometry make_root_geometry(const std::shared_ptr<TightBindingModel> &model) {
     const size_t ndim = supported_dimension(model);
     return core::root_geometry(ndim, ndim == 1 ? 2U : 1U);
+}
+
+std::uint64_t component_pair_key(size_t row, size_t col, size_t ndof) {
+    return static_cast<std::uint64_t>(row * ndof + col);
 }
 
 }  // namespace
@@ -54,6 +60,9 @@ IntegrationState::IntegrationState(
         throw std::runtime_error("IntegrationState: selected component arrays must match");
     }
     components_.reserve(count);
+    component_pair_groups_.reserve(std::min(count, ndof_ * ndof_));
+    std::unordered_map<std::uint64_t, size_t> group_index_by_pair;
+    group_index_by_pair.reserve(std::min(count, ndof_ * ndof_));
     for (size_t index = 0; index < count; ++index) {
         const auto row = component_rows.data()[index];
         const auto col = component_cols.data()[index];
@@ -73,23 +82,22 @@ IntegrationState::IntegrationState(
             static_cast<size_t>(col),
             static_cast<size_t>(key_index),
         });
-        auto group = std::find_if(
-            component_pair_groups_.begin(),
-            component_pair_groups_.end(),
-            [&](const DensityComponentPairGroup &candidate) {
-                return candidate.row == static_cast<size_t>(row) &&
-                    candidate.col == static_cast<size_t>(col);
-            }
+        const auto pair_key = component_pair_key(
+            static_cast<size_t>(row),
+            static_cast<size_t>(col),
+            ndof_
         );
-        if (group == component_pair_groups_.end()) {
+        auto group_index = group_index_by_pair.find(pair_key);
+        if (group_index == group_index_by_pair.end()) {
+            const auto new_group_index = component_pair_groups_.size();
             component_pair_groups_.push_back(DensityComponentPairGroup{
                 static_cast<size_t>(row),
                 static_cast<size_t>(col),
                 {},
             });
-            group = component_pair_groups_.end() - 1;
+            group_index = group_index_by_pair.emplace(pair_key, new_group_index).first;
         }
-        group->contributions.push_back(DensityComponentContribution{
+        component_pair_groups_[group_index->second].contributions.push_back(DensityComponentContribution{
             component_index,
             static_cast<size_t>(key_index),
         });

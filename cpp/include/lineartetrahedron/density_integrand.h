@@ -7,8 +7,6 @@
 
 #include <complex>
 #include <cstdint>
-#include <span>
-#include <vector>
 
 namespace lineartetrahedron {
 
@@ -29,20 +27,11 @@ public:
         adaptivesimplex::core::Geometry &geometry,
         adaptivesimplex::core::VertexId vertex_id
     );
-    std::vector<adaptivesimplex::adaptive::Estimate<
+    adaptivesimplex::adaptive::Result<
         adaptivesimplex::adaptive::DenseValue<std::complex<double>>
-    >> estimate_simplices(
-        adaptivesimplex::core::Geometry &geometry,
-        std::span<const adaptivesimplex::core::SimplexId> simplex_ids,
-        std::uint32_t preview_depth
-    ) const;
+    > estimate_density(const adaptivesimplex::adaptive::Options &options);
 
 private:
-    adaptivesimplex::adaptive::DenseValue<std::complex<double>> simplex_value(
-        const adaptivesimplex::core::Geometry &geometry,
-        adaptivesimplex::core::SimplexId simplex_id
-    ) const;
-
     IntegrationState &state_;
     double mu_ = 0.0;
 };

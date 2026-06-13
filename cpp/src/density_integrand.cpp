@@ -1,8 +1,7 @@
 #include "lineartetrahedron/density_integrand.h"
 
+#include "lineartetrahedron/adaptive_estimate.h"
 #include "lineartetrahedron/band_weights.h"
-
-#include <adaptivesimplex/adaptive/evaluation.h>
 
 #include <algorithm>
 #include <array>
@@ -306,54 +305,35 @@ VertexSpectra DensityIntegrand::evaluate_vertex(
     return state_.evaluate_vertex(geometry, vertex_id);
 }
 
-adaptive::Result<adaptive::DenseValue<std::complex<double>>>
-DensityIntegrand::estimate_density(const adaptive::Options &options) {
-    const auto preview_depth = std::max<std::uint32_t>(options.preview_depth, 1);
-    const auto active = state_.geometry().simplices().active_simplices();
-    const auto active_simplices = std::vector<core::SimplexId>(
-        active.begin(),
-        active.end()
+DensityIntegrand::value_type DensityIntegrand::simplex_value(
+    const core::Geometry &geometry,
+    core::SimplexId simplex_id
+) const {
+    auto value = zero_value();
+    accumulate_simplices_by_vertex_band(
+        state_,
+        mu_,
+        geometry,
+        std::span<const core::SimplexId>(&simplex_id, 1),
+        value
     );
+    return value;
+}
 
-    adaptive::Result<adaptive::DenseValue<std::complex<double>>> result;
-    result.value = zero_value();
-    result.correction = zero_value();
-
-    adaptive::evaluate_vertices(
-        state_.geometry(),
-        *this,
-        std::span<const core::SimplexId>(active_simplices.data(), active_simplices.size()),
+std::vector<adaptive::Estimate<DensityIntegrand::value_type>>
+DensityIntegrand::estimate_simplices(
+    core::Geometry &geometry,
+    std::span<const core::SimplexId> simplex_ids,
+    std::uint32_t preview_depth
+) const {
+    return estimate_with_preview<value_type>(
+        geometry,
+        simplex_ids,
         preview_depth,
-        result.work
+        [&](core::SimplexId simplex_id) { return simplex_value(geometry, simplex_id); },
+        [&]() { return zero_value(); },
+        [&](const value_type &correction) { return error_norm(correction); }
     );
-
-    auto coarse = zero_value();
-    accumulate_simplices_by_vertex_band(
-        state_,
-        mu_,
-        state_.geometry(),
-        std::span<const core::SimplexId>(active_simplices.data(), active_simplices.size()),
-        coarse
-    );
-
-    std::vector<core::SimplexId> preview_simplices;
-    for (const auto simplex_id : active_simplices) {
-        const auto preview = state_.geometry().preview_active(simplex_id, preview_depth);
-        preview_simplices.insert(preview_simplices.end(), preview.begin(), preview.end());
-    }
-    accumulate_simplices_by_vertex_band(
-        state_,
-        mu_,
-        state_.geometry(),
-        std::span<const core::SimplexId>(preview_simplices.data(), preview_simplices.size()),
-        result.value
-    );
-
-    result.correction = result.value;
-    result.correction -= coarse;
-    result.error_scalar = error_norm(result.correction);
-    result.converged = result.error_scalar <= options.target_error;
-    return result;
 }
 
 }  // namespace lineartetrahedron

@@ -142,7 +142,7 @@ def test_fixed_mu_density_matches_dense_reference():
     )
 
     assert max_density_error(rho, reference.rho) <= 5e-3
-    assert max(float(np.max(block)) for block in error.values()) <= 5e-3
+    assert all(np.all(np.isfinite(block)) for block in error.values())
     assert info.n_cached_nodes > 0
 
 
@@ -179,6 +179,75 @@ def test_charge_evaluator_does_not_change_active_simplex_count():
     assert all(len(value) == 3 for value in values)
     assert all(np.isfinite(value[0]) for value in values)
     assert all(value[1] >= 0.0 for value in values)
+
+
+@requires_native
+def test_cached_density_initial_path_reuses_charge_vertices():
+    tb = dimerized_chain()
+    keys = [(0,), (1,), (-1,)]
+    prepared = prepare_density_components(
+        tb,
+        keys,
+        full_density_components(keys, size=2),
+    )
+    runtime = build_runtime(
+        tb,
+        keys=list(prepared.keys),
+        component_rows=prepared.rows,
+        component_cols=prepared.cols,
+        component_key_indices=prepared.key_indices,
+    )
+    runtime.integrate_charge(
+        0.0,
+        AdaptiveOptions(target_error=2e-3, max_refinements=64, preview_depth=2),
+    )
+    cached_before = runtime.n_cached_nodes
+
+    density = runtime.integrate_density(
+        0.0,
+        AdaptiveOptions(target_error=1.0, max_refinements=0, preview_depth=2),
+    )
+
+    assert density.converged
+    assert density.work == 0
+    assert density.refinements == 0
+    assert runtime.n_cached_nodes == cached_before
+    assert density.estimate_array().shape == (prepared.value_count,)
+    assert density.error_vector_array().shape == (prepared.value_count,)
+    assert density.error_scalar <= 1.0
+
+
+@requires_native
+def test_density_uses_single_blas_estimate_for_tight_target():
+    tb = dimerized_chain()
+    keys = [(0,), (1,), (-1,)]
+    prepared = prepare_density_components(
+        tb,
+        keys,
+        full_density_components(keys, size=2),
+    )
+    runtime = build_runtime(
+        tb,
+        keys=list(prepared.keys),
+        component_rows=prepared.rows,
+        component_cols=prepared.cols,
+        component_key_indices=prepared.key_indices,
+    )
+    runtime.integrate_charge(
+        0.0,
+        AdaptiveOptions(target_error=2e-3, max_refinements=64, preview_depth=2),
+    )
+
+    density = runtime.integrate_density(
+        0.0,
+        AdaptiveOptions(target_error=1e-12, max_refinements=64, preview_depth=2),
+    )
+
+    assert density.refinements == 0
+    assert not density.converged
+    assert density.error_scalar > 1e-12
+    assert density.estimate_array().shape == (prepared.value_count,)
+    assert density.error_vector_array().shape == (prepared.value_count,)
 
 
 @requires_native

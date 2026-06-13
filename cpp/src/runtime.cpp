@@ -94,7 +94,7 @@ DensityIntegrateResult IntegrationRuntime::integrate_density(
     const adaptive::Options &options
 ) {
     auto integrand = DensityIntegrand(state_, mu);
-    const auto raw = adaptive::run(state_.geometry(), integrand, options);
+    auto raw = integrand.estimate_density(options);
 
     DensityIntegrateResult result;
     result.estimate = std::vector<std::complex<double>>(raw.value.values());

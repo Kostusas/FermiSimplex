@@ -2,12 +2,36 @@
 
 #include "lineartetrahedron/band_weights.h"
 
+#include <adaptivesimplex/adaptive/evaluation.h>
+
+#include <algorithm>
 #include <array>
 #include <cmath>
 #include <complex>
 #include <cstdint>
+#include <limits>
 #include <span>
+#include <stdexcept>
+#include <unordered_map>
 #include <vector>
+
+extern "C" {
+void LINEARTETRAHEDRON_BLAS_ZGEMM(
+    const char *transa,
+    const char *transb,
+    const int *m,
+    const int *n,
+    const int *k,
+    const std::complex<double> *alpha,
+    const std::complex<double> *a,
+    const int *lda,
+    const std::complex<double> *b,
+    const int *ldb,
+    const std::complex<double> *beta,
+    std::complex<double> *c,
+    const int *ldc
+);
+}
 
 namespace lineartetrahedron {
 namespace adaptive = adaptivesimplex::adaptive;
@@ -43,24 +67,6 @@ void scaled_phases_for_keys(
     }
 }
 
-struct DensityScratch {
-    adaptive::DenseValue<std::complex<double>> coarse;
-    std::vector<std::complex<double>> beta;
-    std::vector<const VertexSpectra *> entries;
-    BandWeightScratch band_weights;
-
-    DensityScratch(size_t component_count, size_t key_count, size_t vertex_count)
-        : coarse(component_count), beta(key_count) {
-        entries.reserve(vertex_count);
-    }
-};
-
-void reset_value(adaptive::DenseValue<std::complex<double>> &value) {
-    for (size_t index = 0; index < value.size(); ++index) {
-        value[index] = {};
-    }
-}
-
 void gather_vertex_spectra_into(
     const core::Geometry &geometry,
     const core::VertexCache<VertexSpectra> &cache,
@@ -75,51 +81,204 @@ void gather_vertex_spectra_into(
     }
 }
 
-void accumulate_simplex_value(
+void gather_touched_vertices(
+    const core::Geometry &geometry,
+    std::span<const core::SimplexId> simplex_ids,
+    std::vector<core::VertexId> &vertices,
+    std::unordered_map<core::VertexId, size_t> &vertex_index
+) {
+    vertices.clear();
+    vertex_index.clear();
+    vertices.reserve(simplex_ids.size() * (geometry.ndim() + 1));
+    vertex_index.reserve(vertices.capacity());
+
+    for (const auto simplex_id : simplex_ids) {
+        const auto &simplex = geometry.simplices().simplex(simplex_id);
+        for (const auto vertex_id : simplex.vertex_ids) {
+            if (vertex_index.contains(vertex_id)) {
+                continue;
+            }
+            const auto index = vertices.size();
+            vertices.push_back(vertex_id);
+            vertex_index.emplace(vertex_id, index);
+        }
+    }
+}
+
+void accumulate_vertex_band_weights(
     const IntegrationState &state,
     double mu,
     const core::Geometry &geometry,
-    core::SimplexId simplex_id,
-    DensityScratch &scratch,
+    std::span<const core::SimplexId> simplex_ids,
+    const std::unordered_map<core::VertexId, size_t> &vertex_index,
+    std::span<double> vertex_band_weights,
+    std::vector<const VertexSpectra *> &entries,
+    BandWeightScratch &band_weights
+) {
+    const size_t ndof = state.ndof();
+    for (const auto simplex_id : simplex_ids) {
+        const auto &simplex = geometry.simplices().simplex(simplex_id);
+        gather_vertex_spectra_into(geometry, state.cache(), simplex_id, entries);
+        for (size_t band = 0; band < ndof; ++band) {
+            const auto weights = band_weights_on_simplex(
+                entries,
+                band,
+                mu,
+                simplex.volume,
+                state.ndim(),
+                state.tol(),
+                band_weights
+            );
+            for (
+                size_t local_vertex = 0;
+                local_vertex < simplex.vertex_ids.size();
+                ++local_vertex
+            ) {
+                const double weight = weights.vertex_weights[local_vertex];
+                if (weight == 0.0) {
+                    continue;
+                }
+                const auto global_vertex = simplex.vertex_ids[local_vertex];
+                const auto compact_vertex = vertex_index.at(global_vertex);
+                vertex_band_weights[compact_vertex * ndof + band] += weight;
+            }
+        }
+    }
+}
+
+bool dense_density_matrix_for_vertex(
+    std::span<const std::complex<double>> eigenvectors,
+    std::span<const double> weights,
+    size_t ndof,
+    std::vector<std::complex<double>> &weighted_eigenvectors,
+    std::vector<std::complex<double>> &density_matrix
+) {
+    if (ndof > static_cast<size_t>(std::numeric_limits<int>::max())) {
+        throw std::runtime_error("DensityIntegrand: BLAS matrix dimension exceeds LP64 range");
+    }
+
+    weighted_eigenvectors.resize(ndof * ndof);
+    density_matrix.resize(ndof * ndof);
+    bool has_nonzero_weight = false;
+    for (size_t band = 0; band < ndof; ++band) {
+        const auto weight = std::complex<double>(weights[band], 0.0);
+        if (weight != std::complex<double>(0.0, 0.0)) {
+            has_nonzero_weight = true;
+        }
+        for (size_t row = 0; row < ndof; ++row) {
+            weighted_eigenvectors[band * ndof + row] =
+                weight * eigenvectors[band * ndof + row];
+        }
+    }
+    if (!has_nonzero_weight) {
+        std::fill(
+            density_matrix.begin(),
+            density_matrix.end(),
+            std::complex<double>(0.0, 0.0)
+        );
+        return false;
+    }
+
+    const char transa = 'N';
+    const char transb = 'C';
+    const int n = static_cast<int>(ndof);
+    const std::complex<double> alpha = 1.0;
+    const std::complex<double> beta = 0.0;
+    LINEARTETRAHEDRON_BLAS_ZGEMM(
+        &transa,
+        &transb,
+        &n,
+        &n,
+        &n,
+        &alpha,
+        weighted_eigenvectors.data(),
+        &n,
+        eigenvectors.data(),
+        &n,
+        &beta,
+        density_matrix.data(),
+        &n
+    );
+    return true;
+}
+
+void accumulate_simplices_by_vertex_band(
+    const IntegrationState &state,
+    double mu,
+    const core::Geometry &geometry,
+    std::span<const core::SimplexId> simplex_ids,
     adaptive::DenseValue<std::complex<double>> &result
 ) {
-    const auto &simplex = geometry.simplices().simplex(simplex_id);
-    gather_vertex_spectra_into(geometry, state.cache(), simplex_id, scratch.entries);
-    const auto &vertex_ids = simplex.vertex_ids;
+    std::vector<core::VertexId> touched_vertices;
+    std::unordered_map<core::VertexId, size_t> vertex_index;
+    gather_touched_vertices(geometry, simplex_ids, touched_vertices, vertex_index);
+    if (touched_vertices.empty()) {
+        return;
+    }
 
-    for (size_t band = 0; band < state.ndof(); ++band) {
-        const auto weights = band_weights_on_simplex(
-            scratch.entries,
-            band,
-            mu,
-            simplex.volume,
-            state.ndim(),
-            state.tol(),
-            scratch.band_weights
+    const size_t ndof = state.ndof();
+    std::vector<double> vertex_band_weights(touched_vertices.size() * ndof, 0.0);
+    std::vector<const VertexSpectra *> entries;
+    entries.reserve(state.ndim() + 1);
+    BandWeightScratch band_weights;
+    accumulate_vertex_band_weights(
+        state,
+        mu,
+        geometry,
+        simplex_ids,
+        vertex_index,
+        vertex_band_weights,
+        entries,
+        band_weights
+    );
+
+    std::vector<std::complex<double>> phases(state.key_count());
+    std::vector<std::complex<double>> weighted_eigenvectors;
+    std::vector<std::complex<double>> density_matrix;
+    for (
+        size_t compact_vertex = 0;
+        compact_vertex < touched_vertices.size();
+        ++compact_vertex
+    ) {
+        const auto vertex_id = touched_vertices[compact_vertex];
+        const auto &spectra = state.cache().get(vertex_id);
+        const auto &eigenvectors = spectra.eigenvectors;
+        const auto &reduced_vertex = geometry.vertices().dyadic_vertex(vertex_id);
+        const auto weights = std::span<const double>(
+            vertex_band_weights.data() + compact_vertex * ndof,
+            ndof
         );
-        for (size_t vertex = 0; vertex < vertex_ids.size(); ++vertex) {
-            const double weight = weights.vertex_weights[vertex];
-            if (weight == 0.0) {
+
+        scaled_phases_for_keys(
+            state.keys(),
+            state.key_count(),
+            state.ndim(),
+            reduced_vertex,
+            1.0,
+            phases
+        );
+
+        const auto eigenvector_view = std::span<const std::complex<double>>(
+            eigenvectors.data(),
+            eigenvectors.size()
+        );
+        if (!dense_density_matrix_for_vertex(
+                eigenvector_view,
+                weights,
+                ndof,
+                weighted_eigenvectors,
+                density_matrix
+            )) {
+            continue;
+        }
+        for (const auto &group : state.component_pair_groups()) {
+            const auto density = density_matrix[group.col * ndof + group.row];
+            if (density == std::complex<double>(0.0, 0.0)) {
                 continue;
             }
-            const auto &reduced_vertex = geometry.vertices().dyadic_vertex(vertex_ids[vertex]);
-            const auto &eigenvectors = scratch.entries[vertex]->eigenvectors;
-            scaled_phases_for_keys(
-                state.keys(),
-                state.key_count(),
-                state.ndim(),
-                reduced_vertex,
-                weight,
-                scratch.beta
-            );
-            for (const auto &group : state.component_pair_groups()) {
-                const std::complex<double> projector =
-                    eigenvectors[band * state.ndof() + group.row] *
-                    std::conj(eigenvectors[band * state.ndof() + group.col]);
-                for (const auto &contribution : group.contributions) {
-                    result[contribution.component_index] +=
-                        scratch.beta[contribution.key_index] * projector;
-                }
+            for (const auto &contribution : group.contributions) {
+                result[contribution.component_index] +=
+                    phases[contribution.key_index] * density;
             }
         }
     }
@@ -147,73 +306,54 @@ VertexSpectra DensityIntegrand::evaluate_vertex(
     return state_.evaluate_vertex(geometry, vertex_id);
 }
 
-adaptive::DenseValue<std::complex<double>> DensityIntegrand::simplex_value(
-    const core::Geometry &geometry,
-    core::SimplexId simplex_id
-) const {
-    auto result = zero_value();
-    DensityScratch scratch(
-        state_.density_component_count(),
-        state_.key_count(),
-        state_.ndim() + 1
+adaptive::Result<adaptive::DenseValue<std::complex<double>>>
+DensityIntegrand::estimate_density(const adaptive::Options &options) {
+    const auto preview_depth = std::max<std::uint32_t>(options.preview_depth, 1);
+    const auto active = state_.geometry().simplices().active_simplices();
+    const auto active_simplices = std::vector<core::SimplexId>(
+        active.begin(),
+        active.end()
     );
-    accumulate_simplex_value(state_, mu_, geometry, simplex_id, scratch, result);
+
+    adaptive::Result<adaptive::DenseValue<std::complex<double>>> result;
+    result.value = zero_value();
+    result.correction = zero_value();
+
+    adaptive::evaluate_vertices(
+        state_.geometry(),
+        *this,
+        std::span<const core::SimplexId>(active_simplices.data(), active_simplices.size()),
+        preview_depth,
+        result.work
+    );
+
+    auto coarse = zero_value();
+    accumulate_simplices_by_vertex_band(
+        state_,
+        mu_,
+        state_.geometry(),
+        std::span<const core::SimplexId>(active_simplices.data(), active_simplices.size()),
+        coarse
+    );
+
+    std::vector<core::SimplexId> preview_simplices;
+    for (const auto simplex_id : active_simplices) {
+        const auto preview = state_.geometry().preview_active(simplex_id, preview_depth);
+        preview_simplices.insert(preview_simplices.end(), preview.begin(), preview.end());
+    }
+    accumulate_simplices_by_vertex_band(
+        state_,
+        mu_,
+        state_.geometry(),
+        std::span<const core::SimplexId>(preview_simplices.data(), preview_simplices.size()),
+        result.value
+    );
+
+    result.correction = result.value;
+    result.correction -= coarse;
+    result.error_scalar = error_norm(result.correction);
+    result.converged = result.error_scalar <= options.target_error;
     return result;
-}
-
-std::vector<adaptive::Estimate<adaptive::DenseValue<std::complex<double>>>>
-DensityIntegrand::estimate_simplices(
-    core::Geometry &geometry,
-    std::span<const core::SimplexId> simplex_ids,
-    std::uint32_t preview_depth
-) const {
-    std::vector<std::vector<core::SimplexId>> preview_ids(simplex_ids.size());
-    for (size_t index = 0; index < simplex_ids.size(); ++index) {
-        preview_ids[index] = geometry.preview_active(simplex_ids[index], preview_depth);
-    }
-
-    std::vector<adaptive::Estimate<adaptive::DenseValue<std::complex<double>>>> estimates(
-        simplex_ids.size()
-    );
-    const auto simplex_count = static_cast<std::int64_t>(simplex_ids.size());
-    const size_t component_count = state_.density_component_count();
-    const size_t key_count = state_.key_count();
-    const size_t vertex_count = state_.ndim() + 1;
-
-#pragma omp parallel if(simplex_count > 1)
-    {
-        DensityScratch scratch(component_count, key_count, vertex_count);
-
-#pragma omp for schedule(dynamic)
-        for (std::int64_t index = 0; index < simplex_count; ++index) {
-            const auto item = static_cast<size_t>(index);
-            auto preview = zero_value();
-            reset_value(scratch.coarse);
-            accumulate_simplex_value(
-                state_,
-                mu_,
-                geometry,
-                simplex_ids[item],
-                scratch,
-                scratch.coarse
-            );
-            for (const auto preview_id : preview_ids[item]) {
-                accumulate_simplex_value(state_, mu_, geometry, preview_id, scratch, preview);
-            }
-
-            auto correction = preview;
-            correction -= scratch.coarse;
-            const double error_indicator = error_norm(correction);
-            estimates[item] =
-                adaptive::Estimate<adaptive::DenseValue<std::complex<double>>>{
-                    .value = std::move(preview),
-                    .correction = std::move(correction),
-                    .indicator = error_indicator,
-                };
-        }
-    }
-
-    return estimates;
 }
 
 }  // namespace lineartetrahedron

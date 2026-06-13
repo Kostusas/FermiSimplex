@@ -142,7 +142,7 @@ def test_fixed_mu_density_matches_dense_reference():
     )
 
     assert max_density_error(rho, reference.rho) <= 5e-3
-    assert all(np.all(np.isfinite(block)) for block in error.values())
+    assert max(float(np.max(np.abs(block))) for block in error.values()) <= 5e-3
     assert info.n_cached_nodes > 0
 
 
@@ -218,7 +218,7 @@ def test_cached_density_initial_path_reuses_charge_vertices():
 
 
 @requires_native
-def test_density_uses_single_blas_estimate_for_tight_target():
+def test_density_tight_target_refines_with_blas_estimator():
     tb = dimerized_chain()
     keys = [(0,), (1,), (-1,)]
     prepared = prepare_density_components(
@@ -240,12 +240,12 @@ def test_density_uses_single_blas_estimate_for_tight_target():
 
     density = runtime.integrate_density(
         0.0,
-        AdaptiveOptions(target_error=1e-12, max_refinements=64, preview_depth=2),
+        AdaptiveOptions(target_error=1e-3, max_refinements=64, preview_depth=2),
     )
 
-    assert density.refinements == 0
-    assert not density.converged
-    assert density.error_scalar > 1e-12
+    assert density.refinements > 0
+    assert density.converged
+    assert density.error_scalar <= 1e-3
     assert density.estimate_array().shape == (prepared.value_count,)
     assert density.error_vector_array().shape == (prepared.value_count,)
 

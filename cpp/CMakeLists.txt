@@ -35,11 +35,39 @@ foreach(_ltt_lapack_symbol IN ITEMS zheevd_ zheevd ZHEEVD)
     break()
   endif()
 endforeach()
+foreach(_ltt_blas_symbol IN ITEMS zhemv_ zhemv ZHEMV)
+  string(MAKE_C_IDENTIFIER "${_ltt_blas_symbol}" _ltt_blas_symbol_id)
+  check_cxx_source_compiles(
+    "extern \"C\" void ${_ltt_blas_symbol}(); int main() { auto fn = &${_ltt_blas_symbol}; return fn == nullptr; }"
+    "LINEARTETRAHEDRON_HAS_BLAS_${_ltt_blas_symbol_id}"
+  )
+  if(LINEARTETRAHEDRON_HAS_BLAS_${_ltt_blas_symbol_id})
+    set(LINEARTETRAHEDRON_BLAS_ZHEMV_SYMBOL "${_ltt_blas_symbol}")
+    break()
+  endif()
+endforeach()
+foreach(_ltt_blas_symbol IN ITEMS zgemv_ zgemv ZGEMV)
+  string(MAKE_C_IDENTIFIER "${_ltt_blas_symbol}" _ltt_blas_symbol_id)
+  check_cxx_source_compiles(
+    "extern \"C\" void ${_ltt_blas_symbol}(); int main() { auto fn = &${_ltt_blas_symbol}; return fn == nullptr; }"
+    "LINEARTETRAHEDRON_HAS_BLAS_${_ltt_blas_symbol_id}"
+  )
+  if(LINEARTETRAHEDRON_HAS_BLAS_${_ltt_blas_symbol_id})
+    set(LINEARTETRAHEDRON_BLAS_ZGEMV_SYMBOL "${_ltt_blas_symbol}")
+    break()
+  endif()
+endforeach()
 set(CMAKE_REQUIRED_LIBRARIES "${_ltt_check_required_libraries}")
 set(CMAKE_REQUIRED_LINK_OPTIONS "${_ltt_check_required_link_options}")
 
 if(NOT LINEARTETRAHEDRON_LAPACK_ZHEEVD_SYMBOL)
   message(FATAL_ERROR "Could not find a callable LAPACK zheevd symbol")
+endif()
+if(NOT LINEARTETRAHEDRON_BLAS_ZHEMV_SYMBOL)
+  message(FATAL_ERROR "Could not find a callable BLAS zhemv symbol")
+endif()
+if(NOT LINEARTETRAHEDRON_BLAS_ZGEMV_SYMBOL)
+  message(FATAL_ERROR "Could not find a callable BLAS zgemv symbol")
 endif()
 
 set(
@@ -48,6 +76,7 @@ set(
   src/charge.cpp
   src/density.cpp
   src/integration_workspace.cpp
+  src/linalg.cpp
   src/runtime.cpp
   src/vertex_spectra.cpp
   src/tight_binding.cpp
@@ -65,6 +94,8 @@ target_link_options(_native PRIVATE ${LAPACK_LINKER_FLAGS})
 target_compile_definitions(
   _native PRIVATE
   LINEARTETRAHEDRON_LAPACK_ZHEEVD=${LINEARTETRAHEDRON_LAPACK_ZHEEVD_SYMBOL}
+  LINEARTETRAHEDRON_BLAS_ZHEMV=${LINEARTETRAHEDRON_BLAS_ZHEMV_SYMBOL}
+  LINEARTETRAHEDRON_BLAS_ZGEMV=${LINEARTETRAHEDRON_BLAS_ZGEMV_SYMBOL}
 )
 
 install(TARGETS _native LIBRARY DESTINATION lineartetrahedron)

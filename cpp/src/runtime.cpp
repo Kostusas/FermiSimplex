@@ -9,6 +9,7 @@
 #include <algorithm>
 #include <cmath>
 #include <cstdint>
+#include <limits>
 #include <utility>
 #include <vector>
 
@@ -28,7 +29,10 @@ struct ChargeStoppingError {
     state_type<IntegralValue> contribution(
         const adaptive::SimplexEstimate<IntegralValue> &estimate
     ) const {
-        return estimate.correction;
+        auto contribution = estimate.correction;
+        contribution.weyl_indicator_error =
+            std::max(estimate.coarse.weyl_indicator_error, estimate.preview.weyl_indicator_error);
+        return contribution;
     }
     template <class IntegralValue>
     void add(state_type<IntegralValue> &state, const state_type<IntegralValue> &value) const {
@@ -39,13 +43,19 @@ struct ChargeStoppingError {
         state -= value;
     }
     template <class IntegralValue> double error(const state_type<IntegralValue> &state) const {
-        return std::abs(state.charge);
+        return std::abs(state.charge) + std::max(0.0, state.weyl_indicator_error);
     }
 };
 
 struct ChargeRefinementScore {
     template <class Context> double operator()(const Context &context) const {
-        return std::abs(context.correction.charge);
+        return std::max(
+            std::abs(context.correction.charge),
+            std::max(
+                context.coarse.weyl_indicator_error,
+                context.preview.weyl_indicator_error
+            )
+        );
     }
 };
 
@@ -105,19 +115,31 @@ IntegrationRuntime::IntegrationRuntime(
 
 ChargeIntegrateResult IntegrationRuntime::integrate_charge(
     double mu,
-    const adaptive::Options &options
+    const adaptive::Options &options,
+    bool use_weyl_bounds
 ) {
+    const auto weyl_indicator_error =
+        use_weyl_bounds
+            ? std::nextafter(options.target_error, std::numeric_limits<double>::infinity())
+            : 0.0;
     auto integrand = adaptive::simplex_integrand(
         workspace_.cache(),
         [this](std::span<const double> point) {
             return workspace_.evaluate_vertex(point);
         },
-        [this, mu](
+        [this, mu, weyl_indicator_error](
             const core::Geometry &geometry,
             core::SimplexId simplex_id,
             const core::VertexCache<VertexSpectra> &cache
         ) {
-            return charge_on_simplex(mu, workspace_, geometry, simplex_id, cache);
+            return charge_on_simplex(
+                mu,
+                workspace_,
+                geometry,
+                simplex_id,
+                cache,
+                weyl_indicator_error
+            );
         },
         adaptive::estimation_policies<ChargeStoppingError, ChargeRefinementScore>{}
     );
@@ -136,19 +158,31 @@ ChargeIntegrateResult IntegrationRuntime::integrate_charge(
 
 ChargeIntegrateResult IntegrationRuntime::evaluate_charge(
     double mu,
-    const adaptive::Options &options
+    const adaptive::Options &options,
+    bool use_weyl_bounds
 ) {
+    const auto weyl_indicator_error =
+        use_weyl_bounds
+            ? std::nextafter(options.target_error, std::numeric_limits<double>::infinity())
+            : 0.0;
     auto integrand = adaptive::simplex_integrand(
         workspace_.cache(),
         [this](std::span<const double> point) {
             return workspace_.evaluate_vertex(point);
         },
-        [this, mu](
+        [this, mu, weyl_indicator_error](
             const core::Geometry &geometry,
             core::SimplexId simplex_id,
             const core::VertexCache<VertexSpectra> &cache
         ) {
-            return charge_on_simplex(mu, workspace_, geometry, simplex_id, cache);
+            return charge_on_simplex(
+                mu,
+                workspace_,
+                geometry,
+                simplex_id,
+                cache,
+                weyl_indicator_error
+            );
         },
         adaptive::estimation_policies<ChargeStoppingError, ChargeRefinementScore>{}
     );
@@ -158,7 +192,8 @@ ChargeIntegrateResult IntegrationRuntime::evaluate_charge(
     const auto active_simplices = std::vector<core::SimplexId>(active.begin(), active.end());
 
     ChargeValue value;
-    ChargeValue correction;
+    auto stopping_global_error = ChargeStoppingError{};
+    auto stopping_state = stopping_global_error.template zero<ChargeValue>();
     std::int64_t evaluations = 0;
     for (const auto &estimate :
          adaptive::estimate_simplices(
@@ -169,18 +204,22 @@ ChargeIntegrateResult IntegrationRuntime::evaluate_charge(
              evaluations
          )) {
         value += estimate.preview;
-        correction += estimate.correction;
+        auto stopping_contribution =
+            stopping_global_error.template contribution<ChargeValue>(estimate);
+        stopping_global_error.template add<ChargeValue>(stopping_state, stopping_contribution);
     }
+    const auto charge_error =
+        stopping_global_error.template error<ChargeValue>(stopping_state);
 
     return ChargeIntegrateResult{
         .charge = value.charge,
-        .charge_error = std::abs(correction.charge),
+        .charge_error = charge_error,
         .dcharge_dmu = value.derivative,
         .work = evaluations,
         .refinements = 0,
         .n_active_simplices = n_active_simplices(),
         .n_active_vertices = n_active_vertices(),
-        .converged = std::abs(correction.charge) <= options.target_error,
+        .converged = charge_error <= options.target_error,
     };
 }
 

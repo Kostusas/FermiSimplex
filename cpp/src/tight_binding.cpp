@@ -1,5 +1,7 @@
 #include "lineartetrahedron/tight_binding.h"
 
+#include "lineartetrahedron/linalg.h"
+
 #include <cmath>
 #include <stdexcept>
 
@@ -25,6 +27,32 @@ TightBindingModel::TightBindingModel(KeyArray keys, HoppingMatrixArray matrices)
             }
         }
     }
+
+    hopping_norms_.resize(nterms_);
+    global_derivative_bounds_.assign(ndim_, 0.0);
+    hessian_bounds_.assign(ndim_ * ndim_, 0.0);
+    for (size_t term = 0; term < nterms_; ++term) {
+        const auto term_matrix = std::span<const std::complex<double>>(
+            matrices_.data() + term * ndof_ * ndof_,
+            ndof_ * ndof_
+        );
+        const auto hopping_norm = matrix_spectral_norm_lanczos(term_matrix, ndof_);
+        hopping_norms_[term] = hopping_norm;
+        for (size_t axis = 0; axis < ndim_; ++axis) {
+            const auto axis_key = std::abs(static_cast<double>(keys_[term * ndim_ + axis]));
+            global_derivative_bounds_[axis] += axis_key * hopping_norm;
+            for (size_t coordinate = 0; coordinate < ndim_; ++coordinate) {
+                const auto coordinate_key =
+                    std::abs(static_cast<double>(keys_[term * ndim_ + coordinate]));
+                hessian_bounds_[axis * ndim_ + coordinate] +=
+                    axis_key * coordinate_key * hopping_norm;
+            }
+        }
+    }
+    for (const auto bound : global_derivative_bounds_) {
+        reduced_lipschitz_bound_ += bound * bound;
+    }
+    reduced_lipschitz_bound_ = std::sqrt(reduced_lipschitz_bound_);
 }
 
 nb::ndarray<nb::numpy, std::complex<double>> TightBindingModel::evaluate_point(
@@ -61,6 +89,55 @@ std::vector<std::complex<double>> TightBindingModel::evaluate_point_raw(
         }
     }
     return h;
+}
+
+std::vector<std::complex<double>> TightBindingModel::evaluate_derivative_raw(
+    const double *point,
+    size_t axis
+) const {
+    if (axis >= ndim_) {
+        throw std::runtime_error("TightBindingModel: derivative axis out of bounds");
+    }
+    std::vector<std::complex<double>> derivative(
+        ndof_ * ndof_,
+        std::complex<double>(0.0, 0.0)
+    );
+    for (size_t term = 0; term < nterms_; ++term) {
+        double phase_arg = 0.0;
+        for (size_t coordinate = 0; coordinate < ndim_; ++coordinate) {
+            phase_arg +=
+                point[coordinate] * static_cast<double>(keys_[term * ndim_ + coordinate]);
+        }
+        const auto key = static_cast<double>(keys_[term * ndim_ + axis]);
+        if (key == 0.0) {
+            continue;
+        }
+        const auto phase =
+            std::complex<double>(0.0, -key) *
+            std::exp(std::complex<double>(0.0, -phase_arg));
+        for (size_t row = 0; row < ndof_; ++row) {
+            for (size_t col = 0; col < ndof_; ++col) {
+                derivative[col * ndof_ + row] +=
+                    phase * matrices_[(term * ndof_ + col) * ndof_ + row];
+            }
+        }
+    }
+    return derivative;
+}
+
+double TightBindingModel::derivative_spectral_norm_raw(const double *point, size_t axis) const {
+    const auto derivative = evaluate_derivative_raw(point, axis);
+    return hermitian_spectral_norm_lanczos(
+        std::span<const std::complex<double>>(derivative.data(), derivative.size()),
+        ndof_
+    );
+}
+
+double TightBindingModel::derivative_spectral_norm(PointArray point, size_t axis) const {
+    if (point.shape(0) != ndim_) {
+        throw std::runtime_error("TightBindingModel: point dimension mismatch");
+    }
+    return derivative_spectral_norm_raw(point.data(), axis);
 }
 
 }  // namespace lineartetrahedron

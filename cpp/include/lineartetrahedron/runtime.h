@@ -33,11 +33,13 @@ public:
 
     ChargeIntegrateResult integrate_charge(
         double mu,
-        const adaptivesimplex::adaptive::Options &options
+        const adaptivesimplex::adaptive::Options &options,
+        bool use_weyl_bounds = false
     );
     ChargeIntegrateResult evaluate_charge(
         double mu,
-        const adaptivesimplex::adaptive::Options &options
+        const adaptivesimplex::adaptive::Options &options,
+        bool use_weyl_bounds = false
     );
     DensityIntegrateResult integrate_density(
         double mu,

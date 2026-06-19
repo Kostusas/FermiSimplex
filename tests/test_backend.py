@@ -29,6 +29,25 @@ def _cosine_band(ndim: int) -> dict[tuple[int, ...], np.ndarray]:
     return tb
 
 
+def _aliased_pocket_band() -> dict[tuple[int, ...], np.ndarray]:
+    return {
+        (0,): np.array([[0.5]], dtype=complex),
+        (8,): np.array([[0.5]], dtype=complex),
+        (-8,): np.array([[0.5]], dtype=complex),
+    }
+
+
+def _derivative_matrix(
+    tb: dict[tuple[int, ...], np.ndarray],
+    point: np.ndarray,
+    axis: int,
+) -> np.ndarray:
+    return sum(
+        (-1j * key[axis]) * matrix * np.exp(-1j * np.dot(point, np.asarray(key, dtype=float)))
+        for key, matrix in tb.items()
+    )
+
+
 @requires_native
 def test_compiled_tight_binding_model_matches_python_fourier_evaluation():
     tb = qiwuzhang()
@@ -39,6 +58,50 @@ def test_compiled_tight_binding_model_matches_python_fourier_evaluation():
     assert compiled_model.ndof == 2
     assert compiled_model.nterms == len(tb)
     assert np.allclose(compiled_model.evaluate_point(point), tb_k_matrix(tb, point))
+    assert compiled_model.reduced_lipschitz_bound > 0.0
+
+
+@requires_native
+def test_lanczos_spectral_norms_match_numpy_reference():
+    tb = dimerized_chain()
+    compiled_model = _tb_to_tight_binding_model(tb)
+    point = np.array([0.37], dtype=float)
+
+    expected_hopping_norms = [
+        np.linalg.norm(matrix, ord=2)
+        for matrix in tb.values()
+    ]
+    assert np.allclose(np.asarray(compiled_model.hopping_spectral_norms), expected_hopping_norms)
+
+    derivative = _derivative_matrix(tb, point, axis=0)
+    assert compiled_model.derivative_spectral_norm(point, 0) == pytest.approx(
+        np.linalg.norm(derivative, ord=2)
+    )
+
+
+@requires_native
+def test_hessian_local_bound_can_certify_global_uncertainty_safe():
+    tb = {
+        (0,): np.array([[2.0]], dtype=complex),
+        (1,): np.array([[0.5j]], dtype=complex),
+        (-1,): np.array([[-0.5j]], dtype=complex),
+    }
+    compiled_model = _tb_to_tight_binding_model(tb)
+    center = np.array([0.5 * np.pi], dtype=float)
+    rho = 0.125
+    mu = 2.85
+    vertex_values = [2.0 + np.sin(center[0] - rho), 2.0 + np.sin(center[0] + rho)]
+    global_derivative_bounds = np.asarray(compiled_model.global_derivative_bounds)
+    hessian_bounds = np.asarray(compiled_model.hessian_bounds).reshape((1, 1))
+    global_delta = 2.0 * float(global_derivative_bounds[0]) * rho
+    local_axis_bound = (
+        compiled_model.derivative_spectral_norm(center, 0)
+        + float(hessian_bounds[0, 0]) * rho
+    )
+    local_delta = 2.0 * local_axis_bound * rho
+
+    assert min(vertex_values) - global_delta <= mu
+    assert min(vertex_values) - local_delta > mu
 
 
 @requires_native
@@ -123,6 +186,31 @@ def test_charge_derivative_is_finite_and_nonnegative_for_higher_dimensions(ndim)
 
     assert np.isfinite(result.dcharge_dmu)
     assert result.dcharge_dmu >= 0.0
+
+
+@requires_native
+def test_weyl_bounds_mark_simplex_when_vertices_miss_pocket():
+    runtime = Runtime(_aliased_pocket_band(), keys=[(0,)])
+    options = AdaptiveOptions(target_error=1e-3, max_refinements=0, preview_depth=1)
+
+    disabled = runtime.evaluate_charge(0.0, options)
+    enabled = runtime.evaluate_charge(0.0, options, use_weyl_bounds=True)
+
+    assert disabled.charge == pytest.approx(0.0)
+    assert disabled.charge_error == pytest.approx(0.0)
+    assert disabled.converged
+    assert enabled.charge == pytest.approx(0.0)
+    assert enabled.charge_error > options.target_error
+    assert not enabled.converged
+
+
+@requires_native
+def test_weyl_bounds_participate_in_charge_stopping_error():
+    runtime = Runtime(_aliased_pocket_band(), keys=[(0,)])
+    options = AdaptiveOptions(target_error=1e-3, max_refinements=0, preview_depth=1)
+
+    with pytest.raises(RuntimeError, match="did not converge"):
+        runtime.integrate_charge(0.0, options, use_weyl_bounds=True)
 
 
 @requires_native

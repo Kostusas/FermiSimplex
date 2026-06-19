@@ -257,11 +257,11 @@ class Runtime:
     def n_active_vertices(self) -> int:
         return int(self._native.n_active_vertices)
 
-    def integrate_charge(self, mu: float, options):
-        return self._native.integrate_charge(float(mu), options)
+    def integrate_charge(self, mu: float, options, use_weyl_bounds: bool = False):
+        return self._native.integrate_charge(float(mu), options, bool(use_weyl_bounds))
 
-    def evaluate_charge(self, mu: float, options):
-        return self._native.evaluate_charge(float(mu), options)
+    def evaluate_charge(self, mu: float, options, use_weyl_bounds: bool = False):
+        return self._native.evaluate_charge(float(mu), options, bool(use_weyl_bounds))
 
     def integrate_density(self, mu: float, options):
         result = self._native.integrate_density(float(mu), options)

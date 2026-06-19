@@ -24,6 +24,15 @@ public:
     size_t ndim() const noexcept { return ndim_; }
     size_t ndof() const noexcept { return ndof_; }
     double tol() const noexcept { return tol_; }
+    double reduced_lipschitz_bound() const noexcept {
+        return model_->reduced_lipschitz_bound();
+    }
+    std::span<const double> global_derivative_bounds() const noexcept {
+        return model_->global_derivative_bounds();
+    }
+    double hessian_bound(size_t axis, size_t coordinate) const noexcept {
+        return model_->hessian_bound(axis, coordinate);
+    }
     size_t n_cached_nodes() const noexcept { return cache_.size(); }
     std::int64_t n_active_simplices() const noexcept {
         return static_cast<std::int64_t>(geometry_.simplices().n_active());
@@ -37,6 +46,7 @@ public:
     adaptivesimplex::core::VertexCache<VertexSpectra> &cache() noexcept { return cache_; }
 
     VertexSpectra evaluate_vertex(std::span<const double> reduced_point) const;
+    double derivative_spectral_norm(std::span<const double> physical_point, size_t axis) const;
 
 private:
     std::shared_ptr<TightBindingModel> model_;

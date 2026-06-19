@@ -41,4 +41,11 @@ VertexSpectra IntegrationWorkspace::evaluate_vertex(std::span<const double> redu
     return evaluator_.evaluate_reduced_point(reduced_point);
 }
 
+double IntegrationWorkspace::derivative_spectral_norm(
+    std::span<const double> physical_point,
+    size_t axis
+) const {
+    return model_->derivative_spectral_norm_raw(physical_point.data(), axis);
+}
+
 }  // namespace lineartetrahedron

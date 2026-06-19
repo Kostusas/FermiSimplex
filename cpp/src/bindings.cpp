@@ -1,6 +1,7 @@
 #include <nanobind/nanobind.h>
 #include <nanobind/ndarray.h>
 #include <nanobind/stl/shared_ptr.h>
+#include <nanobind/stl/vector.h>
 
 #include "lineartetrahedron/runtime.h"
 
@@ -22,7 +23,35 @@ NB_MODULE(_native, m) {
         .def_prop_ro("ndim", &TightBindingModel::ndim)
         .def_prop_ro("ndof", &TightBindingModel::ndof)
         .def_prop_ro("nterms", &TightBindingModel::nterms)
-        .def("evaluate_point", &TightBindingModel::evaluate_point, "point"_a);
+        .def_prop_ro("reduced_lipschitz_bound", &TightBindingModel::reduced_lipschitz_bound)
+        .def_prop_ro(
+            "hopping_spectral_norms",
+            [](const TightBindingModel &self) {
+                const auto norms = self.hopping_spectral_norms();
+                return std::vector<double>(norms.begin(), norms.end());
+            }
+        )
+        .def_prop_ro(
+            "global_derivative_bounds",
+            [](const TightBindingModel &self) {
+                const auto bounds = self.global_derivative_bounds();
+                return std::vector<double>(bounds.begin(), bounds.end());
+            }
+        )
+        .def_prop_ro(
+            "hessian_bounds",
+            [](const TightBindingModel &self) {
+                const auto bounds = self.hessian_bounds();
+                return std::vector<double>(bounds.begin(), bounds.end());
+            }
+        )
+        .def("evaluate_point", &TightBindingModel::evaluate_point, "point"_a)
+        .def(
+            "derivative_spectral_norm",
+            &TightBindingModel::derivative_spectral_norm,
+            "point"_a,
+            "axis"_a
+        );
 
     nb::class_<ChargeIntegrateResult>(m, "ChargeIntegrateResult")
         .def_prop_ro("charge", [](const ChargeIntegrateResult &self) { return self.charge; })
@@ -110,13 +139,15 @@ NB_MODULE(_native, m) {
             "integrate_charge",
             &IntegrationRuntime::integrate_charge,
             "mu"_a,
-            "options"_a
+            "options"_a,
+            "use_weyl_bounds"_a = false
         )
         .def(
             "evaluate_charge",
             &IntegrationRuntime::evaluate_charge,
             "mu"_a,
-            "options"_a
+            "options"_a,
+            "use_weyl_bounds"_a = false
         )
         .def(
             "integrate_density",

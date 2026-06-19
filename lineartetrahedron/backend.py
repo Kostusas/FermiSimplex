@@ -61,7 +61,7 @@ def _validate_dense_tb(tb: _tb_type) -> None:
             raise ValueError("All tight-binding matrices must have the same shape")
 
 
-def tb_to_tight_binding_model(tb: _tb_type):
+def _tb_to_tight_binding_model(tb: _tb_type):
     _require_native_extension()
     _validate_dense_tb(tb)
     keys = np.asarray([tuple(key) for key in tb.keys()], dtype=np.int64, order="C")
@@ -69,27 +69,28 @@ def tb_to_tight_binding_model(tb: _tb_type):
     return TightBindingModel(keys, matrices)
 
 
-def build_runtime(
+def _build_native_runtime(
     tb: _tb_type,
     *,
     keys: list[tuple[int, ...]],
     component_rows: np.ndarray,
     component_cols: np.ndarray,
     component_key_indices: np.ndarray,
+    tol: float,
 ):
     _require_native_extension()
-    model = tb_to_tight_binding_model(tb)
+    model = _tb_to_tight_binding_model(tb)
     return IntegrationRuntime(
         model,
         np.ascontiguousarray(np.asarray(keys, dtype=np.int64)),
         np.ascontiguousarray(np.asarray(component_rows, dtype=np.int64)),
         np.ascontiguousarray(np.asarray(component_cols, dtype=np.int64)),
         np.ascontiguousarray(np.asarray(component_key_indices, dtype=np.int64)),
-        float(_GEOM_TOL),
+        float(tol),
     )
 
 
-def full_density_components(
+def _full_density_components(
     keys: list[tuple[int, ...]],
     *,
     size: int,
@@ -106,7 +107,7 @@ def full_density_components(
     return components
 
 
-class PreparedDensityComponents:
+class _PreparedDensityComponents:
     def __init__(
         self,
         *,
@@ -154,14 +155,11 @@ class PreparedDensityComponents:
         return rho, rho_error
 
 
-def prepare_density_components(
+def _prepare_density_components(
     h: _tb_type,
     keys: list[tuple[int, ...]],
     density_components,
-) -> PreparedDensityComponents:
-    if density_components is None:
-        raise ValueError("density_components must be provided")
-
+) -> _PreparedDensityComponents:
     size = int(next(iter(h.values())).shape[0])
     normalized_keys = [tuple(int(part) for part in key) for key in keys]
     if not normalized_keys:
@@ -171,6 +169,8 @@ def prepare_density_components(
     ndim = len(normalized_keys[0])
     if any(len(key) != ndim for key in normalized_keys):
         raise ValueError("All keys must have the same dimension")
+    if density_components is None:
+        density_components = _full_density_components(normalized_keys, size=size)
     key_index_by_key = {key: index for index, key in enumerate(normalized_keys)}
 
     rows: list[int] = []
@@ -198,32 +198,13 @@ def prepare_density_components(
         cols.append(col)
         key_indices.append(key_index_by_key[key])
 
-    return PreparedDensityComponents(
+    return _PreparedDensityComponents(
         size=size,
         keys=normalized_keys,
         rows=np.asarray(rows, dtype=np.int64),
         cols=np.asarray(cols, dtype=np.int64),
         key_indices=np.asarray(key_indices, dtype=np.int64),
     )
-
-
-class ChargeEvaluator:
-    def __init__(self, runtime, options) -> None:
-        self.runtime = runtime
-        self.options = options
-        self.n_active_simplices = int(runtime.n_active_simplices)
-        self.last_result = None
-
-    def __call__(self, mu: float) -> tuple[float, float, float]:
-        result = self.runtime.evaluate_charge(float(mu), self.options)
-        if int(result.n_active_simplices) != self.n_active_simplices:
-            raise RuntimeError("ChargeEvaluator active simplex count changed")
-        self.last_result = result
-        return (
-            float(result.charge),
-            float(result.charge_error),
-            float(result.dcharge_dmu),
-        )
 
 
 def _density_info(result, runtime) -> DensityIntegrationInfo:
@@ -236,33 +217,76 @@ def _density_info(result, runtime) -> DensityIntegrationInfo:
     )
 
 
+class Runtime:
+    def __init__(
+        self,
+        h: _tb_type,
+        *,
+        keys: list[tuple[int, ...]],
+        density_components=None,
+        tol: float = _GEOM_TOL,
+    ) -> None:
+        _validate_dense_tb(h)
+        self._prepared = _prepare_density_components(h, keys, density_components)
+        self._native = _build_native_runtime(
+            h,
+            keys=list(self._prepared.keys),
+            component_rows=self._prepared.rows,
+            component_cols=self._prepared.cols,
+            component_key_indices=self._prepared.key_indices,
+            tol=tol,
+        )
+
+    @property
+    def ndim(self) -> int:
+        return int(self._native.ndim)
+
+    @property
+    def ndof(self) -> int:
+        return int(self._native.ndof)
+
+    @property
+    def n_cached_nodes(self) -> int:
+        return int(self._native.n_cached_nodes)
+
+    @property
+    def n_active_simplices(self) -> int:
+        return int(self._native.n_active_simplices)
+
+    @property
+    def n_active_vertices(self) -> int:
+        return int(self._native.n_active_vertices)
+
+    def integrate_charge(self, mu: float, options):
+        return self._native.integrate_charge(float(mu), options)
+
+    def evaluate_charge(self, mu: float, options):
+        return self._native.evaluate_charge(float(mu), options)
+
+    def integrate_density(self, mu: float, options):
+        result = self._native.integrate_density(float(mu), options)
+        rho, error = self._prepared.values_and_errors_to_tb(
+            result.estimate_array(),
+            result.error_vector_array(),
+        )
+        return rho, error, _density_info(result, self._native)
+
+
 def density_matrix_at_mu_zero_temp(
     h: _tb_type,
     *,
     mu: float,
     keys: list[tuple[int, ...]],
-    density_components,
     density_atol: float,
+    density_components=None,
     max_subdivisions: int | None = None,
     adaptive_options=None,
 ):
-    prepared = prepare_density_components(h, keys, density_components)
-    runtime = build_runtime(
-        h,
-        keys=list(prepared.keys),
-        component_rows=prepared.rows,
-        component_cols=prepared.cols,
-        component_key_indices=prepared.key_indices,
-    )
+    runtime = Runtime(h, keys=keys, density_components=density_components)
     options = adaptive_options
     if options is None:
         options = AdaptiveOptions(
             target_error=float(density_atol),
             max_refinements=-1 if max_subdivisions is None else int(max_subdivisions),
         )
-    result = runtime.integrate_density(float(mu), options)
-    rho, error = prepared.values_and_errors_to_tb(
-        result.estimate_array(),
-        result.error_vector_array(),
-    )
-    return rho, error, _density_info(result, runtime)
+    return runtime.integrate_density(float(mu), options)

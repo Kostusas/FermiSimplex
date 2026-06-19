@@ -1,20 +1,21 @@
 find_package(Python COMPONENTS Interpreter Development.Module REQUIRED)
 find_package(nanobind CONFIG REQUIRED)
 find_package(LAPACK REQUIRED)
-if(APPLE AND DEFINED ENV{CONDA_PREFIX})
-  set(_lineartetrahedron_conda_libomp "$ENV{CONDA_PREFIX}/lib/libomp.dylib")
-  if(EXISTS "${_lineartetrahedron_conda_libomp}")
-    set(OpenMP_CXX_LIB_NAMES "omp" CACHE STRING "OpenMP CXX library names" FORCE)
-    set(OpenMP_omp_LIBRARY "${_lineartetrahedron_conda_libomp}" CACHE FILEPATH "OpenMP libomp path" FORCE)
-  endif()
-endif()
-find_package(OpenMP REQUIRED)
 find_package(adaptivesimplex CONFIG QUIET)
 if(NOT adaptivesimplex_FOUND)
-  set(BUILD_TESTING OFF CACHE BOOL "" FORCE)
+  include(FetchContent)
+  set(ADAPTIVESIMPLEX_BUILD_TESTING OFF CACHE BOOL "" FORCE)
   set(ADAPTIVESIMPLEX_BUILD_EXAMPLES OFF CACHE BOOL "" FORCE)
-  set(ADAPTIVESIMPLEX_INSTALL OFF CACHE BOOL "" FORCE)
-  add_subdirectory("${PROJECT_SOURCE_DIR}/vendor/adaptivesimplex" adaptivesimplex)
+  set(ADAPTIVESIMPLEX_BUILD_BENCHMARKS OFF CACHE BOOL "" FORCE)
+  set(ADAPTIVESIMPLEX_BUILD_DOC_TOOLS OFF CACHE BOOL "" FORCE)
+  set(ADAPTIVESIMPLEX_ENABLE_OPENMP OFF CACHE BOOL "" FORCE)
+  FetchContent_Declare(
+    adaptivesimplex
+    GIT_REPOSITORY https://gitlab.kwant-project.org/qt/adaptivesimplex.git
+    GIT_TAG d1e898190300f051e344f549d68534c059fd486b
+    EXCLUDE_FROM_ALL
+  )
+  FetchContent_MakeAvailable(adaptivesimplex)
 endif()
 
 include(CheckCXXSourceCompiles)
@@ -34,39 +35,22 @@ foreach(_ltt_lapack_symbol IN ITEMS zheevd_ zheevd ZHEEVD)
     break()
   endif()
 endforeach()
-foreach(_ltt_blas_symbol IN ITEMS zgemm_ zgemm ZGEMM)
-  string(MAKE_C_IDENTIFIER "${_ltt_blas_symbol}" _ltt_blas_symbol_id)
-  check_cxx_source_compiles(
-    "extern \"C\" void ${_ltt_blas_symbol}(); int main() { auto fn = &${_ltt_blas_symbol}; return fn == nullptr; }"
-    "LINEARTETRAHEDRON_HAS_BLAS_${_ltt_blas_symbol_id}"
-  )
-  if(LINEARTETRAHEDRON_HAS_BLAS_${_ltt_blas_symbol_id})
-    set(LINEARTETRAHEDRON_BLAS_ZGEMM_SYMBOL "${_ltt_blas_symbol}")
-    break()
-  endif()
-endforeach()
 set(CMAKE_REQUIRED_LIBRARIES "${_ltt_check_required_libraries}")
 set(CMAKE_REQUIRED_LINK_OPTIONS "${_ltt_check_required_link_options}")
 
 if(NOT LINEARTETRAHEDRON_LAPACK_ZHEEVD_SYMBOL)
   message(FATAL_ERROR "Could not find a callable LAPACK zheevd symbol")
 endif()
-if(NOT LINEARTETRAHEDRON_BLAS_ZGEMM_SYMBOL)
-  message(FATAL_ERROR "Could not find a callable BLAS zgemm symbol")
-endif()
 
 set(
   _lineartetrahedron_sources
-  src/band_weights.cpp
   src/bindings.cpp
-  src/charge_integrand.cpp
-  src/density_integrand.cpp
-  src/integration_state.cpp
+  src/charge.cpp
+  src/density.cpp
+  src/integration_workspace.cpp
   src/runtime.cpp
-  src/simplex_rules.cpp
   src/vertex_spectra.cpp
   src/tight_binding.cpp
-  src/types.cpp
 )
 
 nanobind_add_module(
@@ -76,12 +60,11 @@ nanobind_add_module(
 )
 target_compile_features(_native PRIVATE cxx_std_20)
 target_include_directories(_native PRIVATE "${CMAKE_CURRENT_SOURCE_DIR}/include")
-target_link_libraries(_native PRIVATE adaptivesimplex::adaptive OpenMP::OpenMP_CXX ${LAPACK_LIBRARIES})
+target_link_libraries(_native PRIVATE adaptivesimplex::adaptive adaptivesimplex::cut ${LAPACK_LIBRARIES})
 target_link_options(_native PRIVATE ${LAPACK_LINKER_FLAGS})
 target_compile_definitions(
   _native PRIVATE
   LINEARTETRAHEDRON_LAPACK_ZHEEVD=${LINEARTETRAHEDRON_LAPACK_ZHEEVD_SYMBOL}
-  LINEARTETRAHEDRON_BLAS_ZGEMM=${LINEARTETRAHEDRON_BLAS_ZGEMM_SYMBOL}
 )
 
 install(TARGETS _native LIBRARY DESTINATION lineartetrahedron)

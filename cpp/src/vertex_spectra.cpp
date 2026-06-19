@@ -122,12 +122,12 @@ VertexSpectra VertexSpectraEvaluator::evaluate(
     adaptivesimplex::core::VertexId vertex_id
 ) {
     const auto reduced_point = geometry.vertices().dyadic_vertex(vertex_id).to_point();
-    return diagonalize_reduced_point(reduced_point);
+    return evaluate_reduced_point(std::span<const double>(reduced_point.data(), reduced_point.size()));
 }
 
-VertexSpectra VertexSpectraEvaluator::diagonalize_reduced_point(
-    const std::vector<double> &reduced_point
-) {
+VertexSpectra VertexSpectraEvaluator::evaluate_reduced_point(
+    std::span<const double> reduced_point
+) const {
     std::vector<double> k_point(model_->ndim());
     for (size_t axis = 0; axis < model_->ndim(); ++axis) {
         k_point[axis] = 2.0 * kPi * reduced_point[axis] - kPi;

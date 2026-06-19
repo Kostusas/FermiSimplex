@@ -6,6 +6,7 @@
 
 #include <complex>
 #include <memory>
+#include <span>
 #include <vector>
 
 namespace lineartetrahedron {
@@ -26,10 +27,9 @@ public:
         const adaptivesimplex::core::Geometry &geometry,
         adaptivesimplex::core::VertexId vertex_id
     );
+    VertexSpectra evaluate_reduced_point(std::span<const double> reduced_point) const;
 
 private:
-    VertexSpectra diagonalize_reduced_point(const std::vector<double> &reduced_point);
-
     std::shared_ptr<TightBindingModel> model_;
 };
 

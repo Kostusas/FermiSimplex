@@ -1,5 +1,6 @@
 #include "lineartetrahedron/fermi_surface.h"
 
+#include "lineartetrahedron/signed_inertia.h"
 #include "lineartetrahedron/vertex_spectra.h"
 #include "lineartetrahedron/weyl.h"
 
@@ -24,6 +25,7 @@ namespace core = adaptivesimplex::core;
 namespace {
 
 using EigenvalueCache = core::VertexCache<std::vector<double>>;
+using SpectraCache = core::VertexCache<VertexSpectra>;
 using Clock = std::chrono::steady_clock;
 
 thread_local FermiSurfaceStats fermi_surface_stats_;
@@ -43,10 +45,11 @@ std::vector<core::SimplexId> active_simplices(const core::Geometry &geometry) {
     return std::vector<core::SimplexId>(active.begin(), active.end());
 }
 
+template <class Cache, class Evaluator>
 void evaluate_missing_vertices(
     core::Geometry &geometry,
-    EigenvalueCache &cache,
-    const VertexEigenvaluesEvaluator &evaluator,
+    Cache &cache,
+    const Evaluator &evaluator,
     const std::vector<core::SimplexId> &simplex_ids
 ) {
     const auto start = Clock::now();
@@ -77,22 +80,57 @@ double eigenvalue_at(
     return cache.get(vertex_id)[band];
 }
 
+double eigenvalue_at(
+    const SpectraCache &cache,
+    core::VertexId vertex_id,
+    size_t band
+) {
+    return cache.get(vertex_id).eigenvalues[band];
+}
+
 struct MarkResult {
     std::vector<core::SimplexId> marked;
+    std::int64_t safe = 0;
+    std::int64_t new_safe = 0;
+    std::int64_t cut = 0;
+    std::int64_t feature_size = 0;
     std::int64_t unresolved = 0;
 };
 
-using WeylDecisionCache = std::map<core::SimplexId, weyl::WeylSimplexDecision>;
+enum class TerminalKind {
+    Safe,
+    Cut,
+    FeatureSize,
+    Unresolved,
+};
 
-MarkResult mark_simplices(
+using DecisionCache = std::map<core::SimplexId, TerminalKind>;
+
+void add_terminal(MarkResult &result, TerminalKind terminal) {
+    switch (terminal) {
+    case TerminalKind::Safe:
+        ++result.safe;
+        break;
+    case TerminalKind::Cut:
+        ++result.cut;
+        break;
+    case TerminalKind::FeatureSize:
+        ++result.feature_size;
+        break;
+    case TerminalKind::Unresolved:
+        ++result.unresolved;
+        break;
+    }
+}
+
+MarkResult mark_simplices_without_marker(
     const TightBindingModel &model,
     const core::Geometry &geometry,
     const EigenvalueCache &cache,
     double mu,
     double min_feature_size,
-    bool use_weyl_bounds,
     double tol,
-    WeylDecisionCache &decision_cache
+    DecisionCache &decision_cache
 ) {
     MarkResult result;
     ++fermi_surface_stats_.marking_passes;
@@ -101,37 +139,100 @@ MarkResult mark_simplices(
         if (const auto cached = decision_cache.find(simplex_id);
             cached != decision_cache.end()) {
             ++fermi_surface_stats_.cached_decisions;
-            if (cached->second.unresolved) {
-                ++result.unresolved;
-            }
+            add_terminal(result, cached->second);
             continue;
         }
 
         const auto edge_length = weyl::max_physical_edge_length(geometry, simplex_id);
         const auto refinable = edge_length > min_feature_size;
         ++fermi_surface_stats_.classified_simplices;
-        const auto decision = weyl::classify_simplex_for_refinement(
-            mu,
-            model,
-            geometry,
-            simplex_id,
-            refinable,
-            use_weyl_bounds,
-            tol,
-            [&](core::VertexId vertex_id, size_t band_index) {
-                return eigenvalue_at(cache, vertex_id, band_index);
+        auto visible_cut = false;
+        for (size_t band = 0; band < model.ndof(); ++band) {
+            const auto range = weyl::band_vertex_range(
+                mu,
+                geometry,
+                simplex_id,
+                band,
+                tol,
+                [&](core::VertexId vertex_id, size_t band_index) {
+                    return eigenvalue_at(cache, vertex_id, band_index);
+                }
+            );
+            if (range.on_level || weyl::has_straddling_vertices(range)) {
+                visible_cut = true;
+                break;
             }
-        );
+        }
 
-        if (decision.should_refine) {
+        if (visible_cut && refinable) {
             result.marked.push_back(simplex_id);
             ++fermi_surface_stats_.marked_simplices;
         } else {
-            decision_cache.emplace(simplex_id, decision);
+            const auto terminal = visible_cut ? TerminalKind::Cut : TerminalKind::FeatureSize;
+            decision_cache.emplace(simplex_id, terminal);
             ++fermi_surface_stats_.terminal_cached_simplices;
-            if (decision.unresolved) {
-                ++result.unresolved;
+            add_terminal(result, terminal);
+        }
+    }
+    return result;
+}
+
+MarkResult mark_simplices_with_signed_inertia(
+    const core::Geometry &geometry,
+    const SpectraCache &cache,
+    double mu,
+    double min_feature_size,
+    double tol,
+    DecisionCache &decision_cache,
+    signed_inertia::SignedInertiaOverlapCache &overlap_cache
+) {
+    MarkResult result;
+    ++fermi_surface_stats_.marking_passes;
+    for (const auto simplex_id : geometry.simplices().active_simplices()) {
+        ++fermi_surface_stats_.active_simplex_visits;
+        if (const auto cached = decision_cache.find(simplex_id);
+            cached != decision_cache.end()) {
+            ++fermi_surface_stats_.cached_decisions;
+            add_terminal(result, cached->second);
+            continue;
+        }
+
+        const auto edge_length = weyl::max_physical_edge_length(geometry, simplex_id);
+        const auto refinable = edge_length > min_feature_size;
+        ++fermi_surface_stats_.classified_simplices;
+        const auto decision = signed_inertia::classify_linear_simplex(
+            mu,
+            geometry,
+            simplex_id,
+            cache,
+            overlap_cache,
+            tol
+        );
+
+        if (decision.visible_cut) {
+            if (refinable) {
+                result.marked.push_back(simplex_id);
+                ++fermi_surface_stats_.marked_simplices;
+            } else {
+                decision_cache.emplace(simplex_id, TerminalKind::Cut);
+                ++fermi_surface_stats_.terminal_cached_simplices;
+                add_terminal(result, TerminalKind::Cut);
             }
+            continue;
+        }
+
+        if (decision.certified_safe) {
+            decision_cache.emplace(simplex_id, TerminalKind::Safe);
+            ++fermi_surface_stats_.terminal_cached_simplices;
+            ++result.new_safe;
+            add_terminal(result, TerminalKind::Safe);
+        } else if (refinable) {
+            result.marked.push_back(simplex_id);
+            ++fermi_surface_stats_.marked_simplices;
+        } else {
+            decision_cache.emplace(simplex_id, TerminalKind::FeatureSize);
+            ++fermi_surface_stats_.terminal_cached_simplices;
+            add_terminal(result, TerminalKind::FeatureSize);
         }
     }
     return result;
@@ -176,9 +277,10 @@ void append_product_cells(
     }
 }
 
+template <class Cache>
 void extract_band_surface(
     const core::Geometry &geometry,
-    const EigenvalueCache &cache,
+    const Cache &cache,
     core::SimplexId simplex_id,
     size_t band,
     double mu,
@@ -193,7 +295,7 @@ void extract_band_surface(
 
     for (size_t local_vertex = 0; local_vertex < simplex.vertex_ids.size(); ++local_vertex) {
         const auto vertex_id = simplex.vertex_ids[local_vertex];
-        const auto signed_value = cache.get(vertex_id)[band] - mu;
+        const auto signed_value = eigenvalue_at(cache, vertex_id, band) - mu;
         signed_values[local_vertex] = signed_value;
         physical_points[local_vertex] = physical_vertex_point(geometry, vertex_id);
         if (signed_value < -tol) {
@@ -228,10 +330,11 @@ void extract_band_surface(
     append_product_cells(negative.size(), positive.size(), crossing_indices, result);
 }
 
+template <class Cache>
 void extract_surface(
     const TightBindingModel &model,
     const core::Geometry &geometry,
-    const EigenvalueCache &cache,
+    const Cache &cache,
     double mu,
     double tol,
     FermiSurfaceResult &result
@@ -327,61 +430,127 @@ FermiSurfaceResult fermi_surface(
         throw std::runtime_error("fermi_surface: min_feature_size must be positive");
     }
 
-    auto geometry = make_fermi_geometry(model->ndim());
-    auto cache = EigenvalueCache{};
-    auto evaluator = VertexEigenvaluesEvaluator(model);
     FermiSurfaceResult result;
     result.ndim = model->ndim();
     result.min_feature_size = min_feature_size;
 
-    auto decision_cache = WeylDecisionCache{};
+    auto geometry = make_fermi_geometry(model->ndim());
+    auto decision_cache = DecisionCache{};
     auto remaining = max_refinements;
-    while (true) {
-        if (remaining == 0) {
-            result.converged = false;
-            result.n_unresolved_simplices =
-                static_cast<std::int64_t>(geometry.simplices().n_active());
-            break;
+
+    if (use_weyl_bounds) {
+        auto cache = SpectraCache{};
+        auto evaluator = VertexSpectraEvaluator(model);
+        auto overlap_cache = signed_inertia::SignedInertiaOverlapCache{};
+        while (true) {
+            if (remaining == 0) {
+                result.converged = false;
+                result.n_unresolved_simplices =
+                    static_cast<std::int64_t>(geometry.simplices().n_active());
+                break;
+            }
+
+            const auto active = active_simplices(geometry);
+            evaluate_missing_vertices(geometry, cache, evaluator, active);
+            const auto marking_start = Clock::now();
+            auto marks = mark_simplices_with_signed_inertia(
+                geometry,
+                cache,
+                mu,
+                min_feature_size,
+                tol,
+                decision_cache,
+                overlap_cache
+            );
+            fermi_surface_stats_.marking_nanoseconds += nanoseconds_since(marking_start);
+            if (marks.new_safe > 0 && fermi_surface_stats_.first_safe_marking_pass == 0) {
+                fermi_surface_stats_.first_safe_marking_pass = fermi_surface_stats_.marking_passes;
+                fermi_surface_stats_.first_safe_total_nanoseconds = nanoseconds_since(total_start);
+                fermi_surface_stats_.first_safe_refinements = result.refinements;
+                fermi_surface_stats_.first_safe_active_simplices =
+                    static_cast<std::int64_t>(geometry.simplices().n_active());
+                fermi_surface_stats_.first_safe_new_simplices = marks.new_safe;
+            }
+            if (marks.marked.empty()) {
+                result.converged = marks.unresolved == 0;
+                result.n_safe_simplices = marks.safe;
+                result.n_cut_simplices = marks.cut;
+                result.n_feature_size_simplices = marks.feature_size;
+                result.n_unresolved_simplices = marks.unresolved;
+                break;
+            }
+            if (remaining > 0 && static_cast<std::int64_t>(marks.marked.size()) > remaining) {
+                marks.marked.resize(static_cast<size_t>(remaining));
+            }
+            const auto refined_count = static_cast<std::int64_t>(marks.marked.size());
+            const auto refinement_start = Clock::now();
+            geometry.refine_active(marks.marked, 1);
+            fermi_surface_stats_.refinement_nanoseconds += nanoseconds_since(refinement_start);
+            ++fermi_surface_stats_.refinement_calls;
+            result.refinements += refined_count;
+            if (remaining > 0) {
+                remaining -= refined_count;
+            }
         }
 
         const auto active = active_simplices(geometry);
         evaluate_missing_vertices(geometry, cache, evaluator, active);
-        const auto marking_start = Clock::now();
-        auto marks = mark_simplices(
-            *model,
-            geometry,
-            cache,
-            mu,
-            min_feature_size,
-            use_weyl_bounds,
-            tol,
-            decision_cache
-        );
-        fermi_surface_stats_.marking_nanoseconds += nanoseconds_since(marking_start);
-        if (marks.marked.empty()) {
-            result.converged = marks.unresolved == 0;
-            result.n_unresolved_simplices = marks.unresolved;
-            break;
+        const auto extraction_start = Clock::now();
+        extract_surface(*model, geometry, cache, mu, tol, result);
+        fermi_surface_stats_.extraction_nanoseconds += nanoseconds_since(extraction_start);
+    } else {
+        auto cache = EigenvalueCache{};
+        auto evaluator = VertexEigenvaluesEvaluator(model);
+        while (true) {
+            if (remaining == 0) {
+                result.converged = false;
+                result.n_unresolved_simplices =
+                    static_cast<std::int64_t>(geometry.simplices().n_active());
+                break;
+            }
+
+            const auto active = active_simplices(geometry);
+            evaluate_missing_vertices(geometry, cache, evaluator, active);
+            const auto marking_start = Clock::now();
+            auto marks = mark_simplices_without_marker(
+                *model,
+                geometry,
+                cache,
+                mu,
+                min_feature_size,
+                tol,
+                decision_cache
+            );
+            fermi_surface_stats_.marking_nanoseconds += nanoseconds_since(marking_start);
+            if (marks.marked.empty()) {
+                result.converged = marks.unresolved == 0;
+                result.n_safe_simplices = marks.safe;
+                result.n_cut_simplices = marks.cut;
+                result.n_feature_size_simplices = marks.feature_size;
+                result.n_unresolved_simplices = marks.unresolved;
+                break;
+            }
+            if (remaining > 0 && static_cast<std::int64_t>(marks.marked.size()) > remaining) {
+                marks.marked.resize(static_cast<size_t>(remaining));
+            }
+            const auto refined_count = static_cast<std::int64_t>(marks.marked.size());
+            const auto refinement_start = Clock::now();
+            geometry.refine_active(marks.marked, 1);
+            fermi_surface_stats_.refinement_nanoseconds += nanoseconds_since(refinement_start);
+            ++fermi_surface_stats_.refinement_calls;
+            result.refinements += refined_count;
+            if (remaining > 0) {
+                remaining -= refined_count;
+            }
         }
-        if (remaining > 0 && static_cast<std::int64_t>(marks.marked.size()) > remaining) {
-            marks.marked.resize(static_cast<size_t>(remaining));
-        }
-        const auto refined_count = static_cast<std::int64_t>(marks.marked.size());
-        const auto refinement_start = Clock::now();
-        geometry.refine_active(marks.marked, 1);
-        fermi_surface_stats_.refinement_nanoseconds += nanoseconds_since(refinement_start);
-        ++fermi_surface_stats_.refinement_calls;
-        result.refinements += refined_count;
-        if (remaining > 0) {
-            remaining -= refined_count;
-        }
+
+        const auto active = active_simplices(geometry);
+        evaluate_missing_vertices(geometry, cache, evaluator, active);
+        const auto extraction_start = Clock::now();
+        extract_surface(*model, geometry, cache, mu, tol, result);
+        fermi_surface_stats_.extraction_nanoseconds += nanoseconds_since(extraction_start);
     }
 
-    const auto active = active_simplices(geometry);
-    evaluate_missing_vertices(geometry, cache, evaluator, active);
-    const auto extraction_start = Clock::now();
-    extract_surface(*model, geometry, cache, mu, tol, result);
-    fermi_surface_stats_.extraction_nanoseconds += nanoseconds_since(extraction_start);
     result.n_active_simplices = static_cast<std::int64_t>(geometry.simplices().n_active());
     result.n_active_vertices = static_cast<std::int64_t>(geometry.n_active_vertices());
     fermi_surface_stats_.total_nanoseconds += nanoseconds_since(total_start);

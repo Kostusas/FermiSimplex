@@ -38,6 +38,9 @@ class FermiSurface:
     refinements: int
     n_active_simplices: int
     n_active_vertices: int
+    n_safe_simplices: int
+    n_cut_simplices: int
+    n_feature_size_simplices: int
     n_unresolved_simplices: int
     min_feature_size: float
 
@@ -342,6 +345,9 @@ def fermi_surface(
         refinements=int(result.refinements),
         n_active_simplices=int(result.n_active_simplices),
         n_active_vertices=int(result.n_active_vertices),
+        n_safe_simplices=int(result.n_safe_simplices),
+        n_cut_simplices=int(result.n_cut_simplices),
+        n_feature_size_simplices=int(result.n_feature_size_simplices),
         n_unresolved_simplices=int(result.n_unresolved_simplices),
         min_feature_size=float(result.min_feature_size),
     )

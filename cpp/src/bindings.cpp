@@ -10,6 +10,7 @@
 #include <cstddef>
 #include <cstdint>
 #include <new>
+#include <stdexcept>
 
 namespace nb = nanobind;
 using namespace nb::literals;
@@ -114,6 +115,9 @@ NB_MODULE(_native, m) {
         .def_prop_ro("refinements", [](const FermiSurfaceResult &self) { return self.refinements; })
         .def_prop_ro("n_active_simplices", [](const FermiSurfaceResult &self) { return self.n_active_simplices; })
         .def_prop_ro("n_active_vertices", [](const FermiSurfaceResult &self) { return self.n_active_vertices; })
+        .def_prop_ro("n_safe_simplices", [](const FermiSurfaceResult &self) { return self.n_safe_simplices; })
+        .def_prop_ro("n_cut_simplices", [](const FermiSurfaceResult &self) { return self.n_cut_simplices; })
+        .def_prop_ro("n_feature_size_simplices", [](const FermiSurfaceResult &self) { return self.n_feature_size_simplices; })
         .def_prop_ro("n_unresolved_simplices", [](const FermiSurfaceResult &self) { return self.n_unresolved_simplices; })
         .def_prop_ro("min_feature_size", [](const FermiSurfaceResult &self) { return self.min_feature_size; });
 
@@ -203,6 +207,25 @@ NB_MODULE(_native, m) {
         "negative_count"_a,
         "positive_count"_a
     );
+    m.def(
+        "_hermitian_min_eigenvalue_lanczos",
+        [](
+            nb::ndarray<nb::numpy, const std::complex<double>, nb::ndim<2>, nb::c_contig> matrix,
+            double absolute_uncertainty
+        ) {
+            if (matrix.shape(0) != matrix.shape(1)) {
+                throw std::runtime_error("_hermitian_min_eigenvalue_lanczos: matrix must be square");
+            }
+            const auto size = static_cast<size_t>(matrix.shape(0));
+            return hermitian_min_eigenvalue_lanczos(
+                std::span<const std::complex<double>>(matrix.data(), size * size),
+                size,
+                absolute_uncertainty
+            );
+        },
+        "matrix"_a,
+        "absolute_uncertainty"_a = 5e-5
+    );
     m.def("_reset_lanczos_stats", &reset_lanczos_stats);
     m.def(
         "_lanczos_stats",
@@ -242,6 +265,11 @@ NB_MODULE(_native, m) {
             result["marked_simplices"] = stats.marked_simplices;
             result["terminal_cached_simplices"] = stats.terminal_cached_simplices;
             result["refinement_calls"] = stats.refinement_calls;
+            result["first_safe_marking_pass"] = stats.first_safe_marking_pass;
+            result["first_safe_total_nanoseconds"] = stats.first_safe_total_nanoseconds;
+            result["first_safe_refinements"] = stats.first_safe_refinements;
+            result["first_safe_active_simplices"] = stats.first_safe_active_simplices;
+            result["first_safe_new_simplices"] = stats.first_safe_new_simplices;
             return result;
         }
     );

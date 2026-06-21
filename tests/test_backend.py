@@ -92,6 +92,28 @@ def test_lanczos_spectral_norms_match_numpy_reference():
 
 
 @requires_native
+def test_lanczos_min_eigenvalue_matches_numpy_reference():
+    from lineartetrahedron import _native
+
+    matrix = np.array(
+        [
+            [2.0, 0.25 + 0.5j, -0.2j],
+            [0.25 - 0.5j, -1.0, 0.75],
+            [0.2j, 0.75, 0.5],
+        ],
+        dtype=np.complex128,
+    )
+
+    expected = np.linalg.eigvalsh(matrix)[0]
+    estimated = _native._hermitian_min_eigenvalue_lanczos(
+        np.ascontiguousarray(matrix),
+        1e-12,
+    )
+
+    assert estimated == pytest.approx(expected, abs=1e-10)
+
+
+@requires_native
 def test_product_simplex_triangulation_is_dimension_general():
     from lineartetrahedron import _native
 
@@ -163,20 +185,45 @@ def test_fermi_surface_reports_unresolved_when_refinement_budget_exhausted():
 
 
 @requires_native
-def test_fermi_surface_weyl_refines_missed_pocket():
+def test_fermi_surface_signed_inertia_certifies_constant_insulator():
     surface = fermi_surface(
-        _aliased_pocket_band(),
+        _constant_insulator(2),
         mu=0.0,
         min_feature_size=0.4,
         max_refinements=256,
+        use_weyl_bounds=True,
     )
 
-    assert surface.refinements > 0
-    assert surface.points.shape[1] == 1
+    assert surface.converged
+    assert surface.n_safe_simplices == surface.n_active_simplices
+    assert surface.n_cut_simplices == 0
+    assert surface.n_feature_size_simplices == 0
+    assert surface.n_unresolved_simplices == 0
+    assert surface.points.shape[1] == 2
 
 
 @requires_native
-def test_fermi_surface_weyl_cache_preserves_metadata():
+def test_fermi_surface_signed_inertia_accepts_cut_below_feature_size():
+    surface = fermi_surface(
+        _axis_cosine_band(1),
+        mu=0.0,
+        min_feature_size=0.4,
+        max_refinements=256,
+        use_weyl_bounds=True,
+    )
+
+    assert surface.converged
+    assert surface.n_cut_simplices > 0
+    assert (
+        surface.n_safe_simplices
+        + surface.n_cut_simplices
+        + surface.n_feature_size_simplices
+        + surface.n_unresolved_simplices
+    ) == surface.n_active_simplices
+
+
+@requires_native
+def test_fermi_surface_signed_inertia_cache_preserves_metadata():
     first = fermi_surface(
         _aliased_pocket_band(),
         mu=0.0,

@@ -204,6 +204,11 @@ struct RitzNormBounds {
     double upper = 0.0;
 };
 
+struct RitzMinEigenvalueBounds {
+    double lower = 0.0;
+    double upper = 0.0;
+};
+
 RitzNormBounds tridiagonal_spectral_norm_bounds(
     std::span<const double> diagonal,
     std::span<const double> offdiagonal,
@@ -260,6 +265,60 @@ RitzNormBounds tridiagonal_spectral_norm_bounds(
     const auto lower = std::max(theta_max, -theta_min);
     const auto upper = std::max(theta_max + r_max, -theta_min + r_min);
     return RitzNormBounds{.lower = lower, .upper = std::max(lower, upper)};
+}
+
+RitzMinEigenvalueBounds tridiagonal_min_eigenvalue_bounds(
+    std::span<const double> diagonal,
+    std::span<const double> offdiagonal,
+    double residual_beta,
+    std::vector<double> &eigenvalues,
+    std::vector<double> &offdiagonal_copy,
+    std::vector<double> &eigenvectors,
+    std::vector<double> &work
+) {
+    const auto size = diagonal.size();
+    if (size == 0) {
+        return {};
+    }
+    if (offdiagonal.size() + 1 != size) {
+        throw std::runtime_error("Lanczos: tridiagonal offdiagonal size mismatch");
+    }
+
+    eigenvalues.assign(diagonal.begin(), diagonal.end());
+    offdiagonal_copy.assign(offdiagonal.begin(), offdiagonal.end());
+    eigenvectors.assign(size * size, 0.0);
+    work.assign(std::max<size_t>(1, 2 * size - 2), 0.0);
+
+    const char jobz = 'V';
+    const int n = static_cast<int>(size);
+    const int ldz = std::max(1, n);
+    auto info = 0;
+    LINEARTETRAHEDRON_LAPACK_DSTEV(
+        &jobz,
+        &n,
+        eigenvalues.data(),
+        offdiagonal_copy.data(),
+        eigenvectors.data(),
+        &ldz,
+        work.data(),
+        &info
+    );
+    if (info != 0) {
+        throw std::runtime_error("Lanczos: dstev failed with info=" + std::to_string(info));
+    }
+
+    const auto min_index = size_t{0};
+    const auto theta_min = eigenvalues[min_index];
+    const auto eigenvector_at = [ldz](size_t row, size_t col, const std::vector<double> &values) {
+        return values[row + col * static_cast<size_t>(ldz)];
+    };
+    const auto residual =
+        std::abs(residual_beta) *
+        std::abs(eigenvector_at(size - 1, min_index, eigenvectors));
+    return RitzMinEigenvalueBounds{
+        .lower = theta_min - residual,
+        .upper = theta_min + residual,
+    };
 }
 
 template <class Matvec>
@@ -388,6 +447,132 @@ double spectral_norm_lanczos(
     return bounds.upper;
 }
 
+template <class Matvec>
+double min_eigenvalue_lanczos(
+    size_t size,
+    Matvec matvec,
+    double absolute_uncertainty
+) {
+    if (size == 0) {
+        return std::numeric_limits<double>::infinity();
+    }
+    if (size > static_cast<size_t>(std::numeric_limits<int>::max())) {
+        throw std::runtime_error("Lanczos: matrix dimension exceeds LP64 range");
+    }
+    if (!(absolute_uncertainty >= 0.0) || !std::isfinite(absolute_uncertainty)) {
+        throw std::runtime_error("Lanczos: absolute uncertainty must be finite and nonnegative");
+    }
+
+    constexpr auto residual_tolerance = 1e-12;
+    constexpr size_t min_iterations = 8;
+    constexpr size_t residual_check_period = 8;
+    ++lanczos_stats_.calls;
+    const auto lanczos_start = Clock::now();
+    auto q = deterministic_start(size);
+    std::vector<Complex> basis(size * size, Complex{0.0, 0.0});
+    std::vector<double> diagonal;
+    std::vector<double> offdiagonal;
+    diagonal.reserve(size);
+    offdiagonal.reserve(size > 0 ? size - 1 : 0);
+    std::vector<double> ritz_eigenvalues;
+    std::vector<double> ritz_offdiagonal;
+    std::vector<double> ritz_eigenvectors;
+    std::vector<double> ritz_work;
+    ritz_eigenvalues.reserve(size);
+    ritz_offdiagonal.reserve(size > 0 ? size - 1 : 0);
+    ritz_eigenvectors.reserve(size * size);
+    ritz_work.reserve(std::max<size_t>(1, 2 * size - 2));
+
+    auto beta_previous = 0.0;
+    std::vector<Complex> previous(size, Complex{0.0, 0.0});
+    std::vector<Complex> z(size, Complex{0.0, 0.0});
+    RitzMinEigenvalueBounds bounds;
+    for (size_t iteration = 0; iteration < size; ++iteration) {
+        ++lanczos_stats_.iterations;
+        std::copy(q.begin(), q.end(), basis.begin() + static_cast<std::ptrdiff_t>(iteration * size));
+        matvec(q, z);
+        if (iteration > 0) {
+            axpy(
+                Complex{-beta_previous, 0.0},
+                std::span<const Complex>(previous.data(), previous.size()),
+                std::span<Complex>(z.data(), z.size())
+            );
+        }
+
+        const auto alpha = std::real(inner_product(q, z));
+        diagonal.push_back(alpha);
+        axpy(
+            Complex{-alpha, 0.0},
+            std::span<const Complex>(q.data(), q.size()),
+            std::span<Complex>(z.data(), z.size())
+        );
+
+        for (size_t basis_index = 0; basis_index <= iteration; ++basis_index) {
+            const auto basis_vector = std::span<const Complex>(
+                basis.data() + static_cast<std::ptrdiff_t>(basis_index * size),
+                size
+            );
+            const auto overlap = inner_product(basis_vector, z);
+            axpy(
+                -overlap,
+                basis_vector,
+                std::span<Complex>(z.data(), z.size())
+            );
+        }
+
+        const auto beta = vector_norm(z);
+        const auto iteration_count = iteration + 1;
+        const auto final_iteration = iteration + 1 == size || beta <= residual_tolerance;
+        const auto can_check =
+            final_iteration ||
+            (iteration_count >= std::min(min_iterations, size) &&
+             iteration_count % residual_check_period == 0);
+        if (can_check) {
+            ++lanczos_stats_.ritz_checks;
+            bounds = tridiagonal_min_eigenvalue_bounds(
+                diagonal,
+                offdiagonal,
+                beta,
+                ritz_eigenvalues,
+                ritz_offdiagonal,
+                ritz_eigenvectors,
+                ritz_work
+            );
+            const auto uncertainty = bounds.upper - bounds.lower;
+            if (uncertainty <= absolute_uncertainty || final_iteration) {
+                if (uncertainty <= absolute_uncertainty) {
+                    ++lanczos_stats_.converged_by_uncertainty;
+                } else if (beta <= residual_tolerance) {
+                    ++lanczos_stats_.converged_by_zero_residual;
+                } else {
+                    ++lanczos_stats_.converged_at_full_dimension;
+                }
+                lanczos_stats_.lanczos_nanoseconds += nanoseconds_since(lanczos_start);
+                return bounds.lower;
+            }
+        }
+        if (final_iteration) {
+            if (beta <= residual_tolerance) {
+                ++lanczos_stats_.converged_by_zero_residual;
+            } else {
+                ++lanczos_stats_.converged_at_full_dimension;
+            }
+            lanczos_stats_.lanczos_nanoseconds += nanoseconds_since(lanczos_start);
+            return bounds.lower;
+        }
+
+        offdiagonal.push_back(beta);
+        previous = q;
+        for (size_t index = 0; index < size; ++index) {
+            q[index] = z[index] / beta;
+        }
+        beta_previous = beta;
+    }
+
+    lanczos_stats_.lanczos_nanoseconds += nanoseconds_since(lanczos_start);
+    return bounds.lower;
+}
+
 }  // namespace
 
 void reset_lanczos_stats() {
@@ -416,6 +601,23 @@ double hermitian_spectral_norm_lanczos(
         throw std::runtime_error("hermitian_spectral_norm_lanczos: matrix size mismatch");
     }
     return spectral_norm_lanczos(
+        size,
+        [&](std::span<const Complex> x, std::vector<Complex> &y) {
+            hermitian_matvec(matrix, size, x, y);
+        },
+        absolute_uncertainty
+    );
+}
+
+double hermitian_min_eigenvalue_lanczos(
+    std::span<const Complex> matrix,
+    size_t size,
+    double absolute_uncertainty
+) {
+    if (matrix.size() != size * size) {
+        throw std::runtime_error("hermitian_min_eigenvalue_lanczos: matrix size mismatch");
+    }
+    return min_eigenvalue_lanczos(
         size,
         [&](std::span<const Complex> x, std::vector<Complex> &y) {
             hermitian_matvec(matrix, size, x, y);

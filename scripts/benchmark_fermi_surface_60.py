@@ -11,6 +11,10 @@ from pathlib import Path
 import numpy as np
 
 from lineartetrahedron import FermiSurface, fermi_surface
+from lineartetrahedron import _native
+
+_PHYSICAL_BZ_SIDE = 2.0 * math.pi
+_DEFAULT_NORMALIZED_FEATURE_SIZE = 1.8 / _PHYSICAL_BZ_SIDE
 
 
 @dataclass(frozen=True)
@@ -23,7 +27,15 @@ class CaseResult:
     refinements: int
     n_active_simplices: int
     n_active_vertices: int
+    n_safe_simplices: int
+    n_cut_simplices: int
+    n_feature_size_simplices: int
     n_unresolved_simplices: int
+    first_safe_marking_pass: int
+    first_safe_seconds: float | None
+    first_safe_refinements: int
+    first_safe_active_simplices: int
+    first_safe_new_simplices: int
 
 
 def _add_diagonal_hopping_pair(
@@ -65,7 +77,7 @@ def make_stress_hamiltonian(
         _add_diagonal_hopping_pair(tb, key, 0.5 * amplitudes * np.exp(1j * phases))
 
     # These bands are deliberately undersampled by the initial root mesh. Without
-    # Weyl marking they are invisible unless another band happens to refine there.
+    # a refinement marker they are invisible unless another band happens to refine there.
     for band in range(pocket_bands):
         tb[(0, 0)][band, band] = 0.28 + 0.018 * band
         for key, amplitude in [
@@ -84,19 +96,23 @@ def run_case(
     hamiltonian: dict[tuple[int, int], np.ndarray],
     *,
     mu: float,
-    min_feature_size: float,
+    min_feature_size_normalized: float,
     max_refinements: int,
     use_weyl_bounds: bool,
 ) -> tuple[FermiSurface, CaseResult]:
+    _native._reset_fermi_surface_stats()
+    min_feature_size_physical = min_feature_size_normalized * _PHYSICAL_BZ_SIDE
     start = time.perf_counter()
     surface = fermi_surface(
         hamiltonian,
         mu=mu,
-        min_feature_size=min_feature_size,
+        min_feature_size=min_feature_size_physical,
         max_refinements=max_refinements,
         use_weyl_bounds=use_weyl_bounds,
     )
     seconds = time.perf_counter() - start
+    stats = _native._fermi_surface_stats()
+    first_safe_nanoseconds = int(stats["first_safe_total_nanoseconds"])
     return surface, CaseResult(
         use_weyl_bounds=use_weyl_bounds,
         seconds=seconds,
@@ -106,7 +122,17 @@ def run_case(
         refinements=int(surface.refinements),
         n_active_simplices=int(surface.n_active_simplices),
         n_active_vertices=int(surface.n_active_vertices),
+        n_safe_simplices=int(surface.n_safe_simplices),
+        n_cut_simplices=int(surface.n_cut_simplices),
+        n_feature_size_simplices=int(surface.n_feature_size_simplices),
         n_unresolved_simplices=int(surface.n_unresolved_simplices),
+        first_safe_marking_pass=int(stats["first_safe_marking_pass"]),
+        first_safe_seconds=(
+            None if first_safe_nanoseconds == 0 else first_safe_nanoseconds / 1e9
+        ),
+        first_safe_refinements=int(stats["first_safe_refinements"]),
+        first_safe_active_simplices=int(stats["first_safe_active_simplices"]),
+        first_safe_new_simplices=int(stats["first_safe_new_simplices"]),
     )
 
 
@@ -144,12 +170,13 @@ def _svg_line(
 def write_svg(
     output: Path,
     *,
-    no_weyl: FermiSurface,
-    with_weyl: FermiSurface,
-    no_weyl_result: CaseResult,
-    with_weyl_result: CaseResult,
+    without_marker: FermiSurface,
+    with_signed_inertia: FermiSurface,
+    without_marker_result: CaseResult,
+    with_signed_inertia_result: CaseResult,
     mu: float,
-    min_feature_size: float,
+    min_feature_size_normalized: float,
+    min_feature_size_physical: float,
     max_refinements: int,
 ) -> None:
     width = 1120
@@ -199,7 +226,10 @@ def write_svg(
     def stats(result: CaseResult) -> str:
         return (
             f'{result.seconds:.3f}s, segments={result.n_segments}, '
-            f'refined={result.refinements}, unresolved={result.n_unresolved_simplices}'
+            f'active={result.n_active_simplices}, refined={result.refinements}, '
+            f'safe/cut/feature/unres='
+            f'{result.n_safe_simplices}/{result.n_cut_simplices}/'
+            f'{result.n_feature_size_simplices}/{result.n_unresolved_simplices}'
         )
 
     parts = [
@@ -208,20 +238,21 @@ def write_svg(
         '<rect width="100%" height="100%" fill="#fff" />',
         label("60x60 adaptive Fermi surface extraction", 42, 42, size=24, weight=700),
         label(
-            f"mu={mu:g}, min_feature_size={min_feature_size:g}, "
+            f"mu={mu:g}, normalized feature={min_feature_size_normalized:g} "
+            f"(native {min_feature_size_physical:g}), "
             f"max_refinements={max_refinements}",
             42,
             68,
             size=14,
         ),
-        label("without Weyl marking", left_x, 82, size=18, weight=700),
-        label(stats(no_weyl_result), left_x, 525, size=13),
-        label("with Hessian-Weyl marking", right_x, 82, size=18, weight=700),
-        label(stats(with_weyl_result), right_x, 525, size=13),
+        label("without marker", left_x, 82, size=18, weight=700),
+        label(stats(without_marker_result), left_x, 525, size=13),
+        label("with signed-inertia marking", right_x, 82, size=18, weight=700),
+        label(stats(with_signed_inertia_result), right_x, 525, size=13),
         *frame(left_x),
         *frame(right_x),
-        *panel_lines(no_weyl, left_x, "#303030"),
-        *panel_lines(with_weyl, right_x, "#b72222"),
+        *panel_lines(without_marker, left_x, "#303030"),
+        *panel_lines(with_signed_inertia, right_x, "#b72222"),
         label("-pi", left_x - 9, top + plot_size + 24, size=12),
         label("pi", left_x + plot_size - 8, top + plot_size + 24, size=12),
         label("-pi", right_x - 9, top + plot_size + 24, size=12),
@@ -238,38 +269,48 @@ def write_svg(
 def main() -> None:
     parser = argparse.ArgumentParser()
     parser.add_argument("--mu", type=float, default=0.0)
-    parser.add_argument("--min-feature-size", type=float, default=1.8)
+    parser.add_argument(
+        "--min-feature-size",
+        type=float,
+        default=_DEFAULT_NORMALIZED_FEATURE_SIZE,
+        help=(
+            "Normalized max triangle edge length in the unit BZ. "
+            "Converted internally to native physical k units by multiplying by 2*pi."
+        ),
+    )
     parser.add_argument("--max-refinements", type=int, default=800)
     parser.add_argument("--output-dir", type=Path, default=Path("artifacts"))
     args = parser.parse_args()
 
     args.output_dir.mkdir(parents=True, exist_ok=True)
     hamiltonian = make_stress_hamiltonian()
-    no_weyl, no_weyl_result = run_case(
+    min_feature_size_physical = args.min_feature_size * _PHYSICAL_BZ_SIDE
+    without_marker, without_marker_result = run_case(
         hamiltonian,
         mu=args.mu,
-        min_feature_size=args.min_feature_size,
+        min_feature_size_normalized=args.min_feature_size,
         max_refinements=args.max_refinements,
         use_weyl_bounds=False,
     )
-    with_weyl, with_weyl_result = run_case(
+    with_signed_inertia, with_signed_inertia_result = run_case(
         hamiltonian,
         mu=args.mu,
-        min_feature_size=args.min_feature_size,
+        min_feature_size_normalized=args.min_feature_size,
         max_refinements=args.max_refinements,
         use_weyl_bounds=True,
     )
 
-    svg_path = args.output_dir / "fermi_surface_60.svg"
-    summary_path = args.output_dir / "fermi_surface_60_summary.json"
+    svg_path = args.output_dir / "fermi_surface_60_signed_inertia.svg"
+    summary_path = args.output_dir / "fermi_surface_60_signed_inertia_summary.json"
     write_svg(
         svg_path,
-        no_weyl=no_weyl,
-        with_weyl=with_weyl,
-        no_weyl_result=no_weyl_result,
-        with_weyl_result=with_weyl_result,
+        without_marker=without_marker,
+        with_signed_inertia=with_signed_inertia,
+        without_marker_result=without_marker_result,
+        with_signed_inertia_result=with_signed_inertia_result,
         mu=args.mu,
-        min_feature_size=args.min_feature_size,
+        min_feature_size_normalized=args.min_feature_size,
+        min_feature_size_physical=min_feature_size_physical,
         max_refinements=args.max_refinements,
     )
     summary = {
@@ -282,11 +323,12 @@ def main() -> None:
         },
         "parameters": {
             "mu": args.mu,
-            "min_feature_size": args.min_feature_size,
+            "min_feature_size_normalized": args.min_feature_size,
+            "min_feature_size_physical": min_feature_size_physical,
             "max_refinements": args.max_refinements,
         },
-        "without_weyl": asdict(no_weyl_result),
-        "with_weyl": asdict(with_weyl_result),
+        "without_marker": asdict(without_marker_result),
+        "with_signed_inertia": asdict(with_signed_inertia_result),
         "svg": str(svg_path),
     }
     summary_path.write_text(json.dumps(summary, indent=2) + "\n", encoding="utf-8")

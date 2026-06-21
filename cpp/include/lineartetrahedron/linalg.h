@@ -36,6 +36,12 @@ double hermitian_spectral_norm_lanczos(
     double absolute_uncertainty
 );
 
+double hermitian_min_eigenvalue_lanczos(
+    std::span<const std::complex<double>> matrix,
+    size_t size,
+    double absolute_uncertainty
+);
+
 double matrix_spectral_norm_lanczos(
     std::span<const std::complex<double>> matrix,
     size_t size,

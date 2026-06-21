@@ -24,6 +24,7 @@ public:
     size_t ndim() const noexcept { return ndim_; }
     size_t ndof() const noexcept { return ndof_; }
     double tol() const noexcept { return tol_; }
+    const TightBindingModel &model() const noexcept { return *model_; }
     double reduced_lipschitz_bound() const noexcept {
         return model_->reduced_lipschitz_bound();
     }

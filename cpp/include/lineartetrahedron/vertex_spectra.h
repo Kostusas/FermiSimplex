@@ -33,4 +33,17 @@ private:
     std::shared_ptr<TightBindingModel> model_;
 };
 
+class VertexEigenvaluesEvaluator {
+public:
+    explicit VertexEigenvaluesEvaluator(std::shared_ptr<TightBindingModel> model);
+
+    size_t ndim() const noexcept { return model_->ndim(); }
+    size_t ndof() const noexcept { return model_->ndof(); }
+
+    std::vector<double> evaluate_reduced_point(std::span<const double> reduced_point) const;
+
+private:
+    std::shared_ptr<TightBindingModel> model_;
+};
+
 }  // namespace lineartetrahedron

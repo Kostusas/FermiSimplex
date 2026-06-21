@@ -34,7 +34,11 @@ public:
         const double *point,
         size_t axis
     ) const;
-    double derivative_spectral_norm_raw(const double *point, size_t axis) const;
+    double derivative_spectral_norm(
+        const double *point,
+        size_t axis,
+        double absolute_uncertainty
+    ) const;
     double derivative_spectral_norm(PointArray point, size_t axis) const;
 
 private:

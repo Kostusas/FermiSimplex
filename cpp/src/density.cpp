@@ -3,7 +3,6 @@
 #include <adaptivesimplex/cut/simplex_moments.h>
 
 #include <algorithm>
-#include <array>
 #include <cmath>
 #include <complex>
 #include <cstdint>
@@ -26,7 +25,7 @@ std::vector<std::complex<double>> phases_for_vertex(
     size_t ndim,
     const core::DyadicVertex &reduced_vertex
 ) {
-    std::array<double, 3> k_point{};
+    std::vector<double> k_point(ndim, 0.0);
     const auto coords = reduced_vertex.coords();
     for (size_t axis = 0; axis < ndim; ++axis) {
         const auto reduced_coord =

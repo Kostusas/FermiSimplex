@@ -34,13 +34,14 @@ namespace {
 void diagonalize_hermitian_in_place(
     std::vector<std::complex<double>> &matrix,
     std::vector<double> &eigenvalues,
-    size_t ndof
+    size_t ndof,
+    bool compute_vectors
 ) {
     if (ndof > static_cast<size_t>(std::numeric_limits<int>::max())) {
         throw std::runtime_error("VertexSpectraEvaluator: LAPACK matrix dimension exceeds LP64 range");
     }
 
-    const char jobz = 'V';
+    const char jobz = compute_vectors ? 'V' : 'N';
     const char uplo = 'L';
     const int n = static_cast<int>(ndof);
     const int lda = std::max(1, n);
@@ -107,6 +108,17 @@ void diagonalize_hermitian_in_place(
     }
 }
 
+std::vector<double> reduced_to_physical_point(
+    std::span<const double> reduced_point,
+    size_t ndim
+) {
+    std::vector<double> k_point(ndim);
+    for (size_t axis = 0; axis < ndim; ++axis) {
+        k_point[axis] = 2.0 * kPi * reduced_point[axis] - kPi;
+    }
+    return k_point;
+}
+
 }  // namespace
 
 VertexSpectraEvaluator::VertexSpectraEvaluator(
@@ -128,16 +140,30 @@ VertexSpectra VertexSpectraEvaluator::evaluate(
 VertexSpectra VertexSpectraEvaluator::evaluate_reduced_point(
     std::span<const double> reduced_point
 ) const {
-    std::vector<double> k_point(model_->ndim());
-    for (size_t axis = 0; axis < model_->ndim(); ++axis) {
-        k_point[axis] = 2.0 * kPi * reduced_point[axis] - kPi;
-    }
-
+    const auto k_point = reduced_to_physical_point(reduced_point, model_->ndim());
     auto h = model_->evaluate_point_raw(k_point.data());
     VertexSpectra entry;
-    diagonalize_hermitian_in_place(h, entry.eigenvalues, model_->ndof());
+    diagonalize_hermitian_in_place(h, entry.eigenvalues, model_->ndof(), true);
     entry.eigenvectors = std::move(h);
     return entry;
+}
+
+VertexEigenvaluesEvaluator::VertexEigenvaluesEvaluator(
+    std::shared_ptr<TightBindingModel> model
+) : model_(std::move(model)) {
+    if (!model_) {
+        throw std::runtime_error("VertexEigenvaluesEvaluator: model must not be null");
+    }
+}
+
+std::vector<double> VertexEigenvaluesEvaluator::evaluate_reduced_point(
+    std::span<const double> reduced_point
+) const {
+    const auto k_point = reduced_to_physical_point(reduced_point, model_->ndim());
+    auto h = model_->evaluate_point_raw(k_point.data());
+    std::vector<double> eigenvalues;
+    diagonalize_hermitian_in_place(h, eigenvalues, model_->ndof(), false);
+    return eigenvalues;
 }
 
 }  // namespace lineartetrahedron

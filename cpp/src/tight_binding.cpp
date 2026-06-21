@@ -2,10 +2,36 @@
 
 #include "lineartetrahedron/linalg.h"
 
+#include <algorithm>
+#include <chrono>
 #include <cmath>
+#include <limits>
 #include <stdexcept>
 
 namespace lineartetrahedron {
+namespace {
+
+using Clock = std::chrono::steady_clock;
+
+std::uint64_t nanoseconds_since(Clock::time_point start) {
+    return static_cast<std::uint64_t>(
+        std::chrono::duration_cast<std::chrono::nanoseconds>(Clock::now() - start).count()
+    );
+}
+
+double numerical_lanczos_floor(double scale) {
+    return 64.0 * std::numeric_limits<double>::epsilon() * std::max(scale, 1.0);
+}
+
+double frobenius_norm(std::span<const std::complex<double>> matrix) {
+    auto squared = 0.0;
+    for (const auto value : matrix) {
+        squared += std::norm(value);
+    }
+    return std::sqrt(squared);
+}
+
+}  // namespace
 
 TightBindingModel::TightBindingModel(KeyArray keys, HoppingMatrixArray matrices) {
     ndim_ = keys.shape(1);
@@ -36,7 +62,11 @@ TightBindingModel::TightBindingModel(KeyArray keys, HoppingMatrixArray matrices)
             matrices_.data() + term * ndof_ * ndof_,
             ndof_ * ndof_
         );
-        const auto hopping_norm = matrix_spectral_norm_lanczos(term_matrix, ndof_);
+        const auto hopping_norm = matrix_spectral_norm_lanczos(
+            term_matrix,
+            ndof_,
+            numerical_lanczos_floor(frobenius_norm(term_matrix))
+        );
         hopping_norms_[term] = hopping_norm;
         for (size_t axis = 0; axis < ndim_; ++axis) {
             const auto axis_key = std::abs(static_cast<double>(keys_[term * ndim_ + axis]));
@@ -125,19 +155,39 @@ std::vector<std::complex<double>> TightBindingModel::evaluate_derivative_raw(
     return derivative;
 }
 
-double TightBindingModel::derivative_spectral_norm_raw(const double *point, size_t axis) const {
+double TightBindingModel::derivative_spectral_norm(
+    const double *point,
+    size_t axis,
+    double absolute_uncertainty
+) const {
+    const auto total_start = Clock::now();
+    const auto assembly_start = Clock::now();
     const auto derivative = evaluate_derivative_raw(point, axis);
-    return hermitian_spectral_norm_lanczos(
+    const auto assembly_nanoseconds = nanoseconds_since(assembly_start);
+    const auto norm = hermitian_spectral_norm_lanczos(
         std::span<const std::complex<double>>(derivative.data(), derivative.size()),
-        ndof_
+        ndof_,
+        absolute_uncertainty
     );
+    record_derivative_spectral_norm_timing(
+        assembly_nanoseconds,
+        nanoseconds_since(total_start)
+    );
+    return norm;
 }
 
 double TightBindingModel::derivative_spectral_norm(PointArray point, size_t axis) const {
     if (point.shape(0) != ndim_) {
         throw std::runtime_error("TightBindingModel: point dimension mismatch");
     }
-    return derivative_spectral_norm_raw(point.data(), axis);
+    if (axis >= ndim_) {
+        throw std::runtime_error("TightBindingModel: derivative axis out of bounds");
+    }
+    return derivative_spectral_norm(
+        point.data(),
+        axis,
+        numerical_lanczos_floor(global_derivative_bounds_[axis])
+    );
 }
 
 }  // namespace lineartetrahedron

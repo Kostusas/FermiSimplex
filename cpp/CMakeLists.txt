@@ -35,6 +35,17 @@ foreach(_ltt_lapack_symbol IN ITEMS zheevd_ zheevd ZHEEVD)
     break()
   endif()
 endforeach()
+foreach(_ltt_lapack_symbol IN ITEMS dstev_ dstev DSTEV)
+  string(MAKE_C_IDENTIFIER "${_ltt_lapack_symbol}" _ltt_lapack_symbol_id)
+  check_cxx_source_compiles(
+    "extern \"C\" void ${_ltt_lapack_symbol}(); int main() { auto fn = &${_ltt_lapack_symbol}; return fn == nullptr; }"
+    "LINEARTETRAHEDRON_HAS_LAPACK_${_ltt_lapack_symbol_id}"
+  )
+  if(LINEARTETRAHEDRON_HAS_LAPACK_${_ltt_lapack_symbol_id})
+    set(LINEARTETRAHEDRON_LAPACK_DSTEV_SYMBOL "${_ltt_lapack_symbol}")
+    break()
+  endif()
+endforeach()
 foreach(_ltt_blas_symbol IN ITEMS zhemv_ zhemv ZHEMV)
   string(MAKE_C_IDENTIFIER "${_ltt_blas_symbol}" _ltt_blas_symbol_id)
   check_cxx_source_compiles(
@@ -63,6 +74,9 @@ set(CMAKE_REQUIRED_LINK_OPTIONS "${_ltt_check_required_link_options}")
 if(NOT LINEARTETRAHEDRON_LAPACK_ZHEEVD_SYMBOL)
   message(FATAL_ERROR "Could not find a callable LAPACK zheevd symbol")
 endif()
+if(NOT LINEARTETRAHEDRON_LAPACK_DSTEV_SYMBOL)
+  message(FATAL_ERROR "Could not find a callable LAPACK dstev symbol")
+endif()
 if(NOT LINEARTETRAHEDRON_BLAS_ZHEMV_SYMBOL)
   message(FATAL_ERROR "Could not find a callable BLAS zhemv symbol")
 endif()
@@ -75,6 +89,7 @@ set(
   src/bindings.cpp
   src/charge.cpp
   src/density.cpp
+  src/fermi_surface.cpp
   src/integration_workspace.cpp
   src/linalg.cpp
   src/runtime.cpp
@@ -94,6 +109,7 @@ target_link_options(_native PRIVATE ${LAPACK_LINKER_FLAGS})
 target_compile_definitions(
   _native PRIVATE
   LINEARTETRAHEDRON_LAPACK_ZHEEVD=${LINEARTETRAHEDRON_LAPACK_ZHEEVD_SYMBOL}
+  LINEARTETRAHEDRON_LAPACK_DSTEV=${LINEARTETRAHEDRON_LAPACK_DSTEV_SYMBOL}
   LINEARTETRAHEDRON_BLAS_ZHEMV=${LINEARTETRAHEDRON_BLAS_ZHEMV_SYMBOL}
   LINEARTETRAHEDRON_BLAS_ZGEMV=${LINEARTETRAHEDRON_BLAS_ZGEMV_SYMBOL}
 )

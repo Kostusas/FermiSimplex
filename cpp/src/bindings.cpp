@@ -3,6 +3,8 @@
 #include <nanobind/stl/shared_ptr.h>
 #include <nanobind/stl/vector.h>
 
+#include "lineartetrahedron/fermi_surface.h"
+#include "lineartetrahedron/linalg.h"
 #include "lineartetrahedron/runtime.h"
 
 #include <cstddef>
@@ -48,7 +50,9 @@ NB_MODULE(_native, m) {
         .def("evaluate_point", &TightBindingModel::evaluate_point, "point"_a)
         .def(
             "derivative_spectral_norm",
-            &TightBindingModel::derivative_spectral_norm,
+            static_cast<double (TightBindingModel::*)(PointArray, size_t) const>(
+                &TightBindingModel::derivative_spectral_norm
+            ),
             "point"_a,
             "axis"_a
         );
@@ -85,6 +89,33 @@ NB_MODULE(_native, m) {
         .def_prop_ro("n_active_simplices", [](const DensityIntegrateResult &self) { return self.n_active_simplices; })
         .def_prop_ro("n_active_vertices", [](const DensityIntegrateResult &self) { return self.n_active_vertices; })
         .def_prop_ro("converged", [](const DensityIntegrateResult &self) { return self.converged; });
+
+    nb::class_<FermiSurfaceResult>(m, "FermiSurfaceResult")
+        .def(
+            "points_array",
+            [](const FermiSurfaceResult &self) {
+                return make_array(
+                    std::vector<double>(self.points),
+                    {self.points.size() / self.ndim, self.ndim}
+                );
+            }
+        )
+        .def(
+            "cells_array",
+            [](const FermiSurfaceResult &self) {
+                return make_array(
+                    std::vector<std::int64_t>(self.cells),
+                    {self.cells.size() / self.ndim, self.ndim}
+                );
+            }
+        )
+        .def_prop_ro("ndim", [](const FermiSurfaceResult &self) { return self.ndim; })
+        .def_prop_ro("converged", [](const FermiSurfaceResult &self) { return self.converged; })
+        .def_prop_ro("refinements", [](const FermiSurfaceResult &self) { return self.refinements; })
+        .def_prop_ro("n_active_simplices", [](const FermiSurfaceResult &self) { return self.n_active_simplices; })
+        .def_prop_ro("n_active_vertices", [](const FermiSurfaceResult &self) { return self.n_active_vertices; })
+        .def_prop_ro("n_unresolved_simplices", [](const FermiSurfaceResult &self) { return self.n_unresolved_simplices; })
+        .def_prop_ro("min_feature_size", [](const FermiSurfaceResult &self) { return self.min_feature_size; });
 
     nb::class_<adaptive::Options>(m, "AdaptiveOptions")
         .def(
@@ -155,6 +186,65 @@ NB_MODULE(_native, m) {
             "mu"_a,
             "options"_a
         );
+
+    m.def(
+        "fermi_surface",
+        &fermi_surface,
+        "model"_a,
+        "mu"_a,
+        "min_feature_size"_a,
+        "max_refinements"_a = -1,
+        "use_weyl_bounds"_a = true,
+        "tol"_a = 1e-14
+    );
+    m.def(
+        "_product_simplex_triangulation_cells",
+        &product_simplex_triangulation_cells,
+        "negative_count"_a,
+        "positive_count"_a
+    );
+    m.def("_reset_lanczos_stats", &reset_lanczos_stats);
+    m.def(
+        "_lanczos_stats",
+        []() {
+            const auto stats = lanczos_stats();
+            nb::dict result;
+            result["calls"] = stats.calls;
+            result["iterations"] = stats.iterations;
+            result["ritz_checks"] = stats.ritz_checks;
+            result["converged_by_uncertainty"] = stats.converged_by_uncertainty;
+            result["converged_at_full_dimension"] = stats.converged_at_full_dimension;
+            result["converged_by_zero_residual"] = stats.converged_by_zero_residual;
+            result["lanczos_nanoseconds"] = stats.lanczos_nanoseconds;
+            result["derivative_calls"] = stats.derivative_calls;
+            result["derivative_assembly_nanoseconds"] = stats.derivative_assembly_nanoseconds;
+            result["derivative_total_nanoseconds"] = stats.derivative_total_nanoseconds;
+            return result;
+        }
+    );
+    m.def("_reset_fermi_surface_stats", &reset_fermi_surface_stats);
+    m.def(
+        "_fermi_surface_stats",
+        []() {
+            const auto stats = fermi_surface_stats();
+            nb::dict result;
+            result["vertex_evaluation_nanoseconds"] = stats.vertex_evaluation_nanoseconds;
+            result["marking_nanoseconds"] = stats.marking_nanoseconds;
+            result["refinement_nanoseconds"] = stats.refinement_nanoseconds;
+            result["extraction_nanoseconds"] = stats.extraction_nanoseconds;
+            result["total_nanoseconds"] = stats.total_nanoseconds;
+            result["vertex_evaluation_calls"] = stats.vertex_evaluation_calls;
+            result["evaluated_vertices"] = stats.evaluated_vertices;
+            result["marking_passes"] = stats.marking_passes;
+            result["active_simplex_visits"] = stats.active_simplex_visits;
+            result["cached_decisions"] = stats.cached_decisions;
+            result["classified_simplices"] = stats.classified_simplices;
+            result["marked_simplices"] = stats.marked_simplices;
+            result["terminal_cached_simplices"] = stats.terminal_cached_simplices;
+            result["refinement_calls"] = stats.refinement_calls;
+            return result;
+        }
+    );
 }
 
 }  // namespace lineartetrahedron

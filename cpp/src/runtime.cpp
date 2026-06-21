@@ -122,12 +122,13 @@ ChargeIntegrateResult IntegrationRuntime::integrate_charge(
         use_weyl_bounds
             ? std::nextafter(options.target_error, std::numeric_limits<double>::infinity())
             : 0.0;
+    auto weyl_marker_cache = ChargeWeylMarkerCache{};
     auto integrand = adaptive::simplex_integrand(
         workspace_.cache(),
         [this](std::span<const double> point) {
             return workspace_.evaluate_vertex(point);
         },
-        [this, mu, weyl_indicator_error](
+        [this, mu, weyl_indicator_error, &weyl_marker_cache](
             const core::Geometry &geometry,
             core::SimplexId simplex_id,
             const core::VertexCache<VertexSpectra> &cache
@@ -138,7 +139,8 @@ ChargeIntegrateResult IntegrationRuntime::integrate_charge(
                 geometry,
                 simplex_id,
                 cache,
-                weyl_indicator_error
+                weyl_indicator_error,
+                &weyl_marker_cache
             );
         },
         adaptive::estimation_policies<ChargeStoppingError, ChargeRefinementScore>{}
@@ -165,12 +167,13 @@ ChargeIntegrateResult IntegrationRuntime::evaluate_charge(
         use_weyl_bounds
             ? std::nextafter(options.target_error, std::numeric_limits<double>::infinity())
             : 0.0;
+    auto weyl_marker_cache = ChargeWeylMarkerCache{};
     auto integrand = adaptive::simplex_integrand(
         workspace_.cache(),
         [this](std::span<const double> point) {
             return workspace_.evaluate_vertex(point);
         },
-        [this, mu, weyl_indicator_error](
+        [this, mu, weyl_indicator_error, &weyl_marker_cache](
             const core::Geometry &geometry,
             core::SimplexId simplex_id,
             const core::VertexCache<VertexSpectra> &cache
@@ -181,7 +184,8 @@ ChargeIntegrateResult IntegrationRuntime::evaluate_charge(
                 geometry,
                 simplex_id,
                 cache,
-                weyl_indicator_error
+                weyl_indicator_error,
+                &weyl_marker_cache
             );
         },
         adaptive::estimation_policies<ChargeStoppingError, ChargeRefinementScore>{}

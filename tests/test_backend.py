@@ -7,6 +7,7 @@ from lineartetrahedron import (
     AdaptiveOptions,
     Runtime,
     density_matrix_at_mu_zero_temp,
+    fermi_surface,
 )
 from lineartetrahedron.backend import _tb_to_tight_binding_model
 
@@ -27,6 +28,17 @@ def _cosine_band(ndim: int) -> dict[tuple[int, ...], np.ndarray]:
         key[axis] = -1
         tb[tuple(key)] = np.array([[0.5]], dtype=complex)
     return tb
+
+
+def _axis_cosine_band(ndim: int) -> dict[tuple[int, ...], np.ndarray]:
+    positive = [0] * ndim
+    positive[0] = 1
+    negative = [0] * ndim
+    negative[0] = -1
+    return {
+        tuple(positive): np.array([[0.5]], dtype=complex),
+        tuple(negative): np.array([[0.5]], dtype=complex),
+    }
 
 
 def _aliased_pocket_band() -> dict[tuple[int, ...], np.ndarray]:
@@ -80,6 +92,17 @@ def test_lanczos_spectral_norms_match_numpy_reference():
 
 
 @requires_native
+def test_product_simplex_triangulation_is_dimension_general():
+    from lineartetrahedron import _native
+
+    assert _native._product_simplex_triangulation_cells(1, 1) == [0]
+    assert _native._product_simplex_triangulation_cells(1, 2) == [0, 1]
+    assert _native._product_simplex_triangulation_cells(1, 3) == [0, 1, 2]
+    assert len(_native._product_simplex_triangulation_cells(2, 2)) == 6
+    assert len(_native._product_simplex_triangulation_cells(2, 3)) == 12
+
+
+@requires_native
 def test_hessian_local_bound_can_certify_global_uncertainty_safe():
     tb = {
         (0,): np.array([[2.0]], dtype=complex),
@@ -105,7 +128,80 @@ def test_hessian_local_bound_can_certify_global_uncertainty_safe():
 
 
 @requires_native
-@pytest.mark.parametrize("ndim", (1, 2, 3))
+@pytest.mark.parametrize("ndim", (1, 2, 3, 4))
+def test_fermi_surface_extracts_nd_level_set(ndim):
+    mu = 0.3
+    feature_size = {1: 0.6, 2: 0.6, 3: 1.5, 4: 3.5}[ndim]
+    surface = fermi_surface(
+        _axis_cosine_band(ndim),
+        mu=mu,
+        min_feature_size=feature_size,
+        max_refinements=5000,
+        use_weyl_bounds=False,
+    )
+
+    assert surface.points.shape[1] == ndim
+    assert surface.cells.shape[1] == ndim
+    assert surface.converged
+    assert surface.n_unresolved_simplices == 0
+    assert surface.points.shape[0] > 0
+    assert surface.cells.shape[0] > 0
+    assert np.max(np.abs(np.cos(surface.points[:, 0]) - mu)) < 0.2
+
+
+@requires_native
+def test_fermi_surface_reports_unresolved_when_refinement_budget_exhausted():
+    surface = fermi_surface(
+        _axis_cosine_band(1),
+        mu=0.0,
+        min_feature_size=0.1,
+        max_refinements=0,
+    )
+
+    assert not surface.converged
+    assert surface.n_unresolved_simplices > 0
+
+
+@requires_native
+def test_fermi_surface_weyl_refines_missed_pocket():
+    surface = fermi_surface(
+        _aliased_pocket_band(),
+        mu=0.0,
+        min_feature_size=0.4,
+        max_refinements=256,
+    )
+
+    assert surface.refinements > 0
+    assert surface.points.shape[1] == 1
+
+
+@requires_native
+def test_fermi_surface_weyl_cache_preserves_metadata():
+    first = fermi_surface(
+        _aliased_pocket_band(),
+        mu=0.0,
+        min_feature_size=0.4,
+        max_refinements=256,
+        use_weyl_bounds=True,
+    )
+    second = fermi_surface(
+        _aliased_pocket_band(),
+        mu=0.0,
+        min_feature_size=0.4,
+        max_refinements=256,
+        use_weyl_bounds=True,
+    )
+
+    assert second.converged == first.converged
+    assert second.refinements == first.refinements
+    assert second.n_active_simplices == first.n_active_simplices
+    assert second.n_unresolved_simplices == first.n_unresolved_simplices
+    assert second.points.shape == first.points.shape
+    assert second.cells.shape == first.cells.shape
+
+
+@requires_native
+@pytest.mark.parametrize("ndim", (1, 2, 3, 4))
 def test_runtime_accepts_physical_dimensions(ndim):
     tb = _constant_insulator(ndim)
     key = (0,) * ndim
@@ -175,7 +271,7 @@ def test_charge_derivative_matches_linear_1d_reference():
 
 
 @requires_native
-@pytest.mark.parametrize("ndim", (2, 3))
+@pytest.mark.parametrize("ndim", (2, 3, 4))
 def test_charge_derivative_is_finite_and_nonnegative_for_higher_dimensions(ndim):
     tb = _cosine_band(ndim)
     runtime = Runtime(tb, keys=[(0,) * ndim])
@@ -214,18 +310,17 @@ def test_weyl_bounds_participate_in_charge_stopping_error():
 
 
 @requires_native
-def test_runtime_rejects_higher_dimensions():
-    tb = _constant_insulator(4)
-    key = (0, 0, 0, 0)
+def test_weyl_charge_marker_cache_preserves_evaluation_result():
+    runtime = Runtime(_aliased_pocket_band(), keys=[(0,)])
+    options = AdaptiveOptions(target_error=1e-3, max_refinements=0, preview_depth=2)
 
-    with pytest.raises(ValueError, match="supports dimensions 1, 2, and 3"):
-        density_matrix_at_mu_zero_temp(
-            tb,
-            mu=0.0,
-            keys=[key],
-            density_atol=1e-12,
-            max_subdivisions=8,
-        )
+    first = runtime.evaluate_charge(0.0, options, use_weyl_bounds=True)
+    second = runtime.evaluate_charge(0.0, options, use_weyl_bounds=True)
+
+    assert second.charge == pytest.approx(first.charge)
+    assert second.charge_error == pytest.approx(first.charge_error)
+    assert second.dcharge_dmu == pytest.approx(first.dcharge_dmu)
+    assert second.converged == first.converged
 
 
 @requires_native

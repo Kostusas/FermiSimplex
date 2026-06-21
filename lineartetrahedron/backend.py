@@ -7,12 +7,14 @@ import numpy as np
 
 try:
     from ._native import AdaptiveOptions, IntegrationRuntime, TightBindingModel
+    from ._native import fermi_surface as _native_fermi_surface
 
     NATIVE_AVAILABLE = True
 except ImportError:  # pragma: no cover - exercised when extension is unavailable
     AdaptiveOptions = None
     IntegrationRuntime = None
     TightBindingModel = None
+    _native_fermi_surface = None
     NATIVE_AVAILABLE = False
 
 _tb_type = dict[tuple[int, ...], np.ndarray]
@@ -26,6 +28,18 @@ class DensityIntegrationInfo:
     n_active_simplices: int
     n_active_vertices: int
     subdivisions: int
+
+
+@dataclass(frozen=True)
+class FermiSurface:
+    points: np.ndarray
+    cells: np.ndarray
+    converged: bool
+    refinements: int
+    n_active_simplices: int
+    n_active_vertices: int
+    n_unresolved_simplices: int
+    min_feature_size: float
 
 
 def _is_sparse_like(matrix: Any) -> bool:
@@ -44,8 +58,8 @@ def _validate_dense_tb(tb: _tb_type) -> None:
     if not tb:
         raise ValueError("Tight-binding Hamiltonian cannot be empty")
     ndim = len(next(iter(tb)))
-    if ndim < 1 or ndim > 3:
-        raise ValueError("LinearTetrahedron supports dimensions 1, 2, and 3")
+    if ndim < 1:
+        raise ValueError("Tight-binding Hamiltonian dimension must be positive")
     ndof: int | None = None
     for key, matrix in tb.items():
         if len(tuple(key)) != ndim:
@@ -62,6 +76,14 @@ def _validate_dense_tb(tb: _tb_type) -> None:
 
 
 def _tb_to_tight_binding_model(tb: _tb_type):
+    _require_native_extension()
+    _validate_dense_tb(tb)
+    keys = np.asarray([tuple(key) for key in tb.keys()], dtype=np.int64, order="C")
+    matrices = np.asarray([np.asarray(value) for value in tb.values()], dtype=np.complex128, order="C")
+    return TightBindingModel(keys, matrices)
+
+
+def _tb_to_general_tight_binding_model(tb: _tb_type):
     _require_native_extension()
     _validate_dense_tb(tb)
     keys = np.asarray([tuple(key) for key in tb.keys()], dtype=np.int64, order="C")
@@ -290,3 +312,36 @@ def density_matrix_at_mu_zero_temp(
             max_refinements=-1 if max_subdivisions is None else int(max_subdivisions),
         )
     return runtime.integrate_density(float(mu), options)
+
+
+def fermi_surface(
+    h: _tb_type,
+    *,
+    mu: float,
+    min_feature_size: float,
+    max_refinements: int | None = None,
+    use_weyl_bounds: bool = True,
+    tol: float = _GEOM_TOL,
+) -> FermiSurface:
+    _require_native_extension()
+    if _native_fermi_surface is None:
+        raise RuntimeError("Fermi surface extraction requires the compiled native extension")
+    model = _tb_to_general_tight_binding_model(h)
+    result = _native_fermi_surface(
+        model,
+        float(mu),
+        float(min_feature_size),
+        -1 if max_refinements is None else int(max_refinements),
+        bool(use_weyl_bounds),
+        float(tol),
+    )
+    return FermiSurface(
+        points=np.asarray(result.points_array()),
+        cells=np.asarray(result.cells_array()),
+        converged=bool(result.converged),
+        refinements=int(result.refinements),
+        n_active_simplices=int(result.n_active_simplices),
+        n_active_vertices=int(result.n_active_vertices),
+        n_unresolved_simplices=int(result.n_unresolved_simplices),
+        min_feature_size=float(result.min_feature_size),
+    )

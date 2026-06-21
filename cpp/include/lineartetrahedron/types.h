@@ -77,4 +77,16 @@ struct DensityIntegrateResult {
     bool converged = false;
 };
 
+struct FermiSurfaceResult {
+    std::vector<double> points;
+    std::vector<std::int64_t> cells;
+    size_t ndim = 0;
+    bool converged = false;
+    std::int64_t refinements = 0;
+    std::int64_t n_active_simplices = 0;
+    std::int64_t n_active_vertices = 0;
+    std::int64_t n_unresolved_simplices = 0;
+    double min_feature_size = 0.0;
+};
+
 }  // namespace lineartetrahedron

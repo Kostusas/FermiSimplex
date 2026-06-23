@@ -11,6 +11,11 @@ surface = fermi_surface(H, mu=0.0, min_feature_size=0.01)
 `surface.points` contains reduced-coordinate surface points, and
 `surface.cells` indexes line segments into those points for 2D plots.
 
+Coordinates passed to the Hamiltonian are normalized. In 2D, `kx=0` and
+`kx=1` are the same reciprocal-lattice point, and the physical phase convention
+for a tight-binding term with lattice vector `R` is
+`exp(-2j * pi * dot(k, R))`.
+
 ## Install
 
 Recommended: use Pixi to provide the compiler, CMake/Ninja, BLAS/LAPACK, and
@@ -39,6 +44,7 @@ from lineartetrahedron import fermi_surface
 
 
 def H(kx, ky):
+    # kx and ky are reduced coordinates in [0, 1].
     x = 2.0 * np.pi * kx
     y = 2.0 * np.pi * ky
     scalar = -0.12 + 0.42 * np.cos(x) - 0.34 * np.cos(y) + 0.16 * np.cos(x + y)
@@ -81,9 +87,42 @@ surface = fermi_surface(
 - a tight-binding dictionary `{tuple[int, ...]: np.ndarray}`;
 - a callable with explicit scalar arguments, such as `H(kx, ky)`.
 
+For callable Hamiltonians:
+
+- the number of required positional arguments is the dimension;
+- each argument is a reduced coordinate in `[0, 1]`;
+- the callable must return a dense square NumPy-compatible matrix;
+- vector-style callables such as `H(k)` are intentionally not accepted.
+
+For tight-binding dictionaries, keys are integer lattice vectors and values are
+dense square hopping matrices. The Hamiltonian is evaluated as
+
+```python
+H(k) = sum(H_R * exp(-2j * pi * dot(k, R)) for R, H_R in hamiltonian.items())
+```
+
+where `k` is reduced-coordinate.
+
+`min_feature_size` is the target smallest simplex edge length in reduced
+Brillouin-zone units. For example, `min_feature_size=0.01` means the adaptive
+mesh keeps refining visible or unresolved Fermi-surface regions until triangle
+edges are about one percent of the reduced-zone side length, unless they are
+certified safe earlier. Smaller values give sharper Fermi surfaces and require
+more diagonalizations.
+
 `max_diagonalizations` is optional and caps unique mesh-vertex diagonalizations.
 If the cap is hit before the adaptive run finishes, `surface.converged` is
 `False`.
+
+Useful result fields:
+
+- `surface.points`: array with shape `(n_points, ndim)`;
+- `surface.cells`: array with shape `(n_cells, ndim)`, line segments in 2D;
+- `surface.converged`: whether all active simplices reached a terminal decision;
+- `surface.stats.evaluated_vertices`: number of unique Hamiltonian
+  diagonalizations;
+- `surface.parameters`: resolved `mu`, `min_feature_size`, dimension, and matrix
+  size.
 
 ## Development
 

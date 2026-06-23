@@ -80,7 +80,12 @@ struct DensityIntegrateResult {
 struct FermiSurfaceResult {
     std::vector<double> points;
     std::vector<std::int64_t> cells;
+    std::vector<std::int64_t> state_band_indices;
+    std::vector<double> state_eigenvalues;
+    std::vector<std::complex<double>> state_eigenvectors;
     size_t ndim = 0;
+    size_t ndof = 0;
+    bool has_states = false;
     bool converged = false;
     std::int64_t refinements = 0;
     std::int64_t n_active_simplices = 0;

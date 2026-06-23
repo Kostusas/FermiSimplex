@@ -145,14 +145,16 @@ FermiSurfaceResult fermi_surface(
     double mu,
     double min_feature_size,
     std::int64_t max_diagonalizations,
-    double tol
+    double tol,
+    bool return_nearest_vertex_states
 ) {
     return fermi_surface_from_model(
         std::static_pointer_cast<const HamiltonianModel>(std::move(model)),
         mu,
         min_feature_size,
         max_diagonalizations,
-        tol
+        tol,
+        return_nearest_vertex_states
     );
 }
 
@@ -161,7 +163,8 @@ FermiSurfaceResult fermi_surface_from_model(
     double mu,
     double min_feature_size,
     std::int64_t max_diagonalizations,
-    double tol
+    double tol,
+    bool return_nearest_vertex_states
 ) {
     using namespace fermi_surface_detail;
 
@@ -178,6 +181,8 @@ FermiSurfaceResult fermi_surface_from_model(
 
     FermiSurfaceResult result;
     result.ndim = model->ndim();
+    result.ndof = model->ndof();
+    result.has_states = return_nearest_vertex_states;
     result.min_feature_size = min_feature_size;
 
     auto geometry = make_fermi_geometry(model->ndim());
@@ -252,6 +257,7 @@ FermiSurfaceResult fermi_surface_from_model(
         ),
         mu,
         tol,
+        return_nearest_vertex_states,
         result
     );
     fermi_surface_stats_.extraction_nanoseconds += nanoseconds_since(extraction_start);

@@ -79,6 +79,7 @@ surface = fermi_surface(
     mu=0.0,
     min_feature_size=0.01,
     max_diagonalizations=None,
+    return_states=False,
 )
 ```
 
@@ -113,6 +114,26 @@ more diagonalizations.
 `max_diagonalizations` is optional and caps unique mesh-vertex diagonalizations.
 If the cap is hit before the adaptive run finishes, `surface.converged` is
 `False`.
+
+Set `return_states=True` to attach approximate eigenstates to the extracted
+Fermi-surface points:
+
+```python
+surface = fermi_surface(H, mu=0.0, min_feature_size=0.01, return_states=True)
+states = surface.states
+```
+
+For each Fermi point, the state is copied from the endpoint vertex of the
+crossing edge whose band eigenvalue is closest to `mu`. This is cheap and useful
+for local expectation values such as spin, orbital, sublattice, or layer weight.
+The phases are whatever the diagonalizer returned, so these states should not be
+used directly for Berry phases or derivatives along the Fermi contour.
+
+When states are requested:
+
+- `surface.states.band_indices`: crossing band for each point;
+- `surface.states.eigenvalues`: selected endpoint eigenvalue;
+- `surface.states.eigenvectors`: selected endpoint eigenvector.
 
 Useful result fields:
 

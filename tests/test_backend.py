@@ -129,6 +129,42 @@ def test_fermi_surface_callable_matches_tight_binding_dict():
         np.sort(tb_surface.points[:, 0]),
         atol=0.04,
     )
+    assert callable_surface.states is None
+
+
+@requires_native
+def test_fermi_surface_can_return_states():
+    def two_band(kx: float) -> np.ndarray:
+        value = np.cos(2.0 * np.pi * kx)
+        return np.array([[value, 0.0], [0.0, 2.0]], dtype=complex)
+
+    surface = fermi_surface(
+        two_band,
+        mu=0.25,
+        min_feature_size=0.03,
+        return_states=True,
+    )
+
+    assert surface.states is not None
+    states = surface.states
+    assert states.band_indices.shape == (surface.points.shape[0],)
+    assert states.eigenvalues.shape == (surface.points.shape[0],)
+    assert states.eigenvectors.shape == (surface.points.shape[0], 2)
+    assert np.all(states.band_indices == 0)
+    assert np.max(np.abs(np.linalg.norm(states.eigenvectors, axis=1) - 1.0)) < 1e-12
+    orbital_weight = np.abs(states.eigenvectors[:, 0]) ** 2
+    assert np.allclose(orbital_weight, 1.0)
+
+
+@requires_native
+def test_fermi_surface_rejects_unknown_return_states_mode():
+    with pytest.raises(TypeError, match="return_states"):
+        fermi_surface(
+            _axis_cosine_band(1),
+            mu=0.25,
+            min_feature_size=0.03,
+            return_states="interpolated",
+        )
 
 
 @requires_native

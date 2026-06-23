@@ -88,14 +88,16 @@ FermiSurfaceResult fermi_surface_callable(
     double mu,
     double min_feature_size,
     std::int64_t max_diagonalizations,
-    double tol
+    double tol,
+    bool return_nearest_vertex_states
 ) {
     return fermi_surface_from_model(
         std::make_shared<PythonHamiltonianModel>(std::move(callable), ndim, ndof),
         mu,
         min_feature_size,
         max_diagonalizations,
-        tol
+        tol,
+        return_nearest_vertex_states
     );
 }
 
@@ -163,7 +165,36 @@ NB_MODULE(_native, m) {
                 );
             }
         )
+        .def(
+            "state_band_indices_array",
+            [](const FermiSurfaceResult &self) {
+                return make_array(
+                    std::vector<std::int64_t>(self.state_band_indices),
+                    {self.state_band_indices.size()}
+                );
+            }
+        )
+        .def(
+            "state_eigenvalues_array",
+            [](const FermiSurfaceResult &self) {
+                return make_array(
+                    std::vector<double>(self.state_eigenvalues),
+                    {self.state_eigenvalues.size()}
+                );
+            }
+        )
+        .def(
+            "state_eigenvectors_array",
+            [](const FermiSurfaceResult &self) {
+                return make_array(
+                    std::vector<std::complex<double>>(self.state_eigenvectors),
+                    {self.state_eigenvectors.size() / self.ndof, self.ndof}
+                );
+            }
+        )
         .def_prop_ro("ndim", [](const FermiSurfaceResult &self) { return self.ndim; })
+        .def_prop_ro("ndof", [](const FermiSurfaceResult &self) { return self.ndof; })
+        .def_prop_ro("has_states", [](const FermiSurfaceResult &self) { return self.has_states; })
         .def_prop_ro("converged", [](const FermiSurfaceResult &self) { return self.converged; })
         .def_prop_ro("refinements", [](const FermiSurfaceResult &self) { return self.refinements; })
         .def_prop_ro("n_active_simplices", [](const FermiSurfaceResult &self) { return self.n_active_simplices; })
@@ -249,7 +280,8 @@ NB_MODULE(_native, m) {
         "mu"_a,
         "min_feature_size"_a,
         "max_diagonalizations"_a = -1,
-        "tol"_a = 1e-14
+        "tol"_a = 1e-14,
+        "return_states"_a = false
     );
     m.def(
         "fermi_surface_callable",
@@ -260,7 +292,8 @@ NB_MODULE(_native, m) {
         "mu"_a,
         "min_feature_size"_a,
         "max_diagonalizations"_a = -1,
-        "tol"_a = 1e-14
+        "tol"_a = 1e-14,
+        "return_states"_a = false
     );
     m.def(
         "_product_simplex_triangulation_cells",

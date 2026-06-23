@@ -33,7 +33,8 @@ FermiSurfaceResult fermi_surface(
     double mu,
     double min_feature_size,
     std::int64_t max_diagonalizations,
-    double tol
+    double tol,
+    bool return_nearest_vertex_states = false
 );
 
 FermiSurfaceResult fermi_surface_from_model(
@@ -41,7 +42,8 @@ FermiSurfaceResult fermi_surface_from_model(
     double mu,
     double min_feature_size,
     std::int64_t max_diagonalizations,
-    double tol
+    double tol,
+    bool return_nearest_vertex_states = false
 );
 
 std::vector<std::int64_t> product_simplex_triangulation_cells(size_t negative_count, size_t positive_count);

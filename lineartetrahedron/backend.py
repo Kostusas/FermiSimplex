@@ -66,12 +66,20 @@ class FermiSurfaceParameters:
 
 
 @dataclass(frozen=True)
+class FermiSurfaceStates:
+    band_indices: np.ndarray
+    eigenvalues: np.ndarray
+    eigenvectors: np.ndarray
+
+
+@dataclass(frozen=True)
 class FermiSurface:
     points: np.ndarray
     cells: np.ndarray
     converged: bool
     stats: FermiSurfaceStats
     parameters: FermiSurfaceParameters
+    states: FermiSurfaceStates | None = None
 
 
 def _is_sparse_like(matrix: Any) -> bool:
@@ -430,6 +438,7 @@ def fermi_surface(
     mu: float = 0.0,
     min_feature_size: float,
     max_diagonalizations: int | None = None,
+    return_states: bool = False,
 ) -> FermiSurface:
     _require_native_extension()
     if (
@@ -443,6 +452,8 @@ def fermi_surface(
     if not np.isfinite(feature_size) or feature_size <= 0.0:
         raise ValueError("min_feature_size must be positive")
     max_diag_native = _normalize_max_diagonalizations(max_diagonalizations)
+    if not isinstance(return_states, bool):
+        raise TypeError("return_states must be a bool")
 
     if isinstance(hamiltonian, dict):
         model = _tb_to_tight_binding_model(hamiltonian)
@@ -455,6 +466,7 @@ def fermi_surface(
             feature_size,
             max_diag_native,
             _GEOM_TOL,
+            return_states,
         )
     elif callable(hamiltonian):
         wrapped, ndim, ndof = _prepare_callable_hamiltonian(hamiltonian)
@@ -467,11 +479,19 @@ def fermi_surface(
             feature_size,
             max_diag_native,
             _GEOM_TOL,
+            return_states,
         )
     else:
         raise TypeError("hamiltonian must be a tight-binding dict or a callable")
 
     native_stats = _native_fermi_surface_stats()
+    states = None
+    if bool(result.has_states):
+        states = FermiSurfaceStates(
+            band_indices=np.asarray(result.state_band_indices_array()),
+            eigenvalues=np.asarray(result.state_eigenvalues_array()),
+            eigenvectors=np.asarray(result.state_eigenvectors_array()),
+        )
     return FermiSurface(
         points=np.asarray(result.points_array()),
         cells=np.asarray(result.cells_array()),
@@ -484,4 +504,5 @@ def fermi_surface(
             ndim=ndim,
             ndof=ndof,
         ),
+        states=states,
     )

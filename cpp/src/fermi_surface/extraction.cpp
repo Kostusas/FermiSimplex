@@ -1,5 +1,6 @@
 #include "internal.h"
 
+#include <cmath>
 #include <span>
 #include <stdexcept>
 #include <vector>
@@ -55,6 +56,28 @@ void append_product_cells(
     }
 }
 
+void append_nearest_vertex_state(
+    const SpectraCache &cache,
+    core::VertexId left_vertex_id,
+    core::VertexId right_vertex_id,
+    size_t band,
+    double mu,
+    FermiSurfaceResult &result
+) {
+    const auto &left_spectra = cache.get(left_vertex_id);
+    const auto &right_spectra = cache.get(right_vertex_id);
+    const auto left_distance = std::abs(left_spectra.eigenvalues[band] - mu);
+    const auto right_distance = std::abs(right_spectra.eigenvalues[band] - mu);
+    const auto use_left = left_distance <= right_distance;
+    const auto &spectra = use_left ? left_spectra : right_spectra;
+
+    result.state_band_indices.push_back(static_cast<std::int64_t>(band));
+    result.state_eigenvalues.push_back(spectra.eigenvalues[band]);
+    for (size_t row = 0; row < result.ndof; ++row) {
+        result.state_eigenvectors.push_back(spectra.eigenvectors[band * result.ndof + row]);
+    }
+}
+
 void extract_band_surface(
     const core::Geometry &geometry,
     const SpectraCache &cache,
@@ -62,6 +85,7 @@ void extract_band_surface(
     size_t band,
     double mu,
     double tol,
+    bool return_nearest_vertex_states,
     FermiSurfaceResult &result
 ) {
     const auto &simplex = geometry.simplices().simplex(simplex_id);
@@ -100,6 +124,16 @@ void extract_band_surface(
             const auto point_index =
                 static_cast<std::int64_t>(result.points.size() / result.ndim);
             result.points.insert(result.points.end(), point.begin(), point.end());
+            if (return_nearest_vertex_states) {
+                append_nearest_vertex_state(
+                    cache,
+                    simplex.vertex_ids[left],
+                    simplex.vertex_ids[right],
+                    band,
+                    mu,
+                    result
+                );
+            }
             crossing_indices[neg_index * positive.size() + pos_index] = point_index;
         }
     }
@@ -114,11 +148,21 @@ void extract_surface_impl(
     std::span<const core::SimplexId> simplex_ids,
     double mu,
     double tol,
+    bool return_nearest_vertex_states,
     FermiSurfaceResult &result
 ) {
     for (const auto simplex_id : simplex_ids) {
         for (size_t band = 0; band < model.ndof(); ++band) {
-            extract_band_surface(geometry, cache, simplex_id, band, mu, tol, result);
+            extract_band_surface(
+                geometry,
+                cache,
+                simplex_id,
+                band,
+                mu,
+                tol,
+                return_nearest_vertex_states,
+                result
+            );
         }
     }
 }
@@ -174,9 +218,19 @@ void extract_surface(
     std::span<const core::SimplexId> simplex_ids,
     double mu,
     double tol,
+    bool return_nearest_vertex_states,
     FermiSurfaceResult &result
 ) {
-    extract_surface_impl(model, geometry, cache, simplex_ids, mu, tol, result);
+    extract_surface_impl(
+        model,
+        geometry,
+        cache,
+        simplex_ids,
+        mu,
+        tol,
+        return_nearest_vertex_states,
+        result
+    );
 }
 
 }  // namespace lineartetrahedron::fermi_surface_detail

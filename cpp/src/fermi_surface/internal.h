@@ -96,6 +96,7 @@ void extract_surface(
     std::span<const core::SimplexId> simplex_ids,
     double mu,
     double tol,
+    bool return_nearest_vertex_states,
     FermiSurfaceResult &result
 );
 

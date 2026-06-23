@@ -1,7 +1,6 @@
 #pragma once
 
 #include "lineartetrahedron/integration_workspace.h"
-#include "lineartetrahedron/simplex_certificate.h"
 #include "lineartetrahedron/types.h"
 #include "lineartetrahedron/vertex_spectra.h"
 

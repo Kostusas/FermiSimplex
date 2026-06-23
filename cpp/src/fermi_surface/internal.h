@@ -2,7 +2,6 @@
 
 #include "lineartetrahedron/fermi_surface.h"
 #include "lineartetrahedron/simplex_certificate.h"
-#include "lineartetrahedron/tight_binding.h"
 #include "lineartetrahedron/vertex_spectra.h"
 
 #include <adaptivesimplex/core/geometry.h>
@@ -30,22 +29,30 @@ core::Geometry make_fermi_geometry(size_t ndim);
 
 std::vector<core::SimplexId> active_simplices(const core::Geometry &geometry);
 
-template <class Cache, class Evaluator>
-void evaluate_missing_vertices(
+template <class Cache>
+std::vector<core::VertexId> missing_vertices_for(
     core::Geometry &geometry,
     Cache &cache,
-    const Evaluator &evaluator,
     const std::vector<core::SimplexId> &simplex_ids
 ) {
-    const auto start = Clock::now();
-    const auto missing = geometry.missing_vertices(
+    return geometry.missing_vertices(
         std::span<const core::SimplexId>(simplex_ids.data(), simplex_ids.size()),
         cache,
         0
     );
+}
+
+template <class Cache, class Evaluator>
+void evaluate_vertices(
+    core::Geometry &geometry,
+    Cache &cache,
+    const Evaluator &evaluator,
+    std::span<const core::VertexId> vertex_ids
+) {
+    const auto start = Clock::now();
     ++fermi_surface_stats_.vertex_evaluation_calls;
-    fermi_surface_stats_.evaluated_vertices += missing.size();
-    for (const auto vertex_id : missing) {
+    fermi_surface_stats_.evaluated_vertices += vertex_ids.size();
+    for (const auto vertex_id : vertex_ids) {
         const auto reduced_point = geometry.vertices().dyadic_vertex(vertex_id).to_point();
         cache.insert(
             vertex_id,
@@ -57,8 +64,25 @@ void evaluate_missing_vertices(
     fermi_surface_stats_.vertex_evaluation_nanoseconds += nanoseconds_since(start);
 }
 
+template <class Cache, class Evaluator>
+void evaluate_missing_vertices(
+    core::Geometry &geometry,
+    Cache &cache,
+    const Evaluator &evaluator,
+    const std::vector<core::SimplexId> &simplex_ids
+) {
+    const auto missing = missing_vertices_for(geometry, cache, simplex_ids);
+    evaluate_vertices(
+        geometry,
+        cache,
+        evaluator,
+        std::span<const core::VertexId>(missing.data(), missing.size())
+    );
+}
+
 struct MarkResult {
     std::vector<core::SimplexId> marked;
+    std::vector<core::SimplexId> surface_terminal;
     std::int64_t safe = 0;
     std::int64_t cut = 0;
     std::int64_t feature_size = 0;
@@ -66,9 +90,10 @@ struct MarkResult {
 };
 
 void extract_surface(
-    const TightBindingModel &model,
+    const HamiltonianModel &model,
     const core::Geometry &geometry,
     const SpectraCache &cache,
+    std::span<const core::SimplexId> simplex_ids,
     double mu,
     double tol,
     FermiSurfaceResult &result

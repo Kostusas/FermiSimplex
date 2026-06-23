@@ -17,7 +17,7 @@ namespace fermi_surface_detail {
 
 namespace {
 
-double max_physical_edge_length(
+double max_reduced_edge_length(
     const core::Geometry &geometry,
     core::SimplexId simplex_id
 ) {
@@ -31,7 +31,7 @@ double max_physical_edge_length(
                 geometry.vertices().dyadic_vertex(simplex.vertex_ids[right]).to_point();
             auto squared = 0.0;
             for (size_t axis = 0; axis < geometry.ndim(); ++axis) {
-                const auto delta = 2.0 * kPi * (left_point[axis] - right_point[axis]);
+                const auto delta = left_point[axis] - right_point[axis];
                 squared += delta * delta;
             }
             result = std::max(result, std::sqrt(squared));
@@ -53,7 +53,7 @@ MarkResult classify_frontier(
     for (const auto simplex_id : frontier) {
         ++fermi_surface_stats_.active_simplex_visits;
         ++fermi_surface_stats_.classified_simplices;
-        const auto refinable = max_physical_edge_length(geometry, simplex_id) > min_feature_size;
+        const auto refinable = max_reduced_edge_length(geometry, simplex_id) > min_feature_size;
         const auto decision = simplex_certificate::classify_rotated_vertex_frame_simplex(
             mu,
             geometry,
@@ -69,12 +69,14 @@ MarkResult classify_frontier(
                 result.marked.push_back(simplex_id);
                 ++fermi_surface_stats_.marked_simplices;
             } else {
+                result.surface_terminal.push_back(simplex_id);
                 ++result.cut;
             }
         } else if (refinable) {
             result.marked.push_back(simplex_id);
             ++fermi_surface_stats_.marked_simplices;
         } else {
+            result.surface_terminal.push_back(simplex_id);
             ++result.feature_size;
         }
     }
@@ -142,7 +144,23 @@ FermiSurfaceResult fermi_surface(
     std::shared_ptr<TightBindingModel> model,
     double mu,
     double min_feature_size,
-    std::int64_t max_refinements,
+    std::int64_t max_diagonalizations,
+    double tol
+) {
+    return fermi_surface_from_model(
+        std::static_pointer_cast<const HamiltonianModel>(std::move(model)),
+        mu,
+        min_feature_size,
+        max_diagonalizations,
+        tol
+    );
+}
+
+FermiSurfaceResult fermi_surface_from_model(
+    std::shared_ptr<const HamiltonianModel> model,
+    double mu,
+    double min_feature_size,
+    std::int64_t max_diagonalizations,
     double tol
 ) {
     using namespace fermi_surface_detail;
@@ -166,16 +184,26 @@ FermiSurfaceResult fermi_surface(
     auto cache = SpectraCache{};
     auto evaluator = VertexSpectraEvaluator(model);
     auto frontier = active_simplices(geometry);
-    auto remaining = max_refinements;
+    std::vector<core::SimplexId> terminal_surface_simplices;
 
     while (!frontier.empty()) {
-        if (remaining == 0) {
+        const auto missing = missing_vertices_for(geometry, cache, frontier);
+        if (
+            max_diagonalizations >= 0 &&
+            fermi_surface_stats_.evaluated_vertices + missing.size() >
+                static_cast<std::uint64_t>(max_diagonalizations)
+        ) {
             result.converged = false;
             result.n_unresolved_simplices += static_cast<std::int64_t>(frontier.size());
             break;
         }
 
-        evaluate_missing_vertices(geometry, cache, evaluator, frontier);
+        evaluate_vertices(
+            geometry,
+            cache,
+            evaluator,
+            std::span<const core::VertexId>(missing.data(), missing.size())
+        );
         const auto marking_start = Clock::now();
         auto marks = classify_frontier(
             geometry,
@@ -190,6 +218,11 @@ FermiSurfaceResult fermi_surface(
         result.n_cut_simplices += marks.cut;
         result.n_feature_size_simplices += marks.feature_size;
         result.n_unresolved_simplices += marks.unresolved;
+        terminal_surface_simplices.insert(
+            terminal_surface_simplices.end(),
+            marks.surface_terminal.begin(),
+            marks.surface_terminal.end()
+        );
 
         if (marks.marked.empty()) {
             frontier.clear();
@@ -199,25 +232,28 @@ FermiSurfaceResult fermi_surface(
 
         const auto previous_active = simplex_set(active_simplices(geometry));
         auto refined = marks.marked;
-        if (remaining > 0 && static_cast<std::int64_t>(refined.size()) > remaining) {
-            refined.resize(static_cast<size_t>(remaining));
-        }
 
         const auto refinement_start = Clock::now();
         geometry.refine_active(refined, 1);
         fermi_surface_stats_.refinement_nanoseconds += nanoseconds_since(refinement_start);
         ++fermi_surface_stats_.refinement_calls;
         result.refinements += static_cast<std::int64_t>(refined.size());
-        if (remaining > 0) {
-            remaining -= static_cast<std::int64_t>(refined.size());
-        }
         frontier = next_frontier(geometry, previous_active, marks.marked, refined);
     }
 
-    const auto active = active_simplices(geometry);
-    evaluate_missing_vertices(geometry, cache, evaluator, active);
     const auto extraction_start = Clock::now();
-    extract_surface(*model, geometry, cache, mu, tol, result);
+    extract_surface(
+        *model,
+        geometry,
+        cache,
+        std::span<const core::SimplexId>(
+            terminal_surface_simplices.data(),
+            terminal_surface_simplices.size()
+        ),
+        mu,
+        tol,
+        result
+    );
     fermi_surface_stats_.extraction_nanoseconds += nanoseconds_since(extraction_start);
 
     result.n_active_simplices = static_cast<std::int64_t>(geometry.simplices().n_active());

@@ -30,7 +30,7 @@ std::vector<std::complex<double>> phases_for_vertex(
     for (size_t axis = 0; axis < ndim; ++axis) {
         const auto reduced_coord =
             std::ldexp(static_cast<double>(coords[axis]), -static_cast<int>(reduced_vertex.level()));
-        k_point[axis] = 2.0 * kPi * reduced_coord - kPi;
+        k_point[axis] = 2.0 * kPi * reduced_coord;
     }
 
     std::vector<std::complex<double>> phases(key_count);

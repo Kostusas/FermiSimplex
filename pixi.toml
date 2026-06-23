@@ -11,6 +11,9 @@ python = ">=3.11,<3.14"
 pytest = ">=8"
 scikit-build-core = ">=0.10"
 nanobind = ">=2.2"
+libblas = "*"
+liblapack = "*"
+matplotlib = ">=3.8"
 
 [target.linux-64.dependencies]
 cxx-compiler = ">=1.11"

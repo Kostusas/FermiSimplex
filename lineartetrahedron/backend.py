@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+import inspect
+import operator
 from dataclasses import dataclass
 from typing import Any
 
@@ -7,14 +9,20 @@ import numpy as np
 
 try:
     from ._native import AdaptiveOptions, IntegrationRuntime, TightBindingModel
+    from ._native import _fermi_surface_stats as _native_fermi_surface_stats
+    from ._native import _reset_fermi_surface_stats
     from ._native import fermi_surface as _native_fermi_surface
+    from ._native import fermi_surface_callable as _native_fermi_surface_callable
 
     NATIVE_AVAILABLE = True
 except ImportError:  # pragma: no cover - exercised when extension is unavailable
     AdaptiveOptions = None
     IntegrationRuntime = None
     TightBindingModel = None
+    _native_fermi_surface_stats = None
+    _reset_fermi_surface_stats = None
     _native_fermi_surface = None
+    _native_fermi_surface_callable = None
     NATIVE_AVAILABLE = False
 
 _tb_type = dict[tuple[int, ...], np.ndarray]
@@ -31,18 +39,39 @@ class DensityIntegrationInfo:
 
 
 @dataclass(frozen=True)
+class FermiSurfaceStats:
+    evaluated_vertices: int
+    classified_simplices: int
+    refinements: int
+    active_simplices: int
+    active_vertices: int
+    safe_simplices: int
+    cut_simplices: int
+    feature_size_simplices: int
+    unresolved_simplices: int
+    diagonalization_seconds: float
+    certification_seconds: float
+    refinement_seconds: float
+    extraction_seconds: float
+    total_seconds: float
+
+
+@dataclass(frozen=True)
+class FermiSurfaceParameters:
+    mu: float
+    min_feature_size: float
+    max_diagonalizations: int | None
+    ndim: int
+    ndof: int
+
+
+@dataclass(frozen=True)
 class FermiSurface:
     points: np.ndarray
     cells: np.ndarray
     converged: bool
-    refinements: int
-    n_active_simplices: int
-    n_active_vertices: int
-    n_safe_simplices: int
-    n_cut_simplices: int
-    n_feature_size_simplices: int
-    n_unresolved_simplices: int
-    min_feature_size: float
+    stats: FermiSurfaceStats
+    parameters: FermiSurfaceParameters
 
 
 def _is_sparse_like(matrix: Any) -> bool:
@@ -79,14 +108,6 @@ def _validate_dense_tb(tb: _tb_type) -> None:
 
 
 def _tb_to_tight_binding_model(tb: _tb_type):
-    _require_native_extension()
-    _validate_dense_tb(tb)
-    keys = np.asarray([tuple(key) for key in tb.keys()], dtype=np.int64, order="C")
-    matrices = np.asarray([np.asarray(value) for value in tb.values()], dtype=np.complex128, order="C")
-    return TightBindingModel(keys, matrices)
-
-
-def _tb_to_general_tight_binding_model(tb: _tb_type):
     _require_native_extension()
     _validate_dense_tb(tb)
     keys = np.asarray([tuple(key) for key in tb.keys()], dtype=np.int64, order="C")
@@ -317,35 +338,150 @@ def density_matrix_at_mu_zero_temp(
     return runtime.integrate_density(float(mu), options)
 
 
+def _callable_ndim(hamiltonian: Any) -> int:
+    try:
+        signature = inspect.signature(hamiltonian)
+    except (TypeError, ValueError) as exc:
+        raise TypeError(
+            "Hamiltonian callables must have an inspectable signature with explicit "
+            "required scalar coordinate arguments"
+        ) from exc
+
+    parameters = list(signature.parameters.values())
+    if not parameters:
+        raise TypeError("Hamiltonian callable must accept at least one scalar coordinate")
+
+    for parameter in parameters:
+        if parameter.kind in (
+            inspect.Parameter.VAR_POSITIONAL,
+            inspect.Parameter.VAR_KEYWORD,
+        ):
+            raise TypeError("Hamiltonian callable must not use *args or **kwargs")
+        if parameter.kind == inspect.Parameter.KEYWORD_ONLY:
+            raise TypeError("Hamiltonian coordinates must be positional scalar arguments")
+        if parameter.kind not in (
+            inspect.Parameter.POSITIONAL_ONLY,
+            inspect.Parameter.POSITIONAL_OR_KEYWORD,
+        ):
+            raise TypeError("Hamiltonian coordinates must be positional scalar arguments")
+        if parameter.default is not inspect.Parameter.empty:
+            raise TypeError("Hamiltonian coordinate arguments must not have defaults")
+    return len(parameters)
+
+
+def _prepare_callable_hamiltonian(hamiltonian: Any):
+    ndim = _callable_ndim(hamiltonian)
+
+    def wrapped(*coords: float) -> np.ndarray:
+        return np.ascontiguousarray(
+            np.asarray(hamiltonian(*coords), dtype=np.complex128)
+        )
+
+    try:
+        probe = wrapped(*((0.0,) * ndim))
+    except TypeError as exc:
+        raise TypeError(
+            "Hamiltonian callable must accept explicit scalar coordinate arguments, "
+            "for example H(kx, ky)"
+        ) from exc
+
+    if probe.ndim != 2 or probe.shape[0] != probe.shape[1]:
+        raise ValueError("Hamiltonian callable must return a square dense matrix")
+    ndof = int(probe.shape[0])
+    if ndof < 1:
+        raise ValueError("Hamiltonian callable matrix must be non-empty")
+    return wrapped, ndim, ndof
+
+
+def _normalize_max_diagonalizations(max_diagonalizations: int | None) -> int:
+    if max_diagonalizations is None:
+        return -1
+    try:
+        value = operator.index(max_diagonalizations)
+    except TypeError as exc:
+        raise TypeError("max_diagonalizations must be an integer or None") from exc
+    if value < 0:
+        raise ValueError("max_diagonalizations must be non-negative or None")
+    return int(value)
+
+
+def _fermi_stats_from_native(result, stats: dict[str, Any]) -> FermiSurfaceStats:
+    return FermiSurfaceStats(
+        evaluated_vertices=int(stats["evaluated_vertices"]),
+        classified_simplices=int(stats["classified_simplices"]),
+        refinements=int(result.refinements),
+        active_simplices=int(result.n_active_simplices),
+        active_vertices=int(result.n_active_vertices),
+        safe_simplices=int(result.n_safe_simplices),
+        cut_simplices=int(result.n_cut_simplices),
+        feature_size_simplices=int(result.n_feature_size_simplices),
+        unresolved_simplices=int(result.n_unresolved_simplices),
+        diagonalization_seconds=float(stats["vertex_evaluation_nanoseconds"]) / 1e9,
+        certification_seconds=float(stats["marking_nanoseconds"]) / 1e9,
+        refinement_seconds=float(stats["refinement_nanoseconds"]) / 1e9,
+        extraction_seconds=float(stats["extraction_nanoseconds"]) / 1e9,
+        total_seconds=float(stats["total_nanoseconds"]) / 1e9,
+    )
+
+
 def fermi_surface(
-    h: _tb_type,
+    hamiltonian: _tb_type | Any,
     *,
-    mu: float,
+    mu: float = 0.0,
     min_feature_size: float,
-    max_refinements: int | None = None,
-    tol: float = _GEOM_TOL,
+    max_diagonalizations: int | None = None,
 ) -> FermiSurface:
     _require_native_extension()
-    if _native_fermi_surface is None:
+    if (
+        _native_fermi_surface is None
+        or _native_fermi_surface_callable is None
+        or _reset_fermi_surface_stats is None
+        or _native_fermi_surface_stats is None
+    ):
         raise RuntimeError("Fermi surface extraction requires the compiled native extension")
-    model = _tb_to_general_tight_binding_model(h)
-    result = _native_fermi_surface(
-        model,
-        float(mu),
-        float(min_feature_size),
-        -1 if max_refinements is None else int(max_refinements),
-        float(tol),
-    )
+    feature_size = float(min_feature_size)
+    if not np.isfinite(feature_size) or feature_size <= 0.0:
+        raise ValueError("min_feature_size must be positive")
+    max_diag_native = _normalize_max_diagonalizations(max_diagonalizations)
+
+    if isinstance(hamiltonian, dict):
+        model = _tb_to_tight_binding_model(hamiltonian)
+        ndim = int(model.ndim)
+        ndof = int(model.ndof)
+        _reset_fermi_surface_stats()
+        result = _native_fermi_surface(
+            model,
+            float(mu),
+            feature_size,
+            max_diag_native,
+            _GEOM_TOL,
+        )
+    elif callable(hamiltonian):
+        wrapped, ndim, ndof = _prepare_callable_hamiltonian(hamiltonian)
+        _reset_fermi_surface_stats()
+        result = _native_fermi_surface_callable(
+            wrapped,
+            ndim,
+            ndof,
+            float(mu),
+            feature_size,
+            max_diag_native,
+            _GEOM_TOL,
+        )
+    else:
+        raise TypeError("hamiltonian must be a tight-binding dict or a callable")
+
+    native_stats = _native_fermi_surface_stats()
     return FermiSurface(
         points=np.asarray(result.points_array()),
         cells=np.asarray(result.cells_array()),
         converged=bool(result.converged),
-        refinements=int(result.refinements),
-        n_active_simplices=int(result.n_active_simplices),
-        n_active_vertices=int(result.n_active_vertices),
-        n_safe_simplices=int(result.n_safe_simplices),
-        n_cut_simplices=int(result.n_cut_simplices),
-        n_feature_size_simplices=int(result.n_feature_size_simplices),
-        n_unresolved_simplices=int(result.n_unresolved_simplices),
-        min_feature_size=float(result.min_feature_size),
+        stats=_fermi_stats_from_native(result, native_stats),
+        parameters=FermiSurfaceParameters(
+            mu=float(mu),
+            min_feature_size=feature_size,
+            max_diagonalizations=None if max_diag_native < 0 else max_diag_native,
+            ndim=ndim,
+            ndof=ndof,
+        ),
     )

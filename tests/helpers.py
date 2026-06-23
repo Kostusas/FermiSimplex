@@ -28,7 +28,7 @@ def qiwuzhang(mass: float = 0.5) -> dict[tuple[int, ...], np.ndarray]:
 
 def tb_k_matrix(tb: dict[tuple[int, ...], np.ndarray], point: np.ndarray) -> np.ndarray:
     return sum(
-        matrix * np.exp(-1j * np.dot(point, np.asarray(key, dtype=float)))
+        matrix * np.exp(-2j * np.pi * np.dot(point, np.asarray(key, dtype=float)))
         for key, matrix in tb.items()
     )
 
@@ -52,7 +52,7 @@ def dense_reference(
         raise ValueError("Exactly one of mu or filling must be provided")
     ndim = len(next(iter(tb)))
     ndof = next(iter(tb.values())).shape[0]
-    grids = [np.linspace(-np.pi, np.pi, nk, endpoint=False) for _ in range(ndim)]
+    grids = [np.linspace(0.0, 1.0, nk, endpoint=False) for _ in range(ndim)]
     points = np.stack(np.meshgrid(*grids, indexing="ij"), axis=-1).reshape(-1, ndim)
 
     eigvals = []
@@ -76,7 +76,7 @@ def dense_reference(
         resolved_filling += float(np.sum(occupations))
         density = vectors * occupations[np.newaxis, :] @ vectors.conj().T
         for key in keys:
-            rho[key] += density * np.exp(1j * np.dot(point, np.asarray(key, dtype=float)))
+            rho[key] += density * np.exp(2j * np.pi * np.dot(point, np.asarray(key, dtype=float)))
     for key in keys:
         rho[key] /= points.shape[0]
     resolved_filling /= points.shape[0]

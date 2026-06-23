@@ -18,7 +18,7 @@ struct VertexSpectra {
 
 class VertexSpectraEvaluator {
 public:
-    explicit VertexSpectraEvaluator(std::shared_ptr<TightBindingModel> model);
+    explicit VertexSpectraEvaluator(std::shared_ptr<const HamiltonianModel> model);
 
     size_t ndim() const noexcept { return model_->ndim(); }
     size_t ndof() const noexcept { return model_->ndof(); }
@@ -30,12 +30,12 @@ public:
     VertexSpectra evaluate_reduced_point(std::span<const double> reduced_point) const;
 
 private:
-    std::shared_ptr<TightBindingModel> model_;
+    std::shared_ptr<const HamiltonianModel> model_;
 };
 
 class VertexEigenvaluesEvaluator {
 public:
-    explicit VertexEigenvaluesEvaluator(std::shared_ptr<TightBindingModel> model);
+    explicit VertexEigenvaluesEvaluator(std::shared_ptr<const HamiltonianModel> model);
 
     size_t ndim() const noexcept { return model_->ndim(); }
     size_t ndof() const noexcept { return model_->ndof(); }
@@ -43,7 +43,7 @@ public:
     std::vector<double> evaluate_reduced_point(std::span<const double> reduced_point) const;
 
 private:
-    std::shared_ptr<TightBindingModel> model_;
+    std::shared_ptr<const HamiltonianModel> model_;
 };
 
 }  // namespace lineartetrahedron

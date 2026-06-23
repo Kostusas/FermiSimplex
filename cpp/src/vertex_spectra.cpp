@@ -108,21 +108,10 @@ void diagonalize_hermitian_in_place(
     }
 }
 
-std::vector<double> reduced_to_physical_point(
-    std::span<const double> reduced_point,
-    size_t ndim
-) {
-    std::vector<double> k_point(ndim);
-    for (size_t axis = 0; axis < ndim; ++axis) {
-        k_point[axis] = 2.0 * kPi * reduced_point[axis] - kPi;
-    }
-    return k_point;
-}
-
 }  // namespace
 
 VertexSpectraEvaluator::VertexSpectraEvaluator(
-    std::shared_ptr<TightBindingModel> model
+    std::shared_ptr<const HamiltonianModel> model
 ) : model_(std::move(model)) {
     if (!model_) {
         throw std::runtime_error("VertexSpectraEvaluator: model must not be null");
@@ -140,8 +129,7 @@ VertexSpectra VertexSpectraEvaluator::evaluate(
 VertexSpectra VertexSpectraEvaluator::evaluate_reduced_point(
     std::span<const double> reduced_point
 ) const {
-    const auto k_point = reduced_to_physical_point(reduced_point, model_->ndim());
-    auto h = model_->evaluate_point_raw(k_point.data());
+    auto h = model_->evaluate_reduced_point_raw(reduced_point.data());
     VertexSpectra entry;
     diagonalize_hermitian_in_place(h, entry.eigenvalues, model_->ndof(), true);
     entry.eigenvectors = std::move(h);
@@ -149,7 +137,7 @@ VertexSpectra VertexSpectraEvaluator::evaluate_reduced_point(
 }
 
 VertexEigenvaluesEvaluator::VertexEigenvaluesEvaluator(
-    std::shared_ptr<TightBindingModel> model
+    std::shared_ptr<const HamiltonianModel> model
 ) : model_(std::move(model)) {
     if (!model_) {
         throw std::runtime_error("VertexEigenvaluesEvaluator: model must not be null");
@@ -159,8 +147,7 @@ VertexEigenvaluesEvaluator::VertexEigenvaluesEvaluator(
 std::vector<double> VertexEigenvaluesEvaluator::evaluate_reduced_point(
     std::span<const double> reduced_point
 ) const {
-    const auto k_point = reduced_to_physical_point(reduced_point, model_->ndim());
-    auto h = model_->evaluate_point_raw(k_point.data());
+    auto h = model_->evaluate_reduced_point_raw(reduced_point.data());
     std::vector<double> eigenvalues;
     diagonalize_hermitian_in_place(h, eigenvalues, model_->ndof(), false);
     return eigenvalues;

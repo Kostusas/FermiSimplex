@@ -4,19 +4,102 @@
 #include <nanobind/stl/vector.h>
 
 #include "lineartetrahedron/fermi_surface.h"
-#include "lineartetrahedron/linalg.h"
 #include "lineartetrahedron/runtime.h"
 
 #include <cstddef>
 #include <cstdint>
+#include <complex>
+#include <memory>
 #include <new>
 #include <stdexcept>
+#include <utility>
+#include <vector>
 
 namespace nb = nanobind;
 using namespace nb::literals;
 
 namespace lineartetrahedron {
 namespace adaptive = adaptivesimplex::adaptive;
+
+namespace {
+
+using CallbackMatrixArray =
+    nb::ndarray<nb::numpy, const std::complex<double>, nb::ndim<2>, nb::c_contig>;
+
+class PythonHamiltonianModel final : public HamiltonianModel {
+public:
+    PythonHamiltonianModel(nb::object callable, size_t ndim, size_t ndof)
+        : callable_(std::move(callable)), ndim_(ndim), ndof_(ndof) {
+        if (ndim_ < 1) {
+            throw std::runtime_error("callable Hamiltonian dimension must be positive");
+        }
+        if (ndof_ < 1) {
+            throw std::runtime_error("callable Hamiltonian matrix size must be positive");
+        }
+    }
+
+    size_t ndim() const noexcept override { return ndim_; }
+    size_t ndof() const noexcept override { return ndof_; }
+
+    std::vector<std::complex<double>> evaluate_reduced_point_raw(
+        const double *point
+    ) const override {
+        nb::gil_scoped_acquire gil;
+        nb::tuple args = nb::steal<nb::tuple>(
+            PyTuple_New(static_cast<Py_ssize_t>(ndim_))
+        );
+        if (!args.ptr()) {
+            nb::raise_python_error();
+        }
+        for (size_t axis = 0; axis < ndim_; ++axis) {
+            PyObject *value = PyFloat_FromDouble(point[axis]);
+            if (!value) {
+                nb::raise_python_error();
+            }
+            PyTuple_SET_ITEM(args.ptr(), static_cast<Py_ssize_t>(axis), value);
+        }
+
+        const auto matrix = nb::cast<CallbackMatrixArray>(callable_(*args));
+        if (matrix.shape(0) != ndof_ || matrix.shape(1) != ndof_) {
+            throw std::invalid_argument(
+                "callable Hamiltonian returned a matrix with inconsistent shape"
+            );
+        }
+
+        std::vector<std::complex<double>> h(ndof_ * ndof_);
+        for (size_t row = 0; row < ndof_; ++row) {
+            for (size_t col = 0; col < ndof_; ++col) {
+                h[col * ndof_ + row] = matrix.data()[row * ndof_ + col];
+            }
+        }
+        return h;
+    }
+
+private:
+    nb::object callable_;
+    size_t ndim_;
+    size_t ndof_;
+};
+
+FermiSurfaceResult fermi_surface_callable(
+    nb::object callable,
+    size_t ndim,
+    size_t ndof,
+    double mu,
+    double min_feature_size,
+    std::int64_t max_diagonalizations,
+    double tol
+) {
+    return fermi_surface_from_model(
+        std::make_shared<PythonHamiltonianModel>(std::move(callable), ndim, ndof),
+        mu,
+        min_feature_size,
+        max_diagonalizations,
+        tol
+    );
+}
+
+}  // namespace
 
 NB_MODULE(_native, m) {
     m.doc() = "Native runtime for lineartetrahedron";
@@ -26,37 +109,7 @@ NB_MODULE(_native, m) {
         .def_prop_ro("ndim", &TightBindingModel::ndim)
         .def_prop_ro("ndof", &TightBindingModel::ndof)
         .def_prop_ro("nterms", &TightBindingModel::nterms)
-        .def_prop_ro("reduced_lipschitz_bound", &TightBindingModel::reduced_lipschitz_bound)
-        .def_prop_ro(
-            "hopping_spectral_norms",
-            [](const TightBindingModel &self) {
-                const auto norms = self.hopping_spectral_norms();
-                return std::vector<double>(norms.begin(), norms.end());
-            }
-        )
-        .def_prop_ro(
-            "global_derivative_bounds",
-            [](const TightBindingModel &self) {
-                const auto bounds = self.global_derivative_bounds();
-                return std::vector<double>(bounds.begin(), bounds.end());
-            }
-        )
-        .def_prop_ro(
-            "hessian_bounds",
-            [](const TightBindingModel &self) {
-                const auto bounds = self.hessian_bounds();
-                return std::vector<double>(bounds.begin(), bounds.end());
-            }
-        )
-        .def("evaluate_point", &TightBindingModel::evaluate_point, "point"_a)
-        .def(
-            "derivative_spectral_norm",
-            static_cast<double (TightBindingModel::*)(PointArray, size_t) const>(
-                &TightBindingModel::derivative_spectral_norm
-            ),
-            "point"_a,
-            "axis"_a
-        );
+        .def("evaluate_point", &TightBindingModel::evaluate_point, "point"_a);
 
     nb::class_<ChargeIntegrateResult>(m, "ChargeIntegrateResult")
         .def_prop_ro("charge", [](const ChargeIntegrateResult &self) { return self.charge; })
@@ -195,7 +248,18 @@ NB_MODULE(_native, m) {
         "model"_a,
         "mu"_a,
         "min_feature_size"_a,
-        "max_refinements"_a = -1,
+        "max_diagonalizations"_a = -1,
+        "tol"_a = 1e-14
+    );
+    m.def(
+        "fermi_surface_callable",
+        &fermi_surface_callable,
+        "callable"_a,
+        "ndim"_a,
+        "ndof"_a,
+        "mu"_a,
+        "min_feature_size"_a,
+        "max_diagonalizations"_a = -1,
         "tol"_a = 1e-14
     );
     m.def(
@@ -203,44 +267,6 @@ NB_MODULE(_native, m) {
         &product_simplex_triangulation_cells,
         "negative_count"_a,
         "positive_count"_a
-    );
-    m.def(
-        "_hermitian_min_eigenvalue_lanczos",
-        [](
-            nb::ndarray<nb::numpy, const std::complex<double>, nb::ndim<2>, nb::c_contig> matrix,
-            double absolute_uncertainty
-        ) {
-            if (matrix.shape(0) != matrix.shape(1)) {
-                throw std::runtime_error("_hermitian_min_eigenvalue_lanczos: matrix must be square");
-            }
-            const auto size = static_cast<size_t>(matrix.shape(0));
-            return hermitian_min_eigenvalue_lanczos(
-                std::span<const std::complex<double>>(matrix.data(), size * size),
-                size,
-                absolute_uncertainty
-            );
-        },
-        "matrix"_a,
-        "absolute_uncertainty"_a = 5e-5
-    );
-    m.def("_reset_lanczos_stats", &reset_lanczos_stats);
-    m.def(
-        "_lanczos_stats",
-        []() {
-            const auto stats = lanczos_stats();
-            nb::dict result;
-            result["calls"] = stats.calls;
-            result["iterations"] = stats.iterations;
-            result["ritz_checks"] = stats.ritz_checks;
-            result["converged_by_uncertainty"] = stats.converged_by_uncertainty;
-            result["converged_at_full_dimension"] = stats.converged_at_full_dimension;
-            result["converged_by_zero_residual"] = stats.converged_by_zero_residual;
-            result["lanczos_nanoseconds"] = stats.lanczos_nanoseconds;
-            result["derivative_calls"] = stats.derivative_calls;
-            result["derivative_assembly_nanoseconds"] = stats.derivative_assembly_nanoseconds;
-            result["derivative_total_nanoseconds"] = stats.derivative_total_nanoseconds;
-            return result;
-        }
     );
     m.def("_reset_fermi_surface_stats", &reset_fermi_surface_stats);
     m.def(

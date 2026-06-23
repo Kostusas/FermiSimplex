@@ -16,20 +16,12 @@ double eigenvalue_at(
     return cache.get(vertex_id).eigenvalues[band];
 }
 
-std::vector<double> physical_point(std::span<const double> reduced_point) {
-    std::vector<double> result(reduced_point.size());
-    for (size_t axis = 0; axis < reduced_point.size(); ++axis) {
-        result[axis] = 2.0 * kPi * reduced_point[axis] - kPi;
-    }
-    return result;
-}
-
-std::vector<double> physical_vertex_point(
+std::vector<double> reduced_vertex_point(
     const core::Geometry &geometry,
     core::VertexId vertex_id
 ) {
     const auto reduced_point = geometry.vertices().dyadic_vertex(vertex_id).to_point();
-    return physical_point(std::span<const double>(reduced_point.data(), reduced_point.size()));
+    return std::vector<double>(reduced_point.begin(), reduced_point.end());
 }
 
 std::vector<double> interpolate_crossing(
@@ -76,13 +68,13 @@ void extract_band_surface(
     std::vector<size_t> negative;
     std::vector<size_t> positive;
     std::vector<double> signed_values(simplex.vertex_ids.size());
-    std::vector<std::vector<double>> physical_points(simplex.vertex_ids.size());
+    std::vector<std::vector<double>> reduced_points(simplex.vertex_ids.size());
 
     for (size_t local_vertex = 0; local_vertex < simplex.vertex_ids.size(); ++local_vertex) {
         const auto vertex_id = simplex.vertex_ids[local_vertex];
         const auto signed_value = eigenvalue_at(cache, vertex_id, band) - mu;
         signed_values[local_vertex] = signed_value;
-        physical_points[local_vertex] = physical_vertex_point(geometry, vertex_id);
+        reduced_points[local_vertex] = reduced_vertex_point(geometry, vertex_id);
         if (signed_value < -tol) {
             negative.push_back(local_vertex);
         } else if (signed_value > tol) {
@@ -100,8 +92,8 @@ void extract_band_surface(
             const auto left = negative[neg_index];
             const auto right = positive[pos_index];
             const auto point = interpolate_crossing(
-                std::span<const double>(physical_points[left].data(), physical_points[left].size()),
-                std::span<const double>(physical_points[right].data(), physical_points[right].size()),
+                std::span<const double>(reduced_points[left].data(), reduced_points[left].size()),
+                std::span<const double>(reduced_points[right].data(), reduced_points[right].size()),
                 signed_values[left],
                 signed_values[right]
             );
@@ -116,14 +108,15 @@ void extract_band_surface(
 }
 
 void extract_surface_impl(
-    const TightBindingModel &model,
+    const HamiltonianModel &model,
     const core::Geometry &geometry,
     const SpectraCache &cache,
+    std::span<const core::SimplexId> simplex_ids,
     double mu,
     double tol,
     FermiSurfaceResult &result
 ) {
-    for (const auto simplex_id : geometry.simplices().active_simplices()) {
+    for (const auto simplex_id : simplex_ids) {
         for (size_t band = 0; band < model.ndof(); ++band) {
             extract_band_surface(geometry, cache, simplex_id, band, mu, tol, result);
         }
@@ -175,14 +168,15 @@ void append_shuffle_cells(
 }  // namespace
 
 void extract_surface(
-    const TightBindingModel &model,
+    const HamiltonianModel &model,
     const core::Geometry &geometry,
     const SpectraCache &cache,
+    std::span<const core::SimplexId> simplex_ids,
     double mu,
     double tol,
     FermiSurfaceResult &result
 ) {
-    extract_surface_impl(model, geometry, cache, mu, tol, result);
+    extract_surface_impl(model, geometry, cache, simplex_ids, mu, tol, result);
 }
 
 }  // namespace lineartetrahedron::fermi_surface_detail

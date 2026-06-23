@@ -32,7 +32,15 @@ FermiSurfaceResult fermi_surface(
     std::shared_ptr<TightBindingModel> model,
     double mu,
     double min_feature_size,
-    std::int64_t max_refinements,
+    std::int64_t max_diagonalizations,
+    double tol
+);
+
+FermiSurfaceResult fermi_surface_from_model(
+    std::shared_ptr<const HamiltonianModel> model,
+    double mu,
+    double min_feature_size,
+    std::int64_t max_diagonalizations,
     double tol
 );
 

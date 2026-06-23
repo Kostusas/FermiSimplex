@@ -1,5 +1,7 @@
 #include "lineartetrahedron/charge.h"
 
+#include "lineartetrahedron/simplex_certificate.h"
+
 #include <adaptivesimplex/cut/simplex_moments.h>
 
 #include <algorithm>

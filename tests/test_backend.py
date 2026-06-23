@@ -58,17 +58,6 @@ def _rotating_constant_gap_band() -> dict[tuple[int, ...], np.ndarray]:
     }
 
 
-def _derivative_matrix(
-    tb: dict[tuple[int, ...], np.ndarray],
-    point: np.ndarray,
-    axis: int,
-) -> np.ndarray:
-    return sum(
-        (-1j * key[axis]) * matrix * np.exp(-1j * np.dot(point, np.asarray(key, dtype=float)))
-        for key, matrix in tb.items()
-    )
-
-
 @requires_native
 def test_compiled_tight_binding_model_matches_python_fourier_evaluation():
     tb = qiwuzhang()
@@ -79,47 +68,6 @@ def test_compiled_tight_binding_model_matches_python_fourier_evaluation():
     assert compiled_model.ndof == 2
     assert compiled_model.nterms == len(tb)
     assert np.allclose(compiled_model.evaluate_point(point), tb_k_matrix(tb, point))
-    assert compiled_model.reduced_lipschitz_bound > 0.0
-
-
-@requires_native
-def test_lanczos_spectral_norms_match_numpy_reference():
-    tb = dimerized_chain()
-    compiled_model = _tb_to_tight_binding_model(tb)
-    point = np.array([0.37], dtype=float)
-
-    expected_hopping_norms = [
-        np.linalg.norm(matrix, ord=2)
-        for matrix in tb.values()
-    ]
-    assert np.allclose(np.asarray(compiled_model.hopping_spectral_norms), expected_hopping_norms)
-
-    derivative = _derivative_matrix(tb, point, axis=0)
-    assert compiled_model.derivative_spectral_norm(point, 0) == pytest.approx(
-        np.linalg.norm(derivative, ord=2)
-    )
-
-
-@requires_native
-def test_lanczos_min_eigenvalue_matches_numpy_reference():
-    from lineartetrahedron import _native
-
-    matrix = np.array(
-        [
-            [2.0, 0.25 + 0.5j, -0.2j],
-            [0.25 - 0.5j, -1.0, 0.75],
-            [0.2j, 0.75, 0.5],
-        ],
-        dtype=np.complex128,
-    )
-
-    expected = np.linalg.eigvalsh(matrix)[0]
-    estimated = _native._hermitian_min_eigenvalue_lanczos(
-        np.ascontiguousarray(matrix),
-        1e-12,
-    )
-
-    assert estimated == pytest.approx(expected, abs=1e-10)
 
 
 @requires_native
@@ -134,84 +82,149 @@ def test_product_simplex_triangulation_is_dimension_general():
 
 
 @requires_native
-def test_hessian_local_bound_can_certify_global_uncertainty_safe():
-    tb = {
-        (0,): np.array([[2.0]], dtype=complex),
-        (1,): np.array([[0.5j]], dtype=complex),
-        (-1,): np.array([[-0.5j]], dtype=complex),
-    }
-    compiled_model = _tb_to_tight_binding_model(tb)
-    center = np.array([0.5 * np.pi], dtype=float)
-    rho = 0.125
-    mu = 2.85
-    vertex_values = [2.0 + np.sin(center[0] - rho), 2.0 + np.sin(center[0] + rho)]
-    global_derivative_bounds = np.asarray(compiled_model.global_derivative_bounds)
-    hessian_bounds = np.asarray(compiled_model.hessian_bounds).reshape((1, 1))
-    global_delta = 2.0 * float(global_derivative_bounds[0]) * rho
-    local_axis_bound = (
-        compiled_model.derivative_spectral_norm(center, 0)
-        + float(hessian_bounds[0, 0]) * rho
-    )
-    local_delta = 2.0 * local_axis_bound * rho
-
-    assert min(vertex_values) - global_delta <= mu
-    assert min(vertex_values) - local_delta > mu
-
-
-@requires_native
 @pytest.mark.parametrize("ndim", (1, 2, 3, 4))
 def test_fermi_surface_extracts_nd_level_set(ndim):
     mu = 0.3
-    feature_size = {1: 0.6, 2: 0.6, 3: 1.5, 4: 3.5}[ndim]
+    feature_size = {1: 0.1, 2: 0.1, 3: 0.24, 4: 0.56}[ndim]
     surface = fermi_surface(
         _axis_cosine_band(ndim),
         mu=mu,
         min_feature_size=feature_size,
-        max_refinements=5000,
+        max_diagonalizations=20000,
     )
 
     assert surface.points.shape[1] == ndim
     assert surface.cells.shape[1] == ndim
     assert surface.converged
-    assert surface.n_unresolved_simplices == 0
+    assert surface.stats.unresolved_simplices == 0
     assert surface.points.shape[0] > 0
     assert surface.cells.shape[0] > 0
-    assert np.max(np.abs(np.cos(surface.points[:, 0]) - mu)) < 0.2
+    assert np.all(surface.points >= -1e-14)
+    assert np.all(surface.points <= 1.0 + 1e-14)
+    assert np.max(np.abs(np.cos(2.0 * np.pi * surface.points[:, 0]) - mu)) < 0.2
+    assert surface.parameters.min_feature_size == pytest.approx(feature_size)
 
 
 @requires_native
-def test_fermi_surface_reports_unresolved_when_refinement_budget_exhausted():
+def test_fermi_surface_callable_matches_tight_binding_dict():
+    def callable_band(kx: float) -> np.ndarray:
+        return np.array([[np.cos(2.0 * np.pi * kx)]], dtype=complex)
+
+    tb_surface = fermi_surface(
+        _axis_cosine_band(1),
+        mu=0.25,
+        min_feature_size=0.03,
+    )
+    callable_surface = fermi_surface(
+        callable_band,
+        mu=0.25,
+        min_feature_size=0.03,
+    )
+
+    assert callable_surface.parameters.ndim == 1
+    assert callable_surface.parameters.ndof == 1
+    assert callable_surface.converged
+    assert np.allclose(
+        np.sort(callable_surface.points[:, 0]),
+        np.sort(tb_surface.points[:, 0]),
+        atol=0.04,
+    )
+
+
+@requires_native
+def test_fermi_surface_accepts_two_scalar_callable_arguments():
+    def callable_band(kx: float, ky: float) -> np.ndarray:
+        return np.array([[kx + ky - 0.8]], dtype=complex)
+
+    surface = fermi_surface(callable_band, mu=0.0, min_feature_size=0.12)
+
+    assert surface.parameters.ndim == 2
+    assert surface.parameters.ndof == 1
+    assert surface.points.shape[1] == 2
+    assert surface.points.shape[0] > 0
+    assert np.all(surface.points >= -1e-14)
+    assert np.all(surface.points <= 1.0 + 1e-14)
+
+
+@requires_native
+def test_fermi_surface_rejects_unsupported_callable_signatures():
+    def vector_style(k):
+        kx, ky = k
+        return np.array([[kx + ky]], dtype=complex)
+
+    def default_coordinate(kx, ky=0.0):
+        return np.array([[kx + ky]], dtype=complex)
+
+    def varargs(*coords):
+        return np.array([[sum(coords)]], dtype=complex)
+
+    with pytest.raises(TypeError, match="scalar coordinate"):
+        fermi_surface(vector_style, min_feature_size=0.1)
+    with pytest.raises(TypeError, match="defaults"):
+        fermi_surface(default_coordinate, min_feature_size=0.1)
+    with pytest.raises(TypeError, match=r"\*args"):
+        fermi_surface(varargs, min_feature_size=0.1)
+
+
+@requires_native
+def test_fermi_surface_rejects_invalid_callable_matrix_outputs():
+    def nonsquare(kx):
+        return np.zeros((1, 2), dtype=complex)
+
+    def shape_changing(kx):
+        if kx == 0.0:
+            return np.array([[1.0]], dtype=complex)
+        return np.eye(2, dtype=complex)
+
+    with pytest.raises(ValueError, match="square dense matrix"):
+        fermi_surface(nonsquare, min_feature_size=0.1)
+    with pytest.raises(ValueError, match="inconsistent shape"):
+        fermi_surface(shape_changing, min_feature_size=0.1, max_diagonalizations=8)
+
+
+@requires_native
+def test_fermi_surface_respects_max_diagonalizations():
+    surface = fermi_surface(
+        _axis_cosine_band(2),
+        mu=0.0,
+        min_feature_size=0.02,
+        max_diagonalizations=3,
+    )
+
+    assert not surface.converged
+    assert surface.stats.evaluated_vertices <= 3
+    assert surface.stats.unresolved_simplices > 0
+
+
+@requires_native
+def test_fermi_surface_reports_unresolved_when_diagonalization_budget_exhausted():
     surface = fermi_surface(
         _axis_cosine_band(1),
         mu=0.0,
         min_feature_size=0.1,
-        max_refinements=0,
+        max_diagonalizations=0,
     )
 
     assert not surface.converged
-    assert surface.n_unresolved_simplices > 0
+    assert surface.stats.unresolved_simplices > 0
+    assert surface.stats.evaluated_vertices <= 0
 
 
 @requires_native
 def test_fermi_surface_inertia_certificate_certifies_constant_insulator():
-    from lineartetrahedron import _native
-
-    _native._reset_fermi_surface_stats()
     surface = fermi_surface(
         _constant_insulator(2),
         mu=0.0,
         min_feature_size=0.4,
-        max_refinements=256,
     )
-    stats = _native._fermi_surface_stats()
 
     assert surface.converged
-    assert surface.n_safe_simplices == surface.n_active_simplices
-    assert surface.n_cut_simplices == 0
-    assert surface.n_feature_size_simplices == 0
-    assert surface.n_unresolved_simplices == 0
+    assert surface.stats.safe_simplices == surface.stats.active_simplices
+    assert surface.stats.cut_simplices == 0
+    assert surface.stats.feature_size_simplices == 0
+    assert surface.stats.unresolved_simplices == 0
     assert surface.points.shape[1] == 2
-    assert stats["vertex_evaluation_calls"] > 0
+    assert surface.stats.evaluated_vertices > 0
 
 
 @requires_native
@@ -220,17 +233,16 @@ def test_fermi_surface_inertia_certificate_accepts_cut_below_feature_size():
         _axis_cosine_band(1),
         mu=0.0,
         min_feature_size=0.4,
-        max_refinements=256,
     )
 
     assert surface.converged
-    assert surface.n_cut_simplices > 0
+    assert surface.stats.cut_simplices > 0
     assert (
-        surface.n_safe_simplices
-        + surface.n_cut_simplices
-        + surface.n_feature_size_simplices
-        + surface.n_unresolved_simplices
-    ) == surface.n_active_simplices
+        surface.stats.safe_simplices
+        + surface.stats.cut_simplices
+        + surface.stats.feature_size_simplices
+        + surface.stats.unresolved_simplices
+    ) == surface.stats.active_simplices
 
 
 @requires_native
@@ -239,26 +251,24 @@ def test_fermi_surface_inertia_certificate_repeated_runs_preserve_metadata():
         _aliased_pocket_band(),
         mu=0.0,
         min_feature_size=0.4,
-        max_refinements=256,
     )
     second = fermi_surface(
         _aliased_pocket_band(),
         mu=0.0,
         min_feature_size=0.4,
-        max_refinements=256,
     )
 
     assert second.converged == first.converged
-    assert second.refinements == first.refinements
-    assert second.n_active_simplices == first.n_active_simplices
-    assert second.n_unresolved_simplices == first.n_unresolved_simplices
+    assert second.stats.refinements == first.stats.refinements
+    assert second.stats.active_simplices == first.stats.active_simplices
+    assert second.stats.unresolved_simplices == first.stats.unresolved_simplices
     assert second.points.shape == first.points.shape
     assert second.cells.shape == first.cells.shape
 
 
 @requires_native
 @pytest.mark.parametrize("ndim", (1, 2, 3, 4))
-def test_runtime_accepts_physical_dimensions(ndim):
+def test_runtime_accepts_reduced_coordinate_dimensions(ndim):
     tb = _constant_insulator(ndim)
     key = (0,) * ndim
     rho, _error, info = density_matrix_at_mu_zero_temp(

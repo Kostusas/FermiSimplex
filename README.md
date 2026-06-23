@@ -30,8 +30,7 @@ Apple Accelerate automatically; on Linux, Pixi is the safer route.
 
 ## Plot A Fermi Surface
 
-```bash
-pixi run python - <<'PY'
+```python
 import numpy as np
 from matplotlib import pyplot as plt
 from matplotlib.collections import LineCollection
@@ -62,7 +61,6 @@ ax.set_xlabel("kx")
 ax.set_ylabel("ky")
 ax.set_title(f"Fermi surface, {surface.stats.evaluated_vertices} diagonalizations")
 plt.show()
-PY
 ```
 
 ## API

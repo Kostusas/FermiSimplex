@@ -49,6 +49,15 @@ def _aliased_pocket_band() -> dict[tuple[int, ...], np.ndarray]:
     }
 
 
+def _rotating_constant_gap_band() -> dict[tuple[int, ...], np.ndarray]:
+    sigma_z = np.diag([1.0, -1.0]).astype(complex)
+    sigma_x = np.array([[0.0, 1.0], [1.0, 0.0]], dtype=complex)
+    return {
+        (2,): 0.5 * sigma_z + 0.5j * sigma_x,
+        (-2,): 0.5 * sigma_z - 0.5j * sigma_x,
+    }
+
+
 def _derivative_matrix(
     tb: dict[tuple[int, ...], np.ndarray],
     point: np.ndarray,
@@ -159,7 +168,6 @@ def test_fermi_surface_extracts_nd_level_set(ndim):
         mu=mu,
         min_feature_size=feature_size,
         max_refinements=5000,
-        use_weyl_bounds=False,
     )
 
     assert surface.points.shape[1] == ndim
@@ -185,14 +193,17 @@ def test_fermi_surface_reports_unresolved_when_refinement_budget_exhausted():
 
 
 @requires_native
-def test_fermi_surface_signed_inertia_certifies_constant_insulator():
+def test_fermi_surface_inertia_certificate_certifies_constant_insulator():
+    from lineartetrahedron import _native
+
+    _native._reset_fermi_surface_stats()
     surface = fermi_surface(
         _constant_insulator(2),
         mu=0.0,
         min_feature_size=0.4,
         max_refinements=256,
-        use_weyl_bounds=True,
     )
+    stats = _native._fermi_surface_stats()
 
     assert surface.converged
     assert surface.n_safe_simplices == surface.n_active_simplices
@@ -200,16 +211,16 @@ def test_fermi_surface_signed_inertia_certifies_constant_insulator():
     assert surface.n_feature_size_simplices == 0
     assert surface.n_unresolved_simplices == 0
     assert surface.points.shape[1] == 2
+    assert stats["vertex_evaluation_calls"] > 0
 
 
 @requires_native
-def test_fermi_surface_signed_inertia_accepts_cut_below_feature_size():
+def test_fermi_surface_inertia_certificate_accepts_cut_below_feature_size():
     surface = fermi_surface(
         _axis_cosine_band(1),
         mu=0.0,
         min_feature_size=0.4,
         max_refinements=256,
-        use_weyl_bounds=True,
     )
 
     assert surface.converged
@@ -223,20 +234,18 @@ def test_fermi_surface_signed_inertia_accepts_cut_below_feature_size():
 
 
 @requires_native
-def test_fermi_surface_signed_inertia_cache_preserves_metadata():
+def test_fermi_surface_inertia_certificate_repeated_runs_preserve_metadata():
     first = fermi_surface(
         _aliased_pocket_band(),
         mu=0.0,
         min_feature_size=0.4,
         max_refinements=256,
-        use_weyl_bounds=True,
     )
     second = fermi_surface(
         _aliased_pocket_band(),
         mu=0.0,
         min_feature_size=0.4,
         max_refinements=256,
-        use_weyl_bounds=True,
     )
 
     assert second.converged == first.converged
@@ -332,42 +341,58 @@ def test_charge_derivative_is_finite_and_nonnegative_for_higher_dimensions(ndim)
 
 
 @requires_native
-def test_weyl_bounds_mark_simplex_when_vertices_miss_pocket():
-    runtime = Runtime(_aliased_pocket_band(), keys=[(0,)])
+def test_inertia_certificate_adds_charge_error_for_inconclusive_simplex():
+    runtime = Runtime(_rotating_constant_gap_band(), keys=[(0,)])
     options = AdaptiveOptions(target_error=1e-3, max_refinements=0, preview_depth=1)
 
-    disabled = runtime.evaluate_charge(0.0, options)
-    enabled = runtime.evaluate_charge(0.0, options, use_weyl_bounds=True)
+    result = runtime.evaluate_charge(0.0, options)
 
-    assert disabled.charge == pytest.approx(0.0)
-    assert disabled.charge_error == pytest.approx(0.0)
-    assert disabled.converged
-    assert enabled.charge == pytest.approx(0.0)
-    assert enabled.charge_error > options.target_error
-    assert not enabled.converged
+    assert result.charge == pytest.approx(1.0)
+    assert result.charge_error > options.target_error
+    assert not result.converged
 
 
 @requires_native
-def test_weyl_bounds_participate_in_charge_stopping_error():
-    runtime = Runtime(_aliased_pocket_band(), keys=[(0,)])
+def test_inertia_certificate_participates_in_charge_stopping_error():
+    runtime = Runtime(_rotating_constant_gap_band(), keys=[(0,)])
     options = AdaptiveOptions(target_error=1e-3, max_refinements=0, preview_depth=1)
 
     with pytest.raises(RuntimeError, match="did not converge"):
-        runtime.integrate_charge(0.0, options, use_weyl_bounds=True)
+        runtime.integrate_charge(0.0, options)
 
 
 @requires_native
-def test_weyl_charge_marker_cache_preserves_evaluation_result():
-    runtime = Runtime(_aliased_pocket_band(), keys=[(0,)])
+def test_inertia_certificate_repeated_charge_evaluation_is_deterministic():
+    runtime = Runtime(_axis_cosine_band(1), keys=[(0,)])
     options = AdaptiveOptions(target_error=1e-3, max_refinements=0, preview_depth=2)
 
-    first = runtime.evaluate_charge(0.0, options, use_weyl_bounds=True)
-    second = runtime.evaluate_charge(0.0, options, use_weyl_bounds=True)
+    first = runtime.evaluate_charge(0.0, options)
+    second = runtime.evaluate_charge(0.0, options)
 
     assert second.charge == pytest.approx(first.charge)
     assert second.charge_error == pytest.approx(first.charge_error)
     assert second.dcharge_dmu == pytest.approx(first.dcharge_dmu)
     assert second.converged == first.converged
+
+
+@requires_native
+def test_inertia_certificate_does_not_add_error_for_visible_charge_cut():
+    runtime = Runtime(_axis_cosine_band(1), keys=[(0,)])
+    options = AdaptiveOptions(target_error=1e-3, max_refinements=0, preview_depth=1)
+
+    result = runtime.evaluate_charge(0.0, options)
+
+    assert result.charge_error < options.target_error
+
+
+@requires_native
+def test_inertia_certificate_does_not_add_error_for_certified_charge_safe_simplex():
+    runtime = Runtime(_constant_insulator(1), keys=[(0,)])
+    options = AdaptiveOptions(target_error=1e-3, max_refinements=0, preview_depth=1)
+
+    result = runtime.evaluate_charge(0.0, options)
+
+    assert result.charge_error == pytest.approx(0.0)
 
 
 @requires_native

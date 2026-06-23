@@ -1,7 +1,5 @@
 #include "lineartetrahedron/charge.h"
 
-#include "lineartetrahedron/weyl.h"
-
 #include <adaptivesimplex/cut/simplex_moments.h>
 
 #include <algorithm>
@@ -70,45 +68,20 @@ ChargeValue charge_on_simplex(
     const core::Geometry &geometry,
     core::SimplexId simplex_id,
     const core::VertexCache<VertexSpectra> &cache,
-    double weyl_indicator_error,
-    ChargeWeylMarkerCache *weyl_marker_cache
+    double certificate_error
 ) {
     const auto &simplex = geometry.simplices().simplex(simplex_id);
     ChargeValue result;
-    const auto use_weyl_marker =
-        weyl_indicator_error > 0.0 && workspace.reduced_lipschitz_bound() > 0.0;
-    if (use_weyl_marker) {
-        if (weyl_marker_cache) {
-            if (const auto cached = weyl_marker_cache->find(simplex_id);
-                cached != weyl_marker_cache->end()) {
-                result.weyl_indicator_error = cached->second;
-            } else {
-                result.weyl_indicator_error =
-                    weyl::simplex_has_weyl_marker(
-                        mu,
-                        workspace.model(),
-                        geometry,
-                        simplex_id,
-                        workspace.tol(),
-                        [&](core::VertexId vertex_id, size_t band_index) {
-                            return cache.get(vertex_id).eigenvalues[band_index];
-                        }
-                    )
-                        ? weyl_indicator_error
-                        : 0.0;
-                weyl_marker_cache->emplace(simplex_id, result.weyl_indicator_error);
-            }
-        } else if (weyl::simplex_has_weyl_marker(
-                       mu,
-                       workspace.model(),
-                       geometry,
-                       simplex_id,
-                       workspace.tol(),
-                       [&](core::VertexId vertex_id, size_t band_index) {
-                           return cache.get(vertex_id).eigenvalues[band_index];
-                       }
-                   )) {
-            result.weyl_indicator_error = weyl_indicator_error;
+    if (certificate_error > 0.0) {
+        const auto decision = simplex_certificate::classify_rotated_vertex_frame_simplex(
+            mu,
+            geometry,
+            simplex_id,
+            cache,
+            workspace.tol()
+        );
+        if (decision == simplex_certificate::InertiaDecision::Inconclusive) {
+            result.certificate_error = certificate_error;
         }
     }
 

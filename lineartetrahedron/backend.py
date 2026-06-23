@@ -282,11 +282,11 @@ class Runtime:
     def n_active_vertices(self) -> int:
         return int(self._native.n_active_vertices)
 
-    def integrate_charge(self, mu: float, options, use_weyl_bounds: bool = False):
-        return self._native.integrate_charge(float(mu), options, bool(use_weyl_bounds))
+    def integrate_charge(self, mu: float, options):
+        return self._native.integrate_charge(float(mu), options)
 
-    def evaluate_charge(self, mu: float, options, use_weyl_bounds: bool = False):
-        return self._native.evaluate_charge(float(mu), options, bool(use_weyl_bounds))
+    def evaluate_charge(self, mu: float, options):
+        return self._native.evaluate_charge(float(mu), options)
 
     def integrate_density(self, mu: float, options):
         result = self._native.integrate_density(float(mu), options)
@@ -323,7 +323,6 @@ def fermi_surface(
     mu: float,
     min_feature_size: float,
     max_refinements: int | None = None,
-    use_weyl_bounds: bool = True,
     tol: float = _GEOM_TOL,
 ) -> FermiSurface:
     _require_native_extension()
@@ -335,7 +334,6 @@ def fermi_surface(
         float(mu),
         float(min_feature_size),
         -1 if max_refinements is None else int(max_refinements),
-        bool(use_weyl_bounds),
         float(tol),
     )
     return FermiSurface(

@@ -1,7 +1,5 @@
 #include "lineartetrahedron/integration_workspace.h"
 
-#include <algorithm>
-#include <limits>
 #include <stdexcept>
 #include <utility>
 
@@ -41,23 +39,6 @@ IntegrationWorkspace::IntegrationWorkspace(
 
 VertexSpectra IntegrationWorkspace::evaluate_vertex(std::span<const double> reduced_point) const {
     return evaluator_.evaluate_reduced_point(reduced_point);
-}
-
-double IntegrationWorkspace::derivative_spectral_norm(
-    std::span<const double> physical_point,
-    size_t axis
-) const {
-    if (axis >= model_->ndim()) {
-        throw std::runtime_error("IntegrationWorkspace: derivative axis out of bounds");
-    }
-    const auto uncertainty =
-        64.0 * std::numeric_limits<double>::epsilon() *
-        std::max(model_->global_derivative_bounds()[axis], 1.0);
-    return model_->derivative_spectral_norm(
-        physical_point.data(),
-        axis,
-        uncertainty
-    );
 }
 
 }  // namespace lineartetrahedron

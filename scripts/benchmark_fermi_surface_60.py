@@ -19,7 +19,6 @@ _DEFAULT_NORMALIZED_FEATURE_SIZE = 1.8 / _PHYSICAL_BZ_SIDE
 
 @dataclass(frozen=True)
 class CaseResult:
-    use_weyl_bounds: bool
     seconds: float
     n_points: int
     n_segments: int
@@ -31,11 +30,6 @@ class CaseResult:
     n_cut_simplices: int
     n_feature_size_simplices: int
     n_unresolved_simplices: int
-    first_safe_marking_pass: int
-    first_safe_seconds: float | None
-    first_safe_refinements: int
-    first_safe_active_simplices: int
-    first_safe_new_simplices: int
 
 
 def _add_diagonal_hopping_pair(
@@ -77,7 +71,7 @@ def make_stress_hamiltonian(
         _add_diagonal_hopping_pair(tb, key, 0.5 * amplitudes * np.exp(1j * phases))
 
     # These bands are deliberately undersampled by the initial root mesh. Without
-    # a refinement marker they are invisible unless another band happens to refine there.
+    # a refinement cue they are invisible unless another band happens to refine there.
     for band in range(pocket_bands):
         tb[(0, 0)][band, band] = 0.28 + 0.018 * band
         for key, amplitude in [
@@ -98,7 +92,6 @@ def run_case(
     mu: float,
     min_feature_size_normalized: float,
     max_refinements: int,
-    use_weyl_bounds: bool,
 ) -> tuple[FermiSurface, CaseResult]:
     _native._reset_fermi_surface_stats()
     min_feature_size_physical = min_feature_size_normalized * _PHYSICAL_BZ_SIDE
@@ -108,13 +101,9 @@ def run_case(
         mu=mu,
         min_feature_size=min_feature_size_physical,
         max_refinements=max_refinements,
-        use_weyl_bounds=use_weyl_bounds,
     )
     seconds = time.perf_counter() - start
-    stats = _native._fermi_surface_stats()
-    first_safe_nanoseconds = int(stats["first_safe_total_nanoseconds"])
     return surface, CaseResult(
-        use_weyl_bounds=use_weyl_bounds,
         seconds=seconds,
         n_points=int(surface.points.shape[0]),
         n_segments=int(surface.cells.shape[0]),
@@ -126,13 +115,6 @@ def run_case(
         n_cut_simplices=int(surface.n_cut_simplices),
         n_feature_size_simplices=int(surface.n_feature_size_simplices),
         n_unresolved_simplices=int(surface.n_unresolved_simplices),
-        first_safe_marking_pass=int(stats["first_safe_marking_pass"]),
-        first_safe_seconds=(
-            None if first_safe_nanoseconds == 0 else first_safe_nanoseconds / 1e9
-        ),
-        first_safe_refinements=int(stats["first_safe_refinements"]),
-        first_safe_active_simplices=int(stats["first_safe_active_simplices"]),
-        first_safe_new_simplices=int(stats["first_safe_new_simplices"]),
     )
 
 
@@ -170,24 +152,19 @@ def _svg_line(
 def write_svg(
     output: Path,
     *,
-    without_marker: FermiSurface,
-    with_signed_inertia: FermiSurface,
-    without_marker_result: CaseResult,
-    with_signed_inertia_result: CaseResult,
+    surface: FermiSurface,
+    result: CaseResult,
     mu: float,
     min_feature_size_normalized: float,
     min_feature_size_physical: float,
     max_refinements: int,
 ) -> None:
-    width = 1120
+    width = 650
     height = 600
-    panel = 460
     margin = 70
-    gap = 70
     top = 95
     plot_size = 390
     left_x = margin
-    right_x = margin + panel + gap
 
     def map_point(kx: float, ky: float, origin_x: float) -> tuple[float, float]:
         x = origin_x + (kx + math.pi) / (2.0 * math.pi) * plot_size
@@ -245,22 +222,14 @@ def write_svg(
             68,
             size=14,
         ),
-        label("without marker", left_x, 82, size=18, weight=700),
-        label(stats(without_marker_result), left_x, 525, size=13),
-        label("with signed-inertia marking", right_x, 82, size=18, weight=700),
-        label(stats(with_signed_inertia_result), right_x, 525, size=13),
+        label("rotated vertex inertia certificate", left_x, 82, size=18, weight=700),
+        label(stats(result), left_x, 525, size=13),
         *frame(left_x),
-        *frame(right_x),
-        *panel_lines(without_marker, left_x, "#303030"),
-        *panel_lines(with_signed_inertia, right_x, "#b72222"),
+        *panel_lines(surface, left_x, "#b72222"),
         label("-pi", left_x - 9, top + plot_size + 24, size=12),
         label("pi", left_x + plot_size - 8, top + plot_size + 24, size=12),
-        label("-pi", right_x - 9, top + plot_size + 24, size=12),
-        label("pi", right_x + plot_size - 8, top + plot_size + 24, size=12),
         label("physical kx", left_x + 160, top + plot_size + 48, size=13),
-        label("physical kx", right_x + 160, top + plot_size + 48, size=13),
         label("ky", left_x - 35, top + 202, size=13),
-        label("ky", right_x - 35, top + 202, size=13),
         '</svg>',
     ]
     output.write_text("\n".join(parts), encoding="utf-8")
@@ -285,29 +254,19 @@ def main() -> None:
     args.output_dir.mkdir(parents=True, exist_ok=True)
     hamiltonian = make_stress_hamiltonian()
     min_feature_size_physical = args.min_feature_size * _PHYSICAL_BZ_SIDE
-    without_marker, without_marker_result = run_case(
+    surface, result = run_case(
         hamiltonian,
         mu=args.mu,
         min_feature_size_normalized=args.min_feature_size,
         max_refinements=args.max_refinements,
-        use_weyl_bounds=False,
-    )
-    with_signed_inertia, with_signed_inertia_result = run_case(
-        hamiltonian,
-        mu=args.mu,
-        min_feature_size_normalized=args.min_feature_size,
-        max_refinements=args.max_refinements,
-        use_weyl_bounds=True,
     )
 
-    svg_path = args.output_dir / "fermi_surface_60_signed_inertia.svg"
-    summary_path = args.output_dir / "fermi_surface_60_signed_inertia_summary.json"
+    svg_path = args.output_dir / "fermi_surface_60_rotated_inertia.svg"
+    summary_path = args.output_dir / "fermi_surface_60_rotated_inertia_summary.json"
     write_svg(
         svg_path,
-        without_marker=without_marker,
-        with_signed_inertia=with_signed_inertia,
-        without_marker_result=without_marker_result,
-        with_signed_inertia_result=with_signed_inertia_result,
+        surface=surface,
+        result=result,
         mu=args.mu,
         min_feature_size_normalized=args.min_feature_size,
         min_feature_size_physical=min_feature_size_physical,
@@ -327,8 +286,7 @@ def main() -> None:
             "min_feature_size_physical": min_feature_size_physical,
             "max_refinements": args.max_refinements,
         },
-        "without_marker": asdict(without_marker_result),
-        "with_signed_inertia": asdict(with_signed_inertia_result),
+        "rotated_inertia_certificate": asdict(result),
         "svg": str(svg_path),
     }
     summary_path.write_text(json.dumps(summary, indent=2) + "\n", encoding="utf-8")

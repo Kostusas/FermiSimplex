@@ -19,16 +19,9 @@ struct FermiSurfaceStats {
     std::uint64_t evaluated_vertices = 0;
     std::uint64_t marking_passes = 0;
     std::uint64_t active_simplex_visits = 0;
-    std::uint64_t cached_decisions = 0;
     std::uint64_t classified_simplices = 0;
     std::uint64_t marked_simplices = 0;
-    std::uint64_t terminal_cached_simplices = 0;
     std::uint64_t refinement_calls = 0;
-    std::uint64_t first_safe_marking_pass = 0;
-    std::uint64_t first_safe_total_nanoseconds = 0;
-    std::int64_t first_safe_refinements = -1;
-    std::int64_t first_safe_active_simplices = -1;
-    std::int64_t first_safe_new_simplices = 0;
 };
 
 void reset_fermi_surface_stats();
@@ -40,7 +33,6 @@ FermiSurfaceResult fermi_surface(
     double mu,
     double min_feature_size,
     std::int64_t max_refinements,
-    bool use_weyl_bounds,
     double tol
 );
 

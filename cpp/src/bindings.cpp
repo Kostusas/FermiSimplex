@@ -174,15 +174,13 @@ NB_MODULE(_native, m) {
             "integrate_charge",
             &IntegrationRuntime::integrate_charge,
             "mu"_a,
-            "options"_a,
-            "use_weyl_bounds"_a = false
+            "options"_a
         )
         .def(
             "evaluate_charge",
             &IntegrationRuntime::evaluate_charge,
             "mu"_a,
-            "options"_a,
-            "use_weyl_bounds"_a = false
+            "options"_a
         )
         .def(
             "integrate_density",
@@ -198,7 +196,6 @@ NB_MODULE(_native, m) {
         "mu"_a,
         "min_feature_size"_a,
         "max_refinements"_a = -1,
-        "use_weyl_bounds"_a = true,
         "tol"_a = 1e-14
     );
     m.def(
@@ -260,16 +257,9 @@ NB_MODULE(_native, m) {
             result["evaluated_vertices"] = stats.evaluated_vertices;
             result["marking_passes"] = stats.marking_passes;
             result["active_simplex_visits"] = stats.active_simplex_visits;
-            result["cached_decisions"] = stats.cached_decisions;
             result["classified_simplices"] = stats.classified_simplices;
             result["marked_simplices"] = stats.marked_simplices;
-            result["terminal_cached_simplices"] = stats.terminal_cached_simplices;
             result["refinement_calls"] = stats.refinement_calls;
-            result["first_safe_marking_pass"] = stats.first_safe_marking_pass;
-            result["first_safe_total_nanoseconds"] = stats.first_safe_total_nanoseconds;
-            result["first_safe_refinements"] = stats.first_safe_refinements;
-            result["first_safe_active_simplices"] = stats.first_safe_active_simplices;
-            result["first_safe_new_simplices"] = stats.first_safe_new_simplices;
             return result;
         }
     );

@@ -38,19 +38,19 @@ nb::ndarray<nb::numpy, T> make_array(
 struct ChargeValue {
     double charge = 0.0;
     double derivative = 0.0;
-    double weyl_indicator_error = 0.0;
+    double certificate_error = 0.0;
 
     ChargeValue &operator+=(const ChargeValue &other) noexcept {
         charge += other.charge;
         derivative += other.derivative;
-        weyl_indicator_error += other.weyl_indicator_error;
+        certificate_error += other.certificate_error;
         return *this;
     }
 
     ChargeValue &operator-=(const ChargeValue &other) noexcept {
         charge -= other.charge;
         derivative -= other.derivative;
-        weyl_indicator_error -= other.weyl_indicator_error;
+        certificate_error -= other.certificate_error;
         return *this;
     }
 };

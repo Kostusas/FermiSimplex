@@ -15,28 +15,50 @@ package build, so installation needs internet access.
 
 ## Installation
 
-The recommended install path is Pixi plus pip. Pixi provides Python, CMake,
-Ninja, BLAS/LAPACK, and the compiler toolchain; pip builds the package from the
-git repository.
+The recommended install path is Pixi plus pip. The repository's `pixi.toml`
+pins a build environment with Python, CMake, Ninja, BLAS/LAPACK, and a C++20
+compiler. Pip then builds the package from the selected git branch.
 
 ```bash
-pixi init
-pixi add python numpy cmake ninja nanobind scikit-build-core libblas liblapack
-pixi run python -m pip install --no-build-isolation \
-  "git+https://github.com/YOUR_ORG/lineartetrahedron.git"
+git clone --branch inertia-marking \
+  https://gitlab.kwant-project.org/qt/lineartetrahedron.git
+cd lineartetrahedron
+pixi run install-inertia-marking
+pixi run smoke-test
 ```
 
-For plotting the examples, also install matplotlib:
+If you do not want to clone this repository first, create a small Pixi project
+and copy the dependency list from `pixi.toml`, or use the conda/mamba
+environment file below.
+
+Conda or mamba users can use `environment.yml`:
 
 ```bash
-pixi add matplotlib
+git clone --branch inertia-marking \
+  https://gitlab.kwant-project.org/qt/lineartetrahedron.git
+cd lineartetrahedron
+mamba env create -f environment.yml
+mamba activate lineartetrahedron
+python -m pip install --no-build-isolation \
+  "git+https://gitlab.kwant-project.org/qt/lineartetrahedron.git@inertia-marking"
+python - <<'PY'
+import numpy as np
+from lineartetrahedron import fermi_surface
+
+def H(kx, ky):
+    return np.array([[np.cos(2*np.pi*kx) + np.cos(2*np.pi*ky)]], dtype=complex)
+
+s = fermi_surface(H, mu=0.2, min_feature_size=0.03)
+print(s.converged, s.points.shape, s.cells.shape, s.stats.evaluated_vertices)
+PY
 ```
 
 Direct pip installation is supported on machines with a working C++20 compiler
 and BLAS/LAPACK installation:
 
 ```bash
-python -m pip install "git+https://github.com/YOUR_ORG/lineartetrahedron.git"
+python -m pip install \
+  "git+https://gitlab.kwant-project.org/qt/lineartetrahedron.git@inertia-marking"
 ```
 
 On macOS, CMake usually finds Apple's Accelerate framework automatically. On

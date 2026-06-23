@@ -20,4 +20,6 @@ cxx-compiler = ">=1.11"
 
 [tasks]
 install-editable = "python -m pip install -v --no-build-isolation -e ."
+install-inertia-marking = "python -m pip install --no-build-isolation 'git+https://gitlab.kwant-project.org/qt/lineartetrahedron.git@inertia-marking'"
+smoke-test = "python -c \"import numpy as np; from lineartetrahedron import fermi_surface; H=lambda kx, ky: np.array([[np.cos(2*np.pi*kx)+np.cos(2*np.pi*ky)]], dtype=complex); s=fermi_surface(H, mu=0.2, min_feature_size=0.03); print({'converged': s.converged, 'points': s.points.shape, 'cells': s.cells.shape, 'diagonalizations': s.stats.evaluated_vertices})\""
 test = { cmd = "pytest", depends-on = ["install-editable"] }

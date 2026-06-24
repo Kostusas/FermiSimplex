@@ -10,6 +10,7 @@
 
 #include <cstddef>
 #include <cstdint>
+#include <optional>
 #include <span>
 #include <vector>
 
@@ -99,7 +100,8 @@ FermiSurfaceResult run_fermi_surface(
     std::int64_t max_diagonalizations,
     double margin,
     double tol,
-    bool return_states
+    bool return_states,
+    std::optional<double> gap_bound_precision = std::nullopt
 );
 
 }  // namespace lineartetrahedron::fermi_surface_detail

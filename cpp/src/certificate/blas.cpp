@@ -239,8 +239,18 @@ bool positive_definite(std::vector<Complex> block, size_t size, double tol) {
             Complex{std::real(block[column_major_index(index, index, size)]), 0.0};
         block[column_major_index(index, index, size)] -= margin;
     }
+    return cholesky_lower_in_place(block, size);
+}
+
+bool cholesky_lower_in_place(std::vector<Complex> &block, size_t size) {
+    if (size == 0) {
+        return true;
+    }
     if (size > static_cast<size_t>(std::numeric_limits<int>::max())) {
         throw std::runtime_error("simplex certificate: LAPACK dimension exceeds LP64 range");
+    }
+    if (block.size() != size * size) {
+        throw std::runtime_error("simplex certificate: Cholesky matrix size mismatch");
     }
 
     const char uplo = 'L';

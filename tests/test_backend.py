@@ -86,6 +86,84 @@ def test_product_simplex_triangulation_is_dimension_general():
 
 
 @requires_native
+def test_lanczos_min_eigenvalue_matches_numpy_reference():
+    from lineartetrahedron import _native
+
+    matrix = np.array(
+        [
+            [2.0, 0.25 + 0.5j, -0.2j],
+            [0.25 - 0.5j, -1.0, 0.75],
+            [0.2j, 0.75, 0.5],
+        ],
+        dtype=np.complex128,
+    )
+
+    expected = np.linalg.eigvalsh(matrix)[0]
+    estimated = _native._hermitian_min_eigenvalue_lanczos(
+        np.ascontiguousarray(matrix),
+        1e-12,
+    )
+
+    assert estimated == pytest.approx(expected, abs=1e-10)
+
+
+@requires_native
+def test_generalized_lanczos_gap_bound_matches_numpy_reference():
+    from lineartetrahedron import _native
+
+    matrix = np.array(
+        [
+            [1.7, 0.2 - 0.1j],
+            [0.2 + 0.1j, 2.4],
+        ],
+        dtype=np.complex128,
+    )
+    frame = np.array(
+        [
+            [1.25, 0.15 + 0.05j],
+            [0.15 - 0.05j, 1.4],
+        ],
+        dtype=np.complex128,
+    )
+    cholesky = np.linalg.cholesky(frame)
+    left_solved = np.linalg.solve(cholesky, matrix)
+    transformed = np.linalg.solve(cholesky, left_solved.conj().T).conj().T
+    transformed = 0.5 * (transformed + transformed.conj().T)
+
+    expected = np.linalg.eigvalsh(transformed)[0]
+    estimated = _native._generalized_hermitian_min_eigenvalue_lanczos(
+        np.ascontiguousarray(matrix),
+        np.ascontiguousarray(frame),
+        1e-12,
+    )
+
+    assert estimated == pytest.approx(expected, abs=1e-10)
+
+
+@requires_native
+def test_root_simplex_certificate_gap_bound_reports_physical_gap():
+    from lineartetrahedron import _native
+
+    model = _tb_to_tight_binding_model(_constant_insulator(2))
+
+    unbuffered = _native._root_mesh_certificate_gap_bound(
+        model,
+        0.0,
+        margin=0.0,
+        gap_bound_precision=1e-12,
+    )
+    buffered = _native._root_mesh_certificate_gap_bound(
+        model,
+        0.0,
+        margin=0.5,
+        gap_bound_precision=1e-12,
+    )
+
+    assert unbuffered == pytest.approx(1.0, abs=1e-10)
+    assert buffered == pytest.approx(1.0, abs=1e-10)
+
+
+@requires_native
 @pytest.mark.parametrize("ndim", (1, 2, 3, 4))
 def test_fermi_surface_extracts_nd_level_set(ndim):
     mu = 0.3

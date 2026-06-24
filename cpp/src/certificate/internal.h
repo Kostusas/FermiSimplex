@@ -71,7 +71,34 @@ void hemm(
 
 bool positive_definite(std::vector<Complex> block, size_t size, double tol);
 
+bool cholesky_lower_in_place(std::vector<Complex> &block, size_t size);
+
 void negate_in_place(std::vector<Complex> &matrix);
+
+double hermitian_min_eigenvalue_lanczos(
+    std::span<const Complex> matrix,
+    size_t size,
+    double absolute_uncertainty
+);
+
+double generalized_hermitian_min_eigenvalue_lanczos(
+    std::span<const Complex> matrix,
+    std::span<const Complex> metric,
+    size_t size,
+    double absolute_uncertainty
+);
+
+std::vector<Complex> positive_frame_metric(
+    std::span<const Complex> rotation,
+    size_t npos,
+    size_t nneg
+);
+
+std::vector<Complex> negative_frame_metric(
+    std::span<const Complex> rotation,
+    size_t npos,
+    size_t nneg
+);
 
 void subtract_positive_frame_margin(
     std::vector<Complex> &block,

@@ -7,6 +7,7 @@
 #include <adaptivesimplex/core/vertex_cache.h>
 
 #include <cstddef>
+#include <optional>
 
 namespace lineartetrahedron::simplex_certificate {
 
@@ -21,6 +22,7 @@ enum class SimplexCertificateStatus {
 struct SimplexCertificate {
     SimplexCertificateStatus status = SimplexCertificateStatus::Inconclusive;
     size_t vertex_occupation = 0;
+    std::optional<double> gap_bound;
 };
 
 SimplexCertificate certify_simplex_gap(
@@ -29,7 +31,8 @@ SimplexCertificate certify_simplex_gap(
     core::SimplexId simplex_id,
     const core::VertexCache<VertexSpectra> &vertex_cache,
     double margin,
-    double tol
+    double tol,
+    std::optional<double> gap_bound_precision = std::nullopt
 );
 
 }  // namespace lineartetrahedron::simplex_certificate

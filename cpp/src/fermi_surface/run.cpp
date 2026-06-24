@@ -2,6 +2,7 @@
 
 #include <algorithm>
 #include <cmath>
+#include <optional>
 #include <set>
 #include <utility>
 
@@ -38,7 +39,8 @@ MarkResult classify_frontier(
     double mu,
     double min_feature_size,
     double margin,
-    double tol
+    double tol,
+    std::optional<double> gap_bound_precision
 ) {
     MarkResult result;
     for (const auto simplex_id : frontier) {
@@ -49,7 +51,8 @@ MarkResult classify_frontier(
             simplex_id,
             cache,
             margin,
-            tol
+            tol,
+            gap_bound_precision
         );
         const auto status = certificate.status;
 
@@ -109,7 +112,8 @@ public:
         std::int64_t max_diagonalizations,
         double margin,
         double tol,
-        bool return_states
+        bool return_states,
+        std::optional<double> gap_bound_precision
     ) : model_(std::move(model)),
         mu_(mu),
         min_feature_size_(min_feature_size),
@@ -117,6 +121,7 @@ public:
         margin_(margin),
         tol_(tol),
         return_states_(return_states),
+        gap_bound_precision_(gap_bound_precision),
         geometry_(make_fermi_geometry(model_->ndim())),
         evaluator_(model_),
         frontier_(active_simplices(geometry_)) {
@@ -157,7 +162,8 @@ private:
             mu_,
             min_feature_size_,
             margin_,
-            tol_
+            tol_,
+            gap_bound_precision_
         );
     }
 
@@ -226,6 +232,7 @@ private:
     double margin_ = 0.0;
     double tol_ = 1e-14;
     bool return_states_ = false;
+    std::optional<double> gap_bound_precision_;
     core::Geometry geometry_;
     SpectraCache cache_;
     VertexSpectraEvaluator evaluator_;
@@ -243,7 +250,8 @@ FermiSurfaceResult run_fermi_surface(
     std::int64_t max_diagonalizations,
     double margin,
     double tol,
-    bool return_states
+    bool return_states,
+    std::optional<double> gap_bound_precision
 ) {
     return FermiSurfaceRun(
         std::move(model),
@@ -252,7 +260,8 @@ FermiSurfaceResult run_fermi_surface(
         max_diagonalizations,
         margin,
         tol,
-        return_states
+        return_states,
+        gap_bound_precision
     ).run();
 }
 

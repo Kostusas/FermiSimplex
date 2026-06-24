@@ -5,6 +5,7 @@
 #include <algorithm>
 #include <cmath>
 #include <limits>
+#include <optional>
 #include <stdexcept>
 #include <span>
 #include <vector>
@@ -15,11 +16,13 @@ namespace {
 
 SimplexCertificate certificate(
     SimplexCertificateStatus status,
-    size_t vertex_occupation
+    size_t vertex_occupation,
+    std::optional<double> gap_bound = std::nullopt
 ) {
     return SimplexCertificate{
         .status = status,
         .vertex_occupation = vertex_occupation,
+        .gap_bound = gap_bound,
     };
 }
 
@@ -31,7 +34,8 @@ SimplexCertificate certify_simplex_gap(
     core::SimplexId simplex_id,
     const core::VertexCache<VertexSpectra> &vertex_cache,
     double margin,
-    double tol
+    double tol,
+    std::optional<double> gap_bound_precision
 ) {
     using namespace detail;
 
@@ -128,24 +132,62 @@ SimplexCertificate certify_simplex_gap(
     }
 
     const auto rotation_span = std::span<const Complex>(rotation.data(), rotation.size());
+    auto simplex_gap_bound = std::numeric_limits<double>::infinity();
+    std::vector<Complex> positive_metric;
+    std::vector<Complex> negative_metric;
+    if (gap_bound_precision.has_value()) {
+        positive_metric = positive_frame_metric(rotation_span, npos, nneg);
+        negative_metric = negative_frame_metric(rotation_span, npos, nneg);
+    }
+
     for (const auto &vertex_blocks : blocks) {
-        auto positive_block =
+        const auto positive_physical_block =
             rotated_positive_block(vertex_blocks, rotation_span, npos, nneg);
+        auto positive_block = positive_physical_block;
         subtract_positive_frame_margin(positive_block, rotation_span, npos, nneg, margin);
         if (!positive_definite(std::move(positive_block), npos, tol)) {
             return certificate(SimplexCertificateStatus::Inconclusive, reference_occupation);
         }
+        if (gap_bound_precision.has_value() && npos != 0) {
+            const auto bound = generalized_hermitian_min_eigenvalue_lanczos(
+                std::span<const Complex>(
+                    positive_physical_block.data(),
+                    positive_physical_block.size()
+                ),
+                std::span<const Complex>(positive_metric.data(), positive_metric.size()),
+                npos,
+                *gap_bound_precision
+            );
+            simplex_gap_bound = std::min(simplex_gap_bound, bound);
+        }
 
-        auto negative_block =
+        auto negative_physical_block =
             rotated_negative_block(vertex_blocks, rotation_span, npos, nneg);
-        negate_in_place(negative_block);
+        negate_in_place(negative_physical_block);
+        auto negative_block = negative_physical_block;
         subtract_negative_frame_margin(negative_block, rotation_span, npos, nneg, margin);
         if (!positive_definite(std::move(negative_block), nneg, tol)) {
             return certificate(SimplexCertificateStatus::Inconclusive, reference_occupation);
         }
+        if (gap_bound_precision.has_value() && nneg != 0) {
+            const auto bound = generalized_hermitian_min_eigenvalue_lanczos(
+                std::span<const Complex>(
+                    negative_physical_block.data(),
+                    negative_physical_block.size()
+                ),
+                std::span<const Complex>(negative_metric.data(), negative_metric.size()),
+                nneg,
+                *gap_bound_precision
+            );
+            simplex_gap_bound = std::min(simplex_gap_bound, bound);
+        }
     }
 
-    return certificate(SimplexCertificateStatus::CertifiedGapped, reference_occupation);
+    return certificate(
+        SimplexCertificateStatus::CertifiedGapped,
+        reference_occupation,
+        gap_bound_precision.has_value() ? std::optional<double>{simplex_gap_bound} : std::nullopt
+    );
 }
 
 }  // namespace lineartetrahedron::simplex_certificate

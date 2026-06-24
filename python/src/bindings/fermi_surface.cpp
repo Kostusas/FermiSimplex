@@ -1,8 +1,14 @@
 #include "arrays.h"
 #include "bindings.h"
 
+#include "certificate/internal.h"
+#include "certificate/simplex_certificate.h"
 #include "fermi_surface/fermi_surface.h"
+#include "core/vertex_spectra.h"
 
+#include <adaptivesimplex/core/root_mesh.h>
+
+#include <nanobind/stl/optional.h>
 #include <nanobind/stl/shared_ptr.h>
 #include <nanobind/stl/vector.h>
 
@@ -17,6 +23,23 @@
 namespace lineartetrahedron::bindings {
 
 namespace {
+
+using Complex = std::complex<double>;
+namespace core = adaptivesimplex::core;
+
+std::vector<Complex> copy_square_matrix(CallbackMatrixArray matrix) {
+    if (matrix.shape(0) != matrix.shape(1)) {
+        throw std::runtime_error("matrix must be square");
+    }
+    const size_t size = matrix.shape(0);
+    std::vector<Complex> result(size * size);
+    for (size_t row = 0; row < size; ++row) {
+        for (size_t col = 0; col < size; ++col) {
+            result[col * size + row] = matrix.data()[row * size + col];
+        }
+    }
+    return result;
+}
 
 class PythonHamiltonianModel final : public HamiltonianModel {
 public:
@@ -93,6 +116,59 @@ FermiSurfaceResult fermi_surface_callable(
         tol,
         return_states
     );
+}
+
+std::optional<double> root_mesh_certificate_gap_bound(
+    std::shared_ptr<TightBindingModel> model,
+    double mu,
+    double margin,
+    double tol,
+    double gap_bound_precision
+) {
+    if (!model) {
+        throw std::runtime_error("_root_mesh_certificate_gap_bound: model must not be null");
+    }
+    auto geometry = core::root_geometry(model->ndim(), model->ndim() == 1 ? 2U : 1U);
+    const auto active = geometry.simplices().active_simplices();
+    const auto simplex_ids = std::vector<core::SimplexId>(active.begin(), active.end());
+
+    core::VertexCache<VertexSpectra> cache;
+    VertexSpectraEvaluator evaluator(model);
+    const auto missing = geometry.missing_vertices(
+        std::span<const core::SimplexId>(simplex_ids.data(), simplex_ids.size()),
+        cache,
+        0
+    );
+    for (const auto vertex_id : missing) {
+        const auto reduced_point = geometry.vertices().dyadic_vertex(vertex_id).to_point();
+        cache.insert(
+            vertex_id,
+            evaluator.evaluate_reduced_point(
+                std::span<const double>(reduced_point.data(), reduced_point.size())
+            )
+        );
+    }
+
+    std::optional<double> result;
+    for (const auto simplex_id : simplex_ids) {
+        const auto certificate = simplex_certificate::certify_simplex_gap(
+            mu,
+            geometry,
+            simplex_id,
+            cache,
+            margin,
+            tol,
+            gap_bound_precision
+        );
+        if (certificate.status != simplex_certificate::SimplexCertificateStatus::CertifiedGapped ||
+            !certificate.gap_bound.has_value()) {
+            return std::nullopt;
+        }
+        result = result.has_value()
+            ? std::min(*result, *certificate.gap_bound)
+            : certificate.gap_bound;
+    }
+    return result;
 }
 
 }  // namespace
@@ -184,6 +260,51 @@ void bind_fermi_surface(nb::module_ &m) {
         &product_simplex_triangulation_cells,
         "negative_count"_a,
         "positive_count"_a
+    );
+    m.def(
+        "_hermitian_min_eigenvalue_lanczos",
+        [](CallbackMatrixArray matrix, double absolute_uncertainty) {
+            const auto size = static_cast<size_t>(matrix.shape(0));
+            const auto values = copy_square_matrix(matrix);
+            return simplex_certificate::detail::hermitian_min_eigenvalue_lanczos(
+                std::span<const Complex>(values.data(), values.size()),
+                size,
+                absolute_uncertainty
+            );
+        },
+        "matrix"_a,
+        "absolute_uncertainty"_a
+    );
+    m.def(
+        "_generalized_hermitian_min_eigenvalue_lanczos",
+        [](CallbackMatrixArray matrix, CallbackMatrixArray metric, double absolute_uncertainty) {
+            if (matrix.shape(0) != metric.shape(0) || matrix.shape(1) != metric.shape(1)) {
+                throw std::runtime_error(
+                    "_generalized_hermitian_min_eigenvalue_lanczos: shape mismatch"
+                );
+            }
+            const auto size = static_cast<size_t>(matrix.shape(0));
+            const auto matrix_values = copy_square_matrix(matrix);
+            const auto metric_values = copy_square_matrix(metric);
+            return simplex_certificate::detail::generalized_hermitian_min_eigenvalue_lanczos(
+                std::span<const Complex>(matrix_values.data(), matrix_values.size()),
+                std::span<const Complex>(metric_values.data(), metric_values.size()),
+                size,
+                absolute_uncertainty
+            );
+        },
+        "matrix"_a,
+        "metric"_a,
+        "absolute_uncertainty"_a
+    );
+    m.def(
+        "_root_mesh_certificate_gap_bound",
+        &root_mesh_certificate_gap_bound,
+        "model"_a,
+        "mu"_a,
+        "margin"_a = 0.0,
+        "tol"_a = 1e-14,
+        "gap_bound_precision"_a = 1e-12
     );
     m.def("_reset_fermi_surface_stats", &reset_fermi_surface_stats);
     m.def(

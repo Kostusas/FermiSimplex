@@ -1,4 +1,4 @@
-#include "lineartetrahedron/runtime.h"
+#include "integration/runtime.h"
 
 #include <adaptivesimplex/adaptive/adaptive_loop.h>
 #include <adaptivesimplex/adaptive/simplex_integrand.h>
@@ -48,10 +48,10 @@ struct DensityRefinementScore {
 
 IntegrationRuntime::IntegrationRuntime(
     std::shared_ptr<TightBindingModel> model,
-    KeyArray keys,
-    ComponentIndexArray component_rows,
-    ComponentIndexArray component_cols,
-    ComponentIndexArray component_key_indices,
+    std::vector<std::int64_t> keys,
+    std::vector<std::int64_t> component_rows,
+    std::vector<std::int64_t> component_cols,
+    std::vector<std::int64_t> component_key_indices,
     double tol
 ) : workspace_(
         std::move(model),
@@ -60,10 +60,10 @@ IntegrationRuntime::IntegrationRuntime(
     density_(
         workspace_.ndim(),
         workspace_.ndof(),
-        keys,
-        component_rows,
-        component_cols,
-        component_key_indices
+        std::move(keys),
+        std::move(component_rows),
+        std::move(component_cols),
+        std::move(component_key_indices)
     ) {
 }
 

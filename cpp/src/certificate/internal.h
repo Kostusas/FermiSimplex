@@ -1,6 +1,6 @@
 #pragma once
 
-#include "lineartetrahedron/vertex_spectra.h"
+#include "core/vertex_spectra.h"
 
 #include <complex>
 #include <cstddef>
@@ -20,9 +20,9 @@ inline double signed_eigenvalue(const VertexSpectra &spectra, size_t band, doubl
 }
 
 struct VertexBlocks {
-    std::vector<Complex> positive;
-    std::vector<Complex> negative;
-    std::vector<Complex> mixed;
+    std::vector<Complex> positive_same_sign;
+    std::vector<Complex> negative_same_sign;
+    std::vector<Complex> positive_negative_coupling;
 };
 
 void gemm(
@@ -73,7 +73,7 @@ bool positive_definite(std::vector<Complex> block, size_t size, double tol);
 
 void negate_in_place(std::vector<Complex> &matrix);
 
-void subtract_positive_metric_margin(
+void subtract_positive_frame_margin(
     std::vector<Complex> &block,
     std::span<const Complex> rotation,
     size_t npos,
@@ -81,7 +81,7 @@ void subtract_positive_metric_margin(
     double margin
 );
 
-void subtract_negative_metric_margin(
+void subtract_negative_frame_margin(
     std::vector<Complex> &block,
     std::span<const Complex> rotation,
     size_t npos,

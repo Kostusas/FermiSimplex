@@ -1,4 +1,4 @@
-#include "lineartetrahedron/simplex_certificate.h"
+#include "certificate/simplex_certificate.h"
 
 #include "internal.h"
 
@@ -94,7 +94,7 @@ InertiaDecision classify_rotated_vertex_frame_simplex(
             mu
         ));
         for (size_t index = 0; index < average_mixed.size(); ++index) {
-            average_mixed[index] += blocks.back().mixed[index];
+            average_mixed[index] += blocks.back().positive_negative_coupling[index];
         }
     }
 
@@ -116,7 +116,7 @@ InertiaDecision classify_rotated_vertex_frame_simplex(
     for (const auto &vertex_blocks : blocks) {
         auto positive_block =
             rotated_positive_block(vertex_blocks, rotation_span, npos, nneg);
-        subtract_positive_metric_margin(positive_block, rotation_span, npos, nneg, margin);
+        subtract_positive_frame_margin(positive_block, rotation_span, npos, nneg, margin);
         if (!positive_definite(std::move(positive_block), npos, tol)) {
             return InertiaDecision::Inconclusive;
         }
@@ -124,7 +124,7 @@ InertiaDecision classify_rotated_vertex_frame_simplex(
         auto negative_block =
             rotated_negative_block(vertex_blocks, rotation_span, npos, nneg);
         negate_in_place(negative_block);
-        subtract_negative_metric_margin(negative_block, rotation_span, npos, nneg, margin);
+        subtract_negative_frame_margin(negative_block, rotation_span, npos, nneg, margin);
         if (!positive_definite(std::move(negative_block), nneg, tol)) {
             return InertiaDecision::Inconclusive;
         }

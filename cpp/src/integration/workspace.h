@@ -1,7 +1,7 @@
 #pragma once
 
-#include "lineartetrahedron/tight_binding.h"
-#include "lineartetrahedron/vertex_spectra.h"
+#include "core/tight_binding.h"
+#include "core/vertex_spectra.h"
 
 #include <adaptivesimplex/core/geometry.h>
 #include <adaptivesimplex/core/root_mesh.h>

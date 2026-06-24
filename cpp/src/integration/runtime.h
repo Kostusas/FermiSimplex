@@ -1,8 +1,7 @@
 #pragma once
 
-#include "lineartetrahedron/density.h"
-#include "lineartetrahedron/integration_workspace.h"
-#include "lineartetrahedron/types.h"
+#include "integration/density.h"
+#include "integration/workspace.h"
 
 #include <adaptivesimplex/adaptive/types.h>
 
@@ -10,6 +9,7 @@
 #include <cstddef>
 #include <cstdint>
 #include <memory>
+#include <vector>
 
 namespace lineartetrahedron {
 
@@ -17,10 +17,10 @@ class IntegrationRuntime {
 public:
     IntegrationRuntime(
         std::shared_ptr<TightBindingModel> model,
-        KeyArray keys,
-        ComponentIndexArray component_rows,
-        ComponentIndexArray component_cols,
-        ComponentIndexArray component_key_indices,
+        std::vector<std::int64_t> keys,
+        std::vector<std::int64_t> component_rows,
+        std::vector<std::int64_t> component_cols,
+        std::vector<std::int64_t> component_key_indices,
         double tol = 1e-14
     );
 

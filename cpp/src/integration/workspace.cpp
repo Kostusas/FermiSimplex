@@ -1,4 +1,4 @@
-#include "lineartetrahedron/integration_workspace.h"
+#include "integration/workspace.h"
 
 #include <stdexcept>
 #include <utility>

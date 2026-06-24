@@ -1,14 +1,13 @@
 #pragma once
 
-#include "lineartetrahedron/fermi_surface.h"
-#include "lineartetrahedron/simplex_certificate.h"
-#include "lineartetrahedron/vertex_spectra.h"
+#include "certificate/simplex_certificate.h"
+#include "core/vertex_spectra.h"
+#include "fermi_surface/fermi_surface.h"
 
 #include <adaptivesimplex/core/geometry.h>
 #include <adaptivesimplex/core/types.h>
 #include <adaptivesimplex/core/vertex_cache.h>
 
-#include <chrono>
 #include <cstddef>
 #include <cstdint>
 #include <span>
@@ -19,11 +18,8 @@ namespace lineartetrahedron::fermi_surface_detail {
 namespace core = adaptivesimplex::core;
 
 using SpectraCache = core::VertexCache<VertexSpectra>;
-using Clock = std::chrono::steady_clock;
 
 extern thread_local FermiSurfaceStats fermi_surface_stats_;
-
-std::uint64_t nanoseconds_since(Clock::time_point start);
 
 core::Geometry make_fermi_geometry(size_t ndim);
 
@@ -49,7 +45,6 @@ void evaluate_vertices(
     const Evaluator &evaluator,
     std::span<const core::VertexId> vertex_ids
 ) {
-    const auto start = Clock::now();
     ++fermi_surface_stats_.vertex_evaluation_calls;
     fermi_surface_stats_.evaluated_vertices += vertex_ids.size();
     for (const auto vertex_id : vertex_ids) {
@@ -61,7 +56,6 @@ void evaluate_vertices(
             )
         );
     }
-    fermi_surface_stats_.vertex_evaluation_nanoseconds += nanoseconds_since(start);
 }
 
 template <class Cache, class Evaluator>
@@ -98,6 +92,16 @@ void extract_surface(
     double tol,
     bool return_nearest_vertex_states,
     FermiSurfaceResult &result
+);
+
+FermiSurfaceResult run_fermi_surface(
+    std::shared_ptr<const HamiltonianModel> model,
+    double mu,
+    double min_feature_size,
+    std::int64_t max_diagonalizations,
+    double margin,
+    double tol,
+    bool return_nearest_vertex_states
 );
 
 }  // namespace lineartetrahedron::fermi_surface_detail

@@ -1,4 +1,4 @@
-#include "lineartetrahedron/density.h"
+#include "integration/density.h"
 
 #include <adaptivesimplex/cut/simplex_moments.h>
 
@@ -8,6 +8,7 @@
 #include <cstdint>
 #include <stdexcept>
 #include <unordered_map>
+#include <utility>
 
 namespace lineartetrahedron {
 namespace core = adaptivesimplex::core;
@@ -65,23 +66,26 @@ std::complex<double> density_matrix_component(
 DensityComponents::DensityComponents(
     size_t ndim,
     size_t ndof,
-    KeyArray keys,
-    ComponentIndexArray component_rows,
-    ComponentIndexArray component_cols,
-    ComponentIndexArray component_key_indices
+    std::vector<std::int64_t> keys,
+    std::vector<std::int64_t> component_rows,
+    std::vector<std::int64_t> component_cols,
+    std::vector<std::int64_t> component_key_indices
 ) : ndim_(ndim),
     ndof_(ndof) {
-    if (keys.shape(1) != ndim_) {
+    if (ndim_ == 0) {
+        throw std::runtime_error("DensityComponents: dimension must be positive");
+    }
+    if (keys.empty() || keys.size() % ndim_ != 0) {
         throw std::runtime_error("DensityComponents: density key dimension mismatch");
     }
-    key_count_ = keys.shape(0);
+    key_count_ = keys.size() / ndim_;
     if (key_count_ == 0) {
         throw std::runtime_error("DensityComponents: keys must be non-empty");
     }
-    keys_.assign(keys.data(), keys.data() + key_count_ * ndim_);
+    keys_ = std::move(keys);
 
-    const size_t count = component_rows.shape(0);
-    if (component_cols.shape(0) != count || component_key_indices.shape(0) != count) {
+    const size_t count = component_rows.size();
+    if (component_cols.size() != count || component_key_indices.size() != count) {
         throw std::runtime_error("DensityComponents: selected component arrays must match");
     }
     component_count_ = count;
@@ -90,9 +94,9 @@ DensityComponents::DensityComponents(
     pair_index.reserve(std::min(count, ndof_ * ndof_));
     pairs_.reserve(std::min(count, ndof_ * ndof_));
     for (size_t index = 0; index < count; ++index) {
-        const auto row = component_rows.data()[index];
-        const auto col = component_cols.data()[index];
-        const auto key_index = component_key_indices.data()[index];
+        const auto row = component_rows[index];
+        const auto col = component_cols[index];
+        const auto key_index = component_key_indices[index];
         if (row < 0 || col < 0 || key_index < 0) {
             throw std::runtime_error("DensityComponents: selected component indices must be non-negative");
         }

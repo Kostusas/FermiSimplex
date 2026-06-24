@@ -4,7 +4,6 @@ import argparse
 import html
 import json
 import math
-import time
 from dataclasses import asdict, dataclass
 from pathlib import Path
 
@@ -26,7 +25,6 @@ _LOW_HARMONICS = [
 
 @dataclass(frozen=True)
 class CaseResult:
-    seconds: float
     n_points: int
     n_segments: int
     converged: bool
@@ -37,11 +35,6 @@ class CaseResult:
     n_cut_simplices: int
     n_feature_size_simplices: int
     n_unresolved_simplices: int
-    diagonalization_seconds: float
-    certification_seconds: float
-    refinement_seconds: float
-    extraction_seconds: float
-    total_seconds: float
     evaluated_vertices: int
     classified_simplices: int
 
@@ -124,17 +117,14 @@ def run_case(
     min_feature_size_normalized: float,
     max_diagonalizations: int | None,
 ) -> tuple[FermiSurface, CaseResult]:
-    start = time.perf_counter()
     surface = fermi_surface(
         hamiltonian,
         mu=mu,
         min_feature_size=min_feature_size_normalized,
         max_diagonalizations=max_diagonalizations,
     )
-    seconds = time.perf_counter() - start
     stats = surface.stats
     return surface, CaseResult(
-        seconds=seconds,
         n_points=int(surface.points.shape[0]),
         n_segments=int(surface.cells.shape[0]),
         converged=bool(surface.converged),
@@ -145,11 +135,6 @@ def run_case(
         n_cut_simplices=int(stats.cut_simplices),
         n_feature_size_simplices=int(stats.feature_size_simplices),
         n_unresolved_simplices=int(stats.unresolved_simplices),
-        diagonalization_seconds=stats.diagonalization_seconds,
-        certification_seconds=stats.certification_seconds,
-        refinement_seconds=stats.refinement_seconds,
-        extraction_seconds=stats.extraction_seconds,
-        total_seconds=stats.total_seconds,
         evaluated_vertices=int(stats.evaluated_vertices),
         classified_simplices=int(stats.classified_simplices),
     )
@@ -229,7 +214,7 @@ def write_svg(
         ),
         _svg_text(
             f"segments={result.n_segments}, evaluated vertices={result.evaluated_vertices}, "
-            f"wall={result.seconds:.3f}s, converged={result.converged}",
+            f"classified simplices={result.classified_simplices}, converged={result.converged}",
             38,
             92,
             size=14,
@@ -269,9 +254,8 @@ def write_svg(
         _svg_text("kx", left + plot_size / 2, top + plot_size + 52, size=13, anchor="middle"),
         _svg_text("ky", left - 54, top + plot_size / 2, size=13, anchor="middle"),
         _svg_text(
-            f"diagonalization={result.diagonalization_seconds:.3f}s; "
-            f"certification={result.certification_seconds:.3f}s; "
-            f"extraction={result.extraction_seconds:.3f}s",
+            f"safe={result.n_safe_simplices}; cut={result.n_cut_simplices}; "
+            f"feature-size={result.n_feature_size_simplices}; unresolved={result.n_unresolved_simplices}",
             38,
             height - 24,
             size=13,

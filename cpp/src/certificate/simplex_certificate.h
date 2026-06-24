@@ -1,6 +1,6 @@
 #pragma once
 
-#include "lineartetrahedron/vertex_spectra.h"
+#include "core/vertex_spectra.h"
 
 #include <adaptivesimplex/core/geometry.h>
 #include <adaptivesimplex/core/types.h>

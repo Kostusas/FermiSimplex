@@ -1,6 +1,6 @@
 #pragma once
 
-#include "lineartetrahedron/types.h"
+#include "core/types.h"
 
 #include <complex>
 #include <cstddef>
@@ -22,13 +22,16 @@ public:
 
 class TightBindingModel : public HamiltonianModel {
 public:
-    TightBindingModel(KeyArray keys, HoppingMatrixArray matrices);
+    TightBindingModel(
+        size_t ndim,
+        size_t ndof,
+        std::vector<std::int64_t> keys,
+        std::vector<std::complex<double>> matrices
+    );
 
     size_t ndim() const noexcept override { return ndim_; }
     size_t ndof() const noexcept override { return ndof_; }
     size_t nterms() const noexcept { return nterms_; }
-
-    nb::ndarray<nb::numpy, std::complex<double>> evaluate_point(PointArray point) const;
 
     std::vector<std::complex<double>> evaluate_reduced_point_raw(
         const double *point

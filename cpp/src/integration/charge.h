@@ -1,8 +1,8 @@
 #pragma once
 
-#include "lineartetrahedron/integration_workspace.h"
-#include "lineartetrahedron/types.h"
-#include "lineartetrahedron/vertex_spectra.h"
+#include "core/types.h"
+#include "core/vertex_spectra.h"
+#include "integration/workspace.h"
 
 #include <adaptivesimplex/core/geometry.h>
 #include <adaptivesimplex/core/vertex_cache.h>

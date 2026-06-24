@@ -1,6 +1,6 @@
-#include "lineartetrahedron/runtime.h"
+#include "integration/runtime.h"
 
-#include "lineartetrahedron/charge.h"
+#include "integration/charge.h"
 
 #include <adaptivesimplex/adaptive/adaptive_loop.h>
 #include <adaptivesimplex/adaptive/evaluation.h>

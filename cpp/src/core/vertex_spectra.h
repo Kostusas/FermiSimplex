@@ -1,6 +1,6 @@
 #pragma once
 
-#include "lineartetrahedron/tight_binding.h"
+#include "core/tight_binding.h"
 
 #include <adaptivesimplex/core/geometry.h>
 

@@ -1,7 +1,7 @@
 #pragma once
 
-#include "lineartetrahedron/tight_binding.h"
-#include "lineartetrahedron/types.h"
+#include "core/tight_binding.h"
+#include "core/types.h"
 
 #include <cstdint>
 #include <memory>
@@ -10,11 +10,6 @@
 namespace lineartetrahedron {
 
 struct FermiSurfaceStats {
-    std::uint64_t vertex_evaluation_nanoseconds = 0;
-    std::uint64_t marking_nanoseconds = 0;
-    std::uint64_t refinement_nanoseconds = 0;
-    std::uint64_t extraction_nanoseconds = 0;
-    std::uint64_t total_nanoseconds = 0;
     std::uint64_t vertex_evaluation_calls = 0;
     std::uint64_t evaluated_vertices = 0;
     std::uint64_t marking_passes = 0;

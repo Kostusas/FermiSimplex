@@ -100,19 +100,24 @@ endif()
 
 set(
   _lineartetrahedron_sources
-  src/bindings.cpp
+  src/bindings/fermi_surface.cpp
+  src/bindings/integration.cpp
+  src/bindings/module.cpp
+  src/bindings/tight_binding.cpp
   src/certificate/blas.cpp
   src/certificate/blocks.cpp
   src/certificate/rotated_vertex.cpp
+  src/certificate/rotated_blocks.cpp
   src/fermi_surface/api.cpp
   src/fermi_surface/extraction.cpp
+  src/fermi_surface/run.cpp
   src/integration/charge.cpp
   src/integration/charge_runtime.cpp
   src/integration/density.cpp
   src/integration/runtime.cpp
   src/integration/workspace.cpp
-  src/vertex_spectra.cpp
-  src/tight_binding.cpp
+  src/core/vertex_spectra.cpp
+  src/core/tight_binding.cpp
 )
 
 nanobind_add_module(
@@ -121,7 +126,7 @@ nanobind_add_module(
   ${_lineartetrahedron_sources}
 )
 target_compile_features(_native PRIVATE cxx_std_20)
-target_include_directories(_native PRIVATE "${CMAKE_CURRENT_SOURCE_DIR}/include")
+target_include_directories(_native PRIVATE "${CMAKE_CURRENT_SOURCE_DIR}/src")
 target_link_libraries(_native PRIVATE adaptivesimplex::adaptive adaptivesimplex::cut ${LAPACK_LIBRARIES})
 target_link_options(_native PRIVATE ${LAPACK_LINKER_FLAGS})
 target_compile_definitions(

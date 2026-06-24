@@ -49,11 +49,6 @@ class FermiSurfaceStats:
     cut_simplices: int
     feature_size_simplices: int
     unresolved_simplices: int
-    diagonalization_seconds: float
-    certification_seconds: float
-    refinement_seconds: float
-    extraction_seconds: float
-    total_seconds: float
 
 
 @dataclass(frozen=True)
@@ -425,11 +420,6 @@ def _fermi_stats_from_native(result, stats: dict[str, Any]) -> FermiSurfaceStats
         cut_simplices=int(result.n_cut_simplices),
         feature_size_simplices=int(result.n_feature_size_simplices),
         unresolved_simplices=int(result.n_unresolved_simplices),
-        diagonalization_seconds=float(stats["vertex_evaluation_nanoseconds"]) / 1e9,
-        certification_seconds=float(stats["marking_nanoseconds"]) / 1e9,
-        refinement_seconds=float(stats["refinement_nanoseconds"]) / 1e9,
-        extraction_seconds=float(stats["extraction_nanoseconds"]) / 1e9,
-        total_seconds=float(stats["total_nanoseconds"]) / 1e9,
     )
 
 

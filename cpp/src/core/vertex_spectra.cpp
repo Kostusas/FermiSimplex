@@ -1,4 +1,4 @@
-#include "lineartetrahedron/vertex_spectra.h"
+#include "core/vertex_spectra.h"
 
 #include <algorithm>
 #include <limits>

@@ -1,8 +1,7 @@
 #pragma once
 
-#include "lineartetrahedron/integration_workspace.h"
-#include "lineartetrahedron/types.h"
-#include "lineartetrahedron/vertex_spectra.h"
+#include "core/vertex_spectra.h"
+#include "integration/workspace.h"
 
 #include <adaptivesimplex/adaptive/dense_value.h>
 #include <adaptivesimplex/core/geometry.h>
@@ -22,10 +21,10 @@ public:
     DensityComponents(
         size_t ndim,
         size_t ndof,
-        KeyArray keys,
-        ComponentIndexArray component_rows,
-        ComponentIndexArray component_cols,
-        ComponentIndexArray component_key_indices
+        std::vector<std::int64_t> keys,
+        std::vector<std::int64_t> component_rows,
+        std::vector<std::int64_t> component_cols,
+        std::vector<std::int64_t> component_key_indices
     );
 
     size_t size() const noexcept { return component_count_; }

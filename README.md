@@ -149,6 +149,8 @@ Useful result fields:
 - `surface.converged`: whether all active simplices reached a terminal decision;
 - `surface.stats.evaluated_vertices`: number of unique Hamiltonian
   diagonalizations;
+- `surface.stats.cut_simplices`, `feature_size_simplices`, and
+  `unresolved_simplices`: compact terminal-outcome counters;
 - `surface.parameters`: resolved `mu`, `min_feature_size`, dimension, and matrix
   size.
 

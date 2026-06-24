@@ -255,7 +255,6 @@ def test_fermi_surface_inertia_certificate_certifies_constant_insulator():
     )
 
     assert surface.converged
-    assert surface.stats.safe_simplices == surface.stats.active_simplices
     assert surface.stats.cut_simplices == 0
     assert surface.stats.feature_size_simplices == 0
     assert surface.stats.unresolved_simplices == 0
@@ -279,10 +278,10 @@ def test_fermi_surface_margin_is_reported_and_can_block_certification():
     )
 
     assert safe.parameters.margin == pytest.approx(0.5)
-    assert safe.stats.safe_simplices == safe.stats.active_simplices
+    assert safe.converged
+    assert safe.stats.feature_size_simplices == 0
     assert strict.parameters.margin == pytest.approx(2.0)
-    assert strict.stats.safe_simplices == 0
-    assert strict.stats.feature_size_simplices == strict.stats.active_simplices
+    assert strict.stats.feature_size_simplices > 0
 
 
 @requires_native
@@ -301,12 +300,7 @@ def test_fermi_surface_inertia_certificate_accepts_cut_below_feature_size():
 
     assert surface.converged
     assert surface.stats.cut_simplices > 0
-    assert (
-        surface.stats.safe_simplices
-        + surface.stats.cut_simplices
-        + surface.stats.feature_size_simplices
-        + surface.stats.unresolved_simplices
-    ) == surface.stats.active_simplices
+    assert surface.stats.unresolved_simplices == 0
 
 
 @requires_native
@@ -323,8 +317,7 @@ def test_fermi_surface_inertia_certificate_repeated_runs_preserve_metadata():
     )
 
     assert second.converged == first.converged
-    assert second.stats.refinements == first.stats.refinements
-    assert second.stats.active_simplices == first.stats.active_simplices
+    assert second.stats.evaluated_vertices == first.stats.evaluated_vertices
     assert second.stats.unresolved_simplices == first.stats.unresolved_simplices
     assert second.points.shape == first.points.shape
     assert second.cells.shape == first.cells.shape

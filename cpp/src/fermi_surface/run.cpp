@@ -41,10 +41,7 @@ MarkResult classify_frontier(
     double tol
 ) {
     MarkResult result;
-    ++fermi_surface_stats_.marking_passes;
     for (const auto simplex_id : frontier) {
-        ++fermi_surface_stats_.active_simplex_visits;
-        ++fermi_surface_stats_.classified_simplices;
         const auto refinable = max_reduced_edge_length(geometry, simplex_id) > min_feature_size;
         const auto decision = simplex_certificate::classify_rotated_vertex_frame_simplex(
             mu,
@@ -56,18 +53,16 @@ MarkResult classify_frontier(
         );
 
         if (decision == simplex_certificate::InertiaDecision::CertifiedSafe) {
-            ++result.safe;
+            continue;
         } else if (decision == simplex_certificate::InertiaDecision::VisibleCut) {
             if (refinable) {
                 result.marked.push_back(simplex_id);
-                ++fermi_surface_stats_.marked_simplices;
             } else {
                 result.surface_terminal.push_back(simplex_id);
                 ++result.cut;
             }
         } else if (refinable) {
             result.marked.push_back(simplex_id);
-            ++fermi_surface_stats_.marked_simplices;
         } else {
             result.surface_terminal.push_back(simplex_id);
             ++result.feature_size;
@@ -113,29 +108,26 @@ public:
         std::int64_t max_diagonalizations,
         double margin,
         double tol,
-        bool return_nearest_vertex_states
+        bool return_states
     ) : model_(std::move(model)),
         mu_(mu),
         min_feature_size_(min_feature_size),
         max_diagonalizations_(max_diagonalizations),
         margin_(margin),
         tol_(tol),
-        return_nearest_vertex_states_(return_nearest_vertex_states),
+        return_states_(return_states),
         geometry_(make_fermi_geometry(model_->ndim())),
         evaluator_(model_),
         frontier_(active_simplices(geometry_)) {
         result_.ndim = model_->ndim();
         result_.ndof = model_->ndof();
-        result_.has_states = return_nearest_vertex_states_;
+        result_.has_states = return_states_;
         result_.min_feature_size = min_feature_size_;
     }
 
     FermiSurfaceResult run() {
         refine_until_terminal();
         extract_terminal_surface();
-        result_.n_active_simplices =
-            static_cast<std::int64_t>(geometry_.simplices().n_active());
-        result_.n_active_vertices = static_cast<std::int64_t>(geometry_.n_active_vertices());
         return std::move(result_);
     }
 
@@ -169,7 +161,6 @@ private:
     }
 
     void accumulate_terminal_counts(const MarkResult &marks) {
-        result_.n_safe_simplices += marks.safe;
         result_.n_cut_simplices += marks.cut;
         result_.n_feature_size_simplices += marks.feature_size;
         result_.n_unresolved_simplices += marks.unresolved;
@@ -184,8 +175,6 @@ private:
         const auto previous_active = simplex_set(active_simplices(geometry_));
         auto refined = marks.marked;
         geometry_.refine_active(refined, 1);
-        ++fermi_surface_stats_.refinement_calls;
-        result_.refinements += static_cast<std::int64_t>(refined.size());
         frontier_ = next_frontier(geometry_, previous_active, marks.marked, refined);
     }
 
@@ -224,7 +213,7 @@ private:
             ),
             mu_,
             tol_,
-            return_nearest_vertex_states_,
+            return_states_,
             result_
         );
     }
@@ -235,7 +224,7 @@ private:
     std::int64_t max_diagonalizations_ = -1;
     double margin_ = 0.0;
     double tol_ = 1e-14;
-    bool return_nearest_vertex_states_ = false;
+    bool return_states_ = false;
     core::Geometry geometry_;
     SpectraCache cache_;
     VertexSpectraEvaluator evaluator_;
@@ -253,7 +242,7 @@ FermiSurfaceResult run_fermi_surface(
     std::int64_t max_diagonalizations,
     double margin,
     double tol,
-    bool return_nearest_vertex_states
+    bool return_states
 ) {
     return FermiSurfaceRun(
         std::move(model),
@@ -262,7 +251,7 @@ FermiSurfaceResult run_fermi_surface(
         max_diagonalizations,
         margin,
         tol,
-        return_nearest_vertex_states
+        return_states
     ).run();
 }
 

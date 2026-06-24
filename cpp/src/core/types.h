@@ -60,10 +60,6 @@ struct FermiSurfaceResult {
     size_t ndof = 0;
     bool has_states = false;
     bool converged = false;
-    std::int64_t refinements = 0;
-    std::int64_t n_active_simplices = 0;
-    std::int64_t n_active_vertices = 0;
-    std::int64_t n_safe_simplices = 0;
     std::int64_t n_cut_simplices = 0;
     std::int64_t n_feature_size_simplices = 0;
     std::int64_t n_unresolved_simplices = 0;

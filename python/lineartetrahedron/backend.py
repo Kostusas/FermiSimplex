@@ -41,11 +41,6 @@ class DensityIntegrationInfo:
 @dataclass(frozen=True)
 class FermiSurfaceStats:
     evaluated_vertices: int
-    classified_simplices: int
-    refinements: int
-    active_simplices: int
-    active_vertices: int
-    safe_simplices: int
     cut_simplices: int
     feature_size_simplices: int
     unresolved_simplices: int
@@ -412,11 +407,6 @@ def _normalize_max_diagonalizations(max_diagonalizations: int | None) -> int:
 def _fermi_stats_from_native(result, stats: dict[str, Any]) -> FermiSurfaceStats:
     return FermiSurfaceStats(
         evaluated_vertices=int(stats["evaluated_vertices"]),
-        classified_simplices=int(stats["classified_simplices"]),
-        refinements=int(result.refinements),
-        active_simplices=int(result.n_active_simplices),
-        active_vertices=int(result.n_active_vertices),
-        safe_simplices=int(result.n_safe_simplices),
         cut_simplices=int(result.n_cut_simplices),
         feature_size_simplices=int(result.n_feature_size_simplices),
         unresolved_simplices=int(result.n_unresolved_simplices),

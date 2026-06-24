@@ -28,15 +28,10 @@ class CaseResult:
     n_points: int
     n_segments: int
     converged: bool
-    refinements: int
-    n_active_simplices: int
-    n_active_vertices: int
-    n_safe_simplices: int
     n_cut_simplices: int
     n_feature_size_simplices: int
     n_unresolved_simplices: int
     evaluated_vertices: int
-    classified_simplices: int
 
 
 def _add_hopping_pair(
@@ -128,15 +123,10 @@ def run_case(
         n_points=int(surface.points.shape[0]),
         n_segments=int(surface.cells.shape[0]),
         converged=bool(surface.converged),
-        refinements=int(stats.refinements),
-        n_active_simplices=int(stats.active_simplices),
-        n_active_vertices=int(stats.active_vertices),
-        n_safe_simplices=int(stats.safe_simplices),
         n_cut_simplices=int(stats.cut_simplices),
         n_feature_size_simplices=int(stats.feature_size_simplices),
         n_unresolved_simplices=int(stats.unresolved_simplices),
         evaluated_vertices=int(stats.evaluated_vertices),
-        classified_simplices=int(stats.classified_simplices),
     )
 
 
@@ -214,7 +204,7 @@ def write_svg(
         ),
         _svg_text(
             f"segments={result.n_segments}, evaluated vertices={result.evaluated_vertices}, "
-            f"classified simplices={result.classified_simplices}, converged={result.converged}",
+            f"converged={result.converged}",
             38,
             92,
             size=14,
@@ -254,7 +244,7 @@ def write_svg(
         _svg_text("kx", left + plot_size / 2, top + plot_size + 52, size=13, anchor="middle"),
         _svg_text("ky", left - 54, top + plot_size / 2, size=13, anchor="middle"),
         _svg_text(
-            f"safe={result.n_safe_simplices}; cut={result.n_cut_simplices}; "
+            f"cut={result.n_cut_simplices}; "
             f"feature-size={result.n_feature_size_simplices}; unresolved={result.n_unresolved_simplices}",
             38,
             height - 24,

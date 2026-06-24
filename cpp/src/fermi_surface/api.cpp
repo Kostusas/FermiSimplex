@@ -42,7 +42,7 @@ FermiSurfaceResult fermi_surface(
     std::int64_t max_diagonalizations,
     double margin,
     double tol,
-    bool return_nearest_vertex_states
+    bool return_states
 ) {
     return fermi_surface_from_model(
         std::static_pointer_cast<const HamiltonianModel>(std::move(model)),
@@ -51,7 +51,7 @@ FermiSurfaceResult fermi_surface(
         max_diagonalizations,
         margin,
         tol,
-        return_nearest_vertex_states
+        return_states
     );
 }
 
@@ -62,7 +62,7 @@ FermiSurfaceResult fermi_surface_from_model(
     std::int64_t max_diagonalizations,
     double margin,
     double tol,
-    bool return_nearest_vertex_states
+    bool return_states
 ) {
     using namespace fermi_surface_detail;
 
@@ -86,7 +86,7 @@ FermiSurfaceResult fermi_surface_from_model(
         max_diagonalizations,
         margin,
         tol,
-        return_nearest_vertex_states
+        return_states
     );
 }
 

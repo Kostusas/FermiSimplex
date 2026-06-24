@@ -85,7 +85,7 @@ void extract_band_surface(
     size_t band,
     double mu,
     double tol,
-    bool return_nearest_vertex_states,
+    bool return_states,
     FermiSurfaceResult &result
 ) {
     const auto &simplex = geometry.simplices().simplex(simplex_id);
@@ -124,7 +124,7 @@ void extract_band_surface(
             const auto point_index =
                 static_cast<std::int64_t>(result.points.size() / result.ndim);
             result.points.insert(result.points.end(), point.begin(), point.end());
-            if (return_nearest_vertex_states) {
+            if (return_states) {
                 append_nearest_vertex_state(
                     cache,
                     simplex.vertex_ids[left],
@@ -148,7 +148,7 @@ void extract_surface_impl(
     std::span<const core::SimplexId> simplex_ids,
     double mu,
     double tol,
-    bool return_nearest_vertex_states,
+    bool return_states,
     FermiSurfaceResult &result
 ) {
     for (const auto simplex_id : simplex_ids) {
@@ -160,7 +160,7 @@ void extract_surface_impl(
                 band,
                 mu,
                 tol,
-                return_nearest_vertex_states,
+                return_states,
                 result
             );
         }
@@ -218,7 +218,7 @@ void extract_surface(
     std::span<const core::SimplexId> simplex_ids,
     double mu,
     double tol,
-    bool return_nearest_vertex_states,
+    bool return_states,
     FermiSurfaceResult &result
 ) {
     extract_surface_impl(
@@ -228,7 +228,7 @@ void extract_surface(
         simplex_ids,
         mu,
         tol,
-        return_nearest_vertex_states,
+        return_states,
         result
     );
 }

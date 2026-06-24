@@ -82,7 +82,7 @@ FermiSurfaceResult fermi_surface_callable(
     std::int64_t max_diagonalizations,
     double margin,
     double tol,
-    bool return_nearest_vertex_states
+    bool return_states
 ) {
     return fermi_surface_from_model(
         std::make_shared<PythonHamiltonianModel>(std::move(callable), ndim, ndof),
@@ -91,7 +91,7 @@ FermiSurfaceResult fermi_surface_callable(
         max_diagonalizations,
         margin,
         tol,
-        return_nearest_vertex_states
+        return_states
     );
 }
 
@@ -150,10 +150,6 @@ void bind_fermi_surface(nb::module_ &m) {
         .def_prop_ro("ndof", [](const FermiSurfaceResult &self) { return self.ndof; })
         .def_prop_ro("has_states", [](const FermiSurfaceResult &self) { return self.has_states; })
         .def_prop_ro("converged", [](const FermiSurfaceResult &self) { return self.converged; })
-        .def_prop_ro("refinements", [](const FermiSurfaceResult &self) { return self.refinements; })
-        .def_prop_ro("n_active_simplices", [](const FermiSurfaceResult &self) { return self.n_active_simplices; })
-        .def_prop_ro("n_active_vertices", [](const FermiSurfaceResult &self) { return self.n_active_vertices; })
-        .def_prop_ro("n_safe_simplices", [](const FermiSurfaceResult &self) { return self.n_safe_simplices; })
         .def_prop_ro("n_cut_simplices", [](const FermiSurfaceResult &self) { return self.n_cut_simplices; })
         .def_prop_ro("n_feature_size_simplices", [](const FermiSurfaceResult &self) { return self.n_feature_size_simplices; })
         .def_prop_ro("n_unresolved_simplices", [](const FermiSurfaceResult &self) { return self.n_unresolved_simplices; })
@@ -195,13 +191,7 @@ void bind_fermi_surface(nb::module_ &m) {
         []() {
             const auto stats = fermi_surface_stats();
             nb::dict result;
-            result["vertex_evaluation_calls"] = stats.vertex_evaluation_calls;
             result["evaluated_vertices"] = stats.evaluated_vertices;
-            result["marking_passes"] = stats.marking_passes;
-            result["active_simplex_visits"] = stats.active_simplex_visits;
-            result["classified_simplices"] = stats.classified_simplices;
-            result["marked_simplices"] = stats.marked_simplices;
-            result["refinement_calls"] = stats.refinement_calls;
             return result;
         }
     );

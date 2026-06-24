@@ -14,7 +14,8 @@ ChargeValue charge_on_simplex(
     const IntegrationWorkspace &workspace,
     const adaptivesimplex::core::Geometry &geometry,
     adaptivesimplex::core::SimplexId simplex_id,
-    const adaptivesimplex::core::VertexCache<VertexSpectra> &cache
+    const adaptivesimplex::core::VertexCache<VertexSpectra> &cache,
+    bool certify = true
 );
 
 }  // namespace lineartetrahedron

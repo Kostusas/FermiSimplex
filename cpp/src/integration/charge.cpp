@@ -69,26 +69,29 @@ ChargeValue charge_on_simplex(
     const IntegrationWorkspace &workspace,
     const core::Geometry &geometry,
     core::SimplexId simplex_id,
-    const core::VertexCache<VertexSpectra> &cache
+    const core::VertexCache<VertexSpectra> &cache,
+    bool certify
 ) {
     const auto &simplex = geometry.simplices().simplex(simplex_id);
     ChargeValue result;
-    const auto certificate = simplex_certificate::certify_simplex_gap(
-        mu,
-        geometry,
-        simplex_id,
-        cache,
-        0.0,
-        workspace.tol()
-    );
-    if (certificate.status == simplex_certificate::SimplexCertificateStatus::Inconclusive) {
-        const auto occupation = std::min(certificate.vertex_occupation, workspace.ndof());
-        const auto unresolved_occupation_bound = std::max(
-            occupation,
-            workspace.ndof() - occupation
+    if (certify) {
+        const auto certificate = simplex_certificate::certify_simplex_gap(
+            mu,
+            geometry,
+            simplex_id,
+            cache,
+            0.0,
+            workspace.tol()
         );
-        result.certificate_error =
-            static_cast<double>(unresolved_occupation_bound) * simplex.volume;
+        if (certificate.status == simplex_certificate::SimplexCertificateStatus::Inconclusive) {
+            const auto occupation = std::min(certificate.vertex_occupation, workspace.ndof());
+            const auto unresolved_occupation_bound = std::max(
+                occupation,
+                workspace.ndof() - occupation
+            );
+            result.certificate_error =
+                static_cast<double>(unresolved_occupation_bound) * simplex.volume;
+        }
     }
 
     for (size_t band = 0; band < workspace.ndof(); ++band) {

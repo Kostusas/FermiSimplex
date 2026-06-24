@@ -460,6 +460,43 @@ def test_volume_bounded_certificate_error_can_block_charge_convergence():
 
 
 @requires_native
+def test_uncertified_charge_evaluation_suppresses_certificate_error():
+    runtime = Runtime(_winding_constant_gap_band(3), keys=[(0,)])
+    options = AdaptiveOptions(target_error=0.75, max_refinements=0, preview_depth=1)
+
+    certified = runtime.evaluate_charge(0.0, options)
+    uncertified = runtime.evaluate_charge(0.0, options, certify=False)
+
+    assert certified.charge == pytest.approx(uncertified.charge)
+    assert certified.charge_error == pytest.approx(1.0)
+    assert not certified.converged
+    assert uncertified.charge_error == pytest.approx(0.0)
+    assert uncertified.converged
+
+
+@requires_native
+def test_uncertified_charge_evaluation_does_not_refine_active_mesh():
+    runtime = Runtime(_winding_constant_gap_band(3), keys=[(0,)])
+    options = AdaptiveOptions(target_error=0.75, max_refinements=0, preview_depth=1)
+
+    active_before = runtime.n_active_simplices
+    result = runtime.evaluate_charge(0.0, options, certify=False)
+    active_after = runtime.n_active_simplices
+
+    assert result.refinements == 0
+    assert active_after == active_before
+
+
+@requires_native
+def test_integrate_charge_remains_certified():
+    runtime = Runtime(_winding_constant_gap_band(3), keys=[(0,)])
+    options = AdaptiveOptions(target_error=0.75, max_refinements=0, preview_depth=1)
+
+    with pytest.raises(RuntimeError, match="did not converge"):
+        runtime.integrate_charge(0.0, options)
+
+
+@requires_native
 def test_inertia_certificate_repeated_charge_evaluation_is_deterministic():
     runtime = Runtime(_axis_cosine_band(1), keys=[(0,)])
     options = AdaptiveOptions(target_error=1e-3, max_refinements=0, preview_depth=2)

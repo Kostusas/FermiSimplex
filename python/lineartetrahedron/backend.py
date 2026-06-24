@@ -305,8 +305,8 @@ class Runtime:
     def integrate_charge(self, mu: float, options):
         return self._native.integrate_charge(float(mu), options)
 
-    def evaluate_charge(self, mu: float, options):
-        return self._native.evaluate_charge(float(mu), options)
+    def evaluate_charge(self, mu: float, options, *, certify: bool = True):
+        return self._native.evaluate_charge(float(mu), options, bool(certify))
 
     def integrate_density(self, mu: float, options):
         result = self._native.integrate_density(float(mu), options)

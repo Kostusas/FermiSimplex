@@ -37,7 +37,8 @@ public:
     );
     ChargeIntegrateResult evaluate_charge(
         double mu,
-        const adaptivesimplex::adaptive::Options &options
+        const adaptivesimplex::adaptive::Options &options,
+        bool certify = true
     );
     DensityIntegrateResult integrate_density(
         double mu,

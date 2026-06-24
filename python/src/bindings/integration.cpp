@@ -129,7 +129,8 @@ void bind_integration(nb::module_ &m) {
             "evaluate_charge",
             &IntegrationRuntime::evaluate_charge,
             "mu"_a,
-            "options"_a
+            "options"_a,
+            "certify"_a = true
         )
         .def(
             "integrate_density",

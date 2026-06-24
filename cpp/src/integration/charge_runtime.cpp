@@ -54,14 +54,15 @@ struct ChargeRefinementScore {
 
 auto make_charge_integrand(
     IntegrationWorkspace &workspace,
-    double mu
+    double mu,
+    bool certify
 ) {
     return adaptive::simplex_integrand(
         workspace.cache(),
         [&workspace](std::span<const double> point) {
             return workspace.evaluate_vertex(point);
         },
-        [&workspace, mu](
+        [&workspace, mu, certify](
             const core::Geometry &geometry,
             core::SimplexId simplex_id,
             const core::VertexCache<VertexSpectra> &cache
@@ -71,7 +72,8 @@ auto make_charge_integrand(
                 workspace,
                 geometry,
                 simplex_id,
-                cache
+                cache,
+                certify
             );
         },
         adaptive::estimation_policies<ChargeStoppingError, ChargeRefinementScore>{}
@@ -86,7 +88,8 @@ ChargeIntegrateResult IntegrationRuntime::integrate_charge(
 ) {
     auto integrand = make_charge_integrand(
         workspace_,
-        mu
+        mu,
+        true
     );
     const auto raw = adaptive::run(workspace_.geometry(), integrand, options);
     return ChargeIntegrateResult{
@@ -103,11 +106,13 @@ ChargeIntegrateResult IntegrationRuntime::integrate_charge(
 
 ChargeIntegrateResult IntegrationRuntime::evaluate_charge(
     double mu,
-    const adaptive::Options &options
+    const adaptive::Options &options,
+    bool certify
 ) {
     auto integrand = make_charge_integrand(
         workspace_,
-        mu
+        mu,
+        certify
     );
 
     const auto preview_depth = std::max<std::uint32_t>(options.preview_depth, 1);

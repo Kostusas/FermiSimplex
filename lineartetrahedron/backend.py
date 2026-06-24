@@ -60,6 +60,7 @@ class FermiSurfaceStats:
 class FermiSurfaceParameters:
     mu: float
     min_feature_size: float
+    margin: float
     max_diagonalizations: int | None
     ndim: int
     ndof: int
@@ -438,6 +439,7 @@ def fermi_surface(
     mu: float = 0.0,
     min_feature_size: float,
     max_diagonalizations: int | None = None,
+    margin: float | None = 0.0,
     return_states: bool = False,
 ) -> FermiSurface:
     _require_native_extension()
@@ -451,6 +453,9 @@ def fermi_surface(
     feature_size = float(min_feature_size)
     if not np.isfinite(feature_size) or feature_size <= 0.0:
         raise ValueError("min_feature_size must be positive")
+    certificate_margin = 0.0 if margin is None else float(margin)
+    if not np.isfinite(certificate_margin) or certificate_margin < 0.0:
+        raise ValueError("margin must be finite and non-negative")
     max_diag_native = _normalize_max_diagonalizations(max_diagonalizations)
     if not isinstance(return_states, bool):
         raise TypeError("return_states must be a bool")
@@ -465,6 +470,7 @@ def fermi_surface(
             float(mu),
             feature_size,
             max_diag_native,
+            certificate_margin,
             _GEOM_TOL,
             return_states,
         )
@@ -478,6 +484,7 @@ def fermi_surface(
             float(mu),
             feature_size,
             max_diag_native,
+            certificate_margin,
             _GEOM_TOL,
             return_states,
         )
@@ -500,6 +507,7 @@ def fermi_surface(
         parameters=FermiSurfaceParameters(
             mu=float(mu),
             min_feature_size=feature_size,
+            margin=certificate_margin,
             max_diagonalizations=None if max_diag_native < 0 else max_diag_native,
             ndim=ndim,
             ndof=ndof,

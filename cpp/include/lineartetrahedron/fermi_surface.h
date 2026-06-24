@@ -33,6 +33,7 @@ FermiSurfaceResult fermi_surface(
     double mu,
     double min_feature_size,
     std::int64_t max_diagonalizations,
+    double margin,
     double tol,
     bool return_nearest_vertex_states = false
 );
@@ -42,6 +43,7 @@ FermiSurfaceResult fermi_surface_from_model(
     double mu,
     double min_feature_size,
     std::int64_t max_diagonalizations,
+    double margin,
     double tol,
     bool return_nearest_vertex_states = false
 );

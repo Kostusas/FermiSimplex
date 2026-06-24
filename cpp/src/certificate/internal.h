@@ -73,6 +73,22 @@ bool positive_definite(std::vector<Complex> block, size_t size, double tol);
 
 void negate_in_place(std::vector<Complex> &matrix);
 
+void subtract_positive_metric_margin(
+    std::vector<Complex> &block,
+    std::span<const Complex> rotation,
+    size_t npos,
+    size_t nneg,
+    double margin
+);
+
+void subtract_negative_metric_margin(
+    std::vector<Complex> &block,
+    std::span<const Complex> rotation,
+    size_t npos,
+    size_t nneg,
+    double margin
+);
+
 VertexBlocks build_vertex_blocks(
     std::span<const Complex> anchor_vectors,
     size_t ndof,

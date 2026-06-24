@@ -21,6 +21,7 @@ InertiaDecision classify_rotated_vertex_frame_simplex(
     const core::Geometry &geometry,
     core::SimplexId simplex_id,
     const core::VertexCache<VertexSpectra> &vertex_cache,
+    double margin,
     double tol
 );
 

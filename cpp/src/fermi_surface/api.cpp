@@ -46,6 +46,7 @@ MarkResult classify_frontier(
     const std::vector<core::SimplexId> &frontier,
     double mu,
     double min_feature_size,
+    double margin,
     double tol
 ) {
     MarkResult result;
@@ -59,6 +60,7 @@ MarkResult classify_frontier(
             geometry,
             simplex_id,
             cache,
+            margin,
             tol
         );
 
@@ -145,6 +147,7 @@ FermiSurfaceResult fermi_surface(
     double mu,
     double min_feature_size,
     std::int64_t max_diagonalizations,
+    double margin,
     double tol,
     bool return_nearest_vertex_states
 ) {
@@ -153,6 +156,7 @@ FermiSurfaceResult fermi_surface(
         mu,
         min_feature_size,
         max_diagonalizations,
+        margin,
         tol,
         return_nearest_vertex_states
     );
@@ -163,6 +167,7 @@ FermiSurfaceResult fermi_surface_from_model(
     double mu,
     double min_feature_size,
     std::int64_t max_diagonalizations,
+    double margin,
     double tol,
     bool return_nearest_vertex_states
 ) {
@@ -177,6 +182,9 @@ FermiSurfaceResult fermi_surface_from_model(
     }
     if (!(min_feature_size > 0.0) || !std::isfinite(min_feature_size)) {
         throw std::runtime_error("fermi_surface: min_feature_size must be positive");
+    }
+    if (margin < 0.0 || !std::isfinite(margin)) {
+        throw std::runtime_error("fermi_surface: margin must be finite and non-negative");
     }
 
     FermiSurfaceResult result;
@@ -216,6 +224,7 @@ FermiSurfaceResult fermi_surface_from_model(
             frontier,
             mu,
             min_feature_size,
+            margin,
             tol
         );
         fermi_surface_stats_.marking_nanoseconds += nanoseconds_since(marking_start);

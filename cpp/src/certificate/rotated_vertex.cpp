@@ -15,6 +15,7 @@ InertiaDecision classify_rotated_vertex_frame_simplex(
     const core::Geometry &geometry,
     core::SimplexId simplex_id,
     const core::VertexCache<VertexSpectra> &vertex_cache,
+    double margin,
     double tol
 ) {
     using namespace detail;
@@ -115,6 +116,7 @@ InertiaDecision classify_rotated_vertex_frame_simplex(
     for (const auto &vertex_blocks : blocks) {
         auto positive_block =
             rotated_positive_block(vertex_blocks, rotation_span, npos, nneg);
+        subtract_positive_metric_margin(positive_block, rotation_span, npos, nneg, margin);
         if (!positive_definite(std::move(positive_block), npos, tol)) {
             return InertiaDecision::Inconclusive;
         }
@@ -122,6 +124,7 @@ InertiaDecision classify_rotated_vertex_frame_simplex(
         auto negative_block =
             rotated_negative_block(vertex_blocks, rotation_span, npos, nneg);
         negate_in_place(negative_block);
+        subtract_negative_metric_margin(negative_block, rotation_span, npos, nneg, margin);
         if (!positive_definite(std::move(negative_block), nneg, tol)) {
             return InertiaDecision::Inconclusive;
         }

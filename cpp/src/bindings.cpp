@@ -88,6 +88,7 @@ FermiSurfaceResult fermi_surface_callable(
     double mu,
     double min_feature_size,
     std::int64_t max_diagonalizations,
+    double margin,
     double tol,
     bool return_nearest_vertex_states
 ) {
@@ -96,6 +97,7 @@ FermiSurfaceResult fermi_surface_callable(
         mu,
         min_feature_size,
         max_diagonalizations,
+        margin,
         tol,
         return_nearest_vertex_states
     );
@@ -280,6 +282,7 @@ NB_MODULE(_native, m) {
         "mu"_a,
         "min_feature_size"_a,
         "max_diagonalizations"_a = -1,
+        "margin"_a = 0.0,
         "tol"_a = 1e-14,
         "return_states"_a = false
     );
@@ -292,6 +295,7 @@ NB_MODULE(_native, m) {
         "mu"_a,
         "min_feature_size"_a,
         "max_diagonalizations"_a = -1,
+        "margin"_a = 0.0,
         "tol"_a = 1e-14,
         "return_states"_a = false
     );

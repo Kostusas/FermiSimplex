@@ -264,6 +264,34 @@ def test_fermi_surface_inertia_certificate_certifies_constant_insulator():
 
 
 @requires_native
+def test_fermi_surface_margin_is_reported_and_can_block_certification():
+    safe = fermi_surface(
+        _constant_insulator(1),
+        mu=0.0,
+        min_feature_size=1.0,
+        margin=0.5,
+    )
+    strict = fermi_surface(
+        _constant_insulator(1),
+        mu=0.0,
+        min_feature_size=1.0,
+        margin=2.0,
+    )
+
+    assert safe.parameters.margin == pytest.approx(0.5)
+    assert safe.stats.safe_simplices == safe.stats.active_simplices
+    assert strict.parameters.margin == pytest.approx(2.0)
+    assert strict.stats.safe_simplices == 0
+    assert strict.stats.feature_size_simplices == strict.stats.active_simplices
+
+
+@requires_native
+def test_fermi_surface_rejects_negative_margin():
+    with pytest.raises(ValueError, match="margin"):
+        fermi_surface(_constant_insulator(1), mu=0.0, min_feature_size=0.1, margin=-1e-3)
+
+
+@requires_native
 def test_fermi_surface_inertia_certificate_accepts_cut_below_feature_size():
     surface = fermi_surface(
         _axis_cosine_band(1),

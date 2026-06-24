@@ -101,6 +101,70 @@ void negate_in_place(std::vector<Complex> &matrix) {
     }
 }
 
+void subtract_positive_metric_margin(
+    std::vector<Complex> &block,
+    std::span<const Complex> rotation,
+    size_t npos,
+    size_t nneg,
+    double margin
+) {
+    if (margin == 0.0 || npos == 0) {
+        return;
+    }
+    if (nneg != 0) {
+        gemm(
+            'N',
+            'C',
+            npos,
+            npos,
+            nneg,
+            Complex{-margin, 0.0},
+            rotation.data(),
+            npos,
+            rotation.data(),
+            npos,
+            Complex{1.0, 0.0},
+            block.data(),
+            npos
+        );
+    }
+    for (size_t index = 0; index < npos; ++index) {
+        block[column_major_index(index, index, npos)] -= margin;
+    }
+}
+
+void subtract_negative_metric_margin(
+    std::vector<Complex> &block,
+    std::span<const Complex> rotation,
+    size_t npos,
+    size_t nneg,
+    double margin
+) {
+    if (margin == 0.0 || nneg == 0) {
+        return;
+    }
+    if (npos != 0) {
+        gemm(
+            'C',
+            'N',
+            nneg,
+            nneg,
+            npos,
+            Complex{-margin, 0.0},
+            rotation.data(),
+            npos,
+            rotation.data(),
+            npos,
+            Complex{1.0, 0.0},
+            block.data(),
+            nneg
+        );
+    }
+    for (size_t index = 0; index < nneg; ++index) {
+        block[column_major_index(index, index, nneg)] -= margin;
+    }
+}
+
 VertexBlocks build_vertex_blocks(
     std::span<const Complex> anchor_vectors,
     size_t ndof,

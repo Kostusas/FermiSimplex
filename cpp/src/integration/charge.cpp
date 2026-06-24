@@ -80,6 +80,7 @@ ChargeValue charge_on_simplex(
             geometry,
             simplex_id,
             cache,
+            0.0,
             workspace.tol()
         );
         if (decision == simplex_certificate::InertiaDecision::Inconclusive) {

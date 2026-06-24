@@ -79,6 +79,7 @@ surface = fermi_surface(
     mu=0.0,
     min_feature_size=0.01,
     max_diagonalizations=None,
+    margin=0.0,
     return_states=False,
 )
 ```
@@ -114,6 +115,12 @@ more diagonalizations.
 `max_diagonalizations` is optional and caps unique mesh-vertex diagonalizations.
 If the cap is hit before the adaptive run finishes, `surface.converged` is
 `False`.
+
+`margin` is an optional energy-unit safety buffer for certification. The default
+`margin=0.0` gives the usual certificate. A positive value requires certified
+same-sign states to remain at least `margin` away from `mu`, so larger margins
+force more refinement. Visible Fermi crossings are still detected independently
+of this margin.
 
 Set `return_states=True` to attach approximate eigenstates to the extracted
 Fermi-surface points:

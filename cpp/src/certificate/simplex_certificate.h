@@ -11,7 +11,7 @@ namespace lineartetrahedron::simplex_certificate {
 namespace core = adaptivesimplex::core;
 
 enum class InertiaDecision {
-    CertifiedSafe,
+    CertifiedGapped,
     VisibleCut,
     Inconclusive,
 };

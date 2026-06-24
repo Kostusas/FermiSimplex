@@ -28,10 +28,9 @@ struct ChargeStoppingError {
     state_type<IntegralValue> contribution(
         const adaptive::SimplexEstimate<IntegralValue> &estimate
     ) const {
-        auto contribution = estimate.correction;
-        contribution.certificate_error =
-            std::max(estimate.coarse.certificate_error, estimate.preview.certificate_error);
-        return contribution;
+        auto correction_contribution = estimate.correction;
+        correction_contribution.certificate_error = estimate.preview.certificate_error;
+        return correction_contribution;
     }
     template <class IntegralValue>
     void add(state_type<IntegralValue> &state, const state_type<IntegralValue> &value) const {
@@ -41,20 +40,16 @@ struct ChargeStoppingError {
     void remove(state_type<IntegralValue> &state, const state_type<IntegralValue> &value) const {
         state -= value;
     }
-    template <class IntegralValue> double error(const state_type<IntegralValue> &state) const {
-        return std::abs(state.charge) + std::max(0.0, state.certificate_error);
+    template <class IntegralValue>
+    double error(const state_type<IntegralValue> &correction_state) const {
+        // This state accumulates charge corrections, not the physical charge.
+        return std::abs(correction_state.charge) + correction_state.certificate_error;
     }
 };
 
 struct ChargeRefinementScore {
     template <class Context> double operator()(const Context &context) const {
-        return std::max(
-            std::abs(context.correction.charge),
-            std::max(
-                context.coarse.certificate_error,
-                context.preview.certificate_error
-            )
-        );
+        return std::abs(context.correction.charge) + context.preview.certificate_error;
     }
 };
 

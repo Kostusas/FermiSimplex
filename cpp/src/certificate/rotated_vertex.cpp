@@ -130,7 +130,7 @@ InertiaDecision classify_rotated_vertex_frame_simplex(
         }
     }
 
-    return InertiaDecision::CertifiedSafe;
+    return InertiaDecision::CertifiedGapped;
 }
 
 }  // namespace lineartetrahedron::simplex_certificate

@@ -408,24 +408,27 @@ def test_charge_derivative_is_finite_and_nonnegative_for_higher_dimensions(ndim)
 
 
 @requires_native
-def test_inertia_certificate_adds_charge_error_for_inconclusive_simplex():
+def test_charge_certificate_uses_preview_error_for_stopping():
     runtime = Runtime(_rotating_constant_gap_band(), keys=[(0,)])
     options = AdaptiveOptions(target_error=1e-3, max_refinements=0, preview_depth=1)
 
     result = runtime.evaluate_charge(0.0, options)
 
     assert result.charge == pytest.approx(1.0)
-    assert result.charge_error > options.target_error
-    assert not result.converged
+    assert result.charge_error == pytest.approx(0.0)
+    assert result.converged
 
 
 @requires_native
-def test_inertia_certificate_participates_in_charge_stopping_error():
+def test_preview_certified_charge_integrates_without_refinement():
     runtime = Runtime(_rotating_constant_gap_band(), keys=[(0,)])
     options = AdaptiveOptions(target_error=1e-3, max_refinements=0, preview_depth=1)
 
-    with pytest.raises(RuntimeError, match="did not converge"):
-        runtime.integrate_charge(0.0, options)
+    result = runtime.integrate_charge(0.0, options)
+
+    assert result.charge == pytest.approx(1.0)
+    assert result.charge_error == pytest.approx(0.0)
+    assert result.converged
 
 
 @requires_native
@@ -453,7 +456,7 @@ def test_inertia_certificate_does_not_add_error_for_visible_charge_cut():
 
 
 @requires_native
-def test_inertia_certificate_does_not_add_error_for_certified_charge_safe_simplex():
+def test_inertia_certificate_does_not_add_error_for_certified_gapped_simplex():
     runtime = Runtime(_constant_insulator(1), keys=[(0,)])
     options = AdaptiveOptions(target_error=1e-3, max_refinements=0, preview_depth=1)
 

@@ -52,7 +52,7 @@ MarkResult classify_frontier(
             tol
         );
 
-        if (decision == simplex_certificate::InertiaDecision::CertifiedSafe) {
+        if (decision == simplex_certificate::InertiaDecision::CertifiedGapped) {
             continue;
         } else if (decision == simplex_certificate::InertiaDecision::VisibleCut) {
             if (refinable) {

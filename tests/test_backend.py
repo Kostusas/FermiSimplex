@@ -101,7 +101,8 @@ def test_lanczos_min_eigenvalue_matches_numpy_reference():
     expected = np.linalg.eigvalsh(matrix)[0]
     estimated = _native._hermitian_min_eigenvalue_lanczos(
         np.ascontiguousarray(matrix),
-        1e-12,
+        gap_atol=1e-12,
+        gap_rtol=0.0,
     )
 
     assert estimated == pytest.approx(expected, abs=1e-10)
@@ -134,7 +135,8 @@ def test_generalized_lanczos_gap_bound_matches_numpy_reference():
     estimated = _native._generalized_hermitian_min_eigenvalue_lanczos(
         np.ascontiguousarray(matrix),
         np.ascontiguousarray(frame),
-        1e-12,
+        gap_atol=1e-12,
+        gap_rtol=0.0,
     )
 
     assert estimated == pytest.approx(expected, abs=1e-10)
@@ -150,13 +152,15 @@ def test_root_simplex_certificate_gap_bound_reports_physical_gap():
         model,
         0.0,
         margin=0.0,
-        gap_bound_precision=1e-12,
+        gap_atol=1e-12,
+        gap_rtol=0.0,
     )
     buffered = _native._root_mesh_certificate_gap_bound(
         model,
         0.0,
         margin=0.5,
-        gap_bound_precision=1e-12,
+        gap_atol=1e-12,
+        gap_rtol=0.0,
     )
 
     assert unbuffered == pytest.approx(1.0, abs=1e-10)

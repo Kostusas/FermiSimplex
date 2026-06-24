@@ -40,7 +40,7 @@ MarkResult classify_frontier(
     double min_feature_size,
     double margin,
     double tol,
-    std::optional<double> gap_bound_precision
+    std::optional<simplex_certificate::GapPrecision> gap_precision
 ) {
     MarkResult result;
     for (const auto simplex_id : frontier) {
@@ -52,7 +52,7 @@ MarkResult classify_frontier(
             cache,
             margin,
             tol,
-            gap_bound_precision
+            gap_precision
         );
         const auto status = certificate.status;
 
@@ -113,7 +113,7 @@ public:
         double margin,
         double tol,
         bool return_states,
-        std::optional<double> gap_bound_precision
+        std::optional<simplex_certificate::GapPrecision> gap_precision
     ) : model_(std::move(model)),
         mu_(mu),
         min_feature_size_(min_feature_size),
@@ -121,7 +121,7 @@ public:
         margin_(margin),
         tol_(tol),
         return_states_(return_states),
-        gap_bound_precision_(gap_bound_precision),
+        gap_precision_(gap_precision),
         geometry_(make_fermi_geometry(model_->ndim())),
         evaluator_(model_),
         frontier_(active_simplices(geometry_)) {
@@ -163,7 +163,7 @@ private:
             min_feature_size_,
             margin_,
             tol_,
-            gap_bound_precision_
+            gap_precision_
         );
     }
 
@@ -232,7 +232,7 @@ private:
     double margin_ = 0.0;
     double tol_ = 1e-14;
     bool return_states_ = false;
-    std::optional<double> gap_bound_precision_;
+    std::optional<simplex_certificate::GapPrecision> gap_precision_;
     core::Geometry geometry_;
     SpectraCache cache_;
     VertexSpectraEvaluator evaluator_;
@@ -251,7 +251,7 @@ FermiSurfaceResult run_fermi_surface(
     double margin,
     double tol,
     bool return_states,
-    std::optional<double> gap_bound_precision
+    std::optional<simplex_certificate::GapPrecision> gap_precision
 ) {
     return FermiSurfaceRun(
         std::move(model),
@@ -261,7 +261,7 @@ FermiSurfaceResult run_fermi_surface(
         margin,
         tol,
         return_states,
-        gap_bound_precision
+        gap_precision
     ).run();
 }
 

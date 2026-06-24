@@ -35,7 +35,7 @@ SimplexCertificate certify_simplex_gap(
     const core::VertexCache<VertexSpectra> &vertex_cache,
     double margin,
     double tol,
-    std::optional<double> gap_bound_precision
+    std::optional<GapPrecision> gap_precision
 ) {
     using namespace detail;
 
@@ -135,7 +135,7 @@ SimplexCertificate certify_simplex_gap(
     auto simplex_gap_bound = std::numeric_limits<double>::infinity();
     std::vector<Complex> positive_metric;
     std::vector<Complex> negative_metric;
-    if (gap_bound_precision.has_value()) {
+    if (gap_precision.has_value()) {
         positive_metric = positive_frame_metric(rotation_span, npos, nneg);
         negative_metric = negative_frame_metric(rotation_span, npos, nneg);
     }
@@ -148,7 +148,7 @@ SimplexCertificate certify_simplex_gap(
         if (!positive_definite(std::move(positive_block), npos, tol)) {
             return certificate(SimplexCertificateStatus::Inconclusive, reference_occupation);
         }
-        if (gap_bound_precision.has_value() && npos != 0) {
+        if (gap_precision.has_value() && npos != 0) {
             const auto bound = generalized_hermitian_min_eigenvalue_lanczos(
                 std::span<const Complex>(
                     positive_physical_block.data(),
@@ -156,7 +156,8 @@ SimplexCertificate certify_simplex_gap(
                 ),
                 std::span<const Complex>(positive_metric.data(), positive_metric.size()),
                 npos,
-                *gap_bound_precision
+                gap_precision->atol,
+                gap_precision->rtol
             );
             simplex_gap_bound = std::min(simplex_gap_bound, bound);
         }
@@ -169,7 +170,7 @@ SimplexCertificate certify_simplex_gap(
         if (!positive_definite(std::move(negative_block), nneg, tol)) {
             return certificate(SimplexCertificateStatus::Inconclusive, reference_occupation);
         }
-        if (gap_bound_precision.has_value() && nneg != 0) {
+        if (gap_precision.has_value() && nneg != 0) {
             const auto bound = generalized_hermitian_min_eigenvalue_lanczos(
                 std::span<const Complex>(
                     negative_physical_block.data(),
@@ -177,7 +178,8 @@ SimplexCertificate certify_simplex_gap(
                 ),
                 std::span<const Complex>(negative_metric.data(), negative_metric.size()),
                 nneg,
-                *gap_bound_precision
+                gap_precision->atol,
+                gap_precision->rtol
             );
             simplex_gap_bound = std::min(simplex_gap_bound, bound);
         }
@@ -186,7 +188,7 @@ SimplexCertificate certify_simplex_gap(
     return certificate(
         SimplexCertificateStatus::CertifiedGapped,
         reference_occupation,
-        gap_bound_precision.has_value() ? std::optional<double>{simplex_gap_bound} : std::nullopt
+        gap_precision.has_value() ? std::optional<double>{simplex_gap_bound} : std::nullopt
     );
 }
 

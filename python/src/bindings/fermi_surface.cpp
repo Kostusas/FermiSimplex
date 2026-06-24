@@ -123,7 +123,8 @@ std::optional<double> root_mesh_certificate_gap_bound(
     double mu,
     double margin,
     double tol,
-    double gap_bound_precision
+    double gap_atol,
+    double gap_rtol
 ) {
     if (!model) {
         throw std::runtime_error("_root_mesh_certificate_gap_bound: model must not be null");
@@ -158,7 +159,10 @@ std::optional<double> root_mesh_certificate_gap_bound(
             cache,
             margin,
             tol,
-            gap_bound_precision
+            simplex_certificate::GapPrecision{
+                .atol = gap_atol,
+                .rtol = gap_rtol,
+            }
         );
         if (certificate.status != simplex_certificate::SimplexCertificateStatus::CertifiedGapped ||
             !certificate.gap_bound.has_value()) {
@@ -263,21 +267,23 @@ void bind_fermi_surface(nb::module_ &m) {
     );
     m.def(
         "_hermitian_min_eigenvalue_lanczos",
-        [](CallbackMatrixArray matrix, double absolute_uncertainty) {
+        [](CallbackMatrixArray matrix, double gap_atol, double gap_rtol) {
             const auto size = static_cast<size_t>(matrix.shape(0));
             const auto values = copy_square_matrix(matrix);
             return simplex_certificate::detail::hermitian_min_eigenvalue_lanczos(
                 std::span<const Complex>(values.data(), values.size()),
                 size,
-                absolute_uncertainty
+                gap_atol,
+                gap_rtol
             );
         },
         "matrix"_a,
-        "absolute_uncertainty"_a
+        "gap_atol"_a = 1e-10,
+        "gap_rtol"_a = 1e-2
     );
     m.def(
         "_generalized_hermitian_min_eigenvalue_lanczos",
-        [](CallbackMatrixArray matrix, CallbackMatrixArray metric, double absolute_uncertainty) {
+        [](CallbackMatrixArray matrix, CallbackMatrixArray metric, double gap_atol, double gap_rtol) {
             if (matrix.shape(0) != metric.shape(0) || matrix.shape(1) != metric.shape(1)) {
                 throw std::runtime_error(
                     "_generalized_hermitian_min_eigenvalue_lanczos: shape mismatch"
@@ -290,12 +296,14 @@ void bind_fermi_surface(nb::module_ &m) {
                 std::span<const Complex>(matrix_values.data(), matrix_values.size()),
                 std::span<const Complex>(metric_values.data(), metric_values.size()),
                 size,
-                absolute_uncertainty
+                gap_atol,
+                gap_rtol
             );
         },
         "matrix"_a,
         "metric"_a,
-        "absolute_uncertainty"_a
+        "gap_atol"_a = 1e-10,
+        "gap_rtol"_a = 1e-2
     );
     m.def(
         "_root_mesh_certificate_gap_bound",
@@ -304,7 +312,8 @@ void bind_fermi_surface(nb::module_ &m) {
         "mu"_a,
         "margin"_a = 0.0,
         "tol"_a = 1e-14,
-        "gap_bound_precision"_a = 1e-12
+        "gap_atol"_a = 1e-10,
+        "gap_rtol"_a = 1e-2
     );
     m.def("_reset_fermi_surface_stats", &reset_fermi_surface_stats);
     m.def(

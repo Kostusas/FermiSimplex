@@ -189,7 +189,8 @@ template <class Matvec>
 double min_eigenvalue_lanczos(
     size_t size,
     Matvec matvec,
-    double absolute_uncertainty
+    double gap_atol,
+    double gap_rtol
 ) {
     if (size == 0) {
         return std::numeric_limits<double>::infinity();
@@ -197,8 +198,11 @@ double min_eigenvalue_lanczos(
     if (size > static_cast<size_t>(std::numeric_limits<int>::max())) {
         throw std::runtime_error("Lanczos: matrix dimension exceeds LP64 range");
     }
-    if (!(absolute_uncertainty >= 0.0) || !std::isfinite(absolute_uncertainty)) {
-        throw std::runtime_error("Lanczos: absolute uncertainty must be finite and nonnegative");
+    if (!(gap_atol >= 0.0) || !std::isfinite(gap_atol)) {
+        throw std::runtime_error("Lanczos: gap_atol must be finite and nonnegative");
+    }
+    if (!(gap_rtol >= 0.0) || !std::isfinite(gap_rtol)) {
+        throw std::runtime_error("Lanczos: gap_rtol must be finite and nonnegative");
     }
 
     constexpr auto residual_tolerance = 1e-12;
@@ -274,7 +278,9 @@ double min_eigenvalue_lanczos(
                 ritz_eigenvectors,
                 ritz_work
             );
-            if (bounds.upper - bounds.lower <= absolute_uncertainty || final_iteration) {
+            const auto ritz_scale = std::max(std::abs(bounds.lower), std::abs(bounds.upper));
+            const auto allowed_uncertainty = std::max(gap_atol, gap_rtol * ritz_scale);
+            if (bounds.upper - bounds.lower <= allowed_uncertainty || final_iteration) {
                 return bounds.lower;
             }
         }
@@ -299,7 +305,8 @@ double min_eigenvalue_lanczos(
 double hermitian_min_eigenvalue_lanczos(
     std::span<const Complex> matrix,
     size_t size,
-    double absolute_uncertainty
+    double gap_atol,
+    double gap_rtol
 ) {
     if (matrix.size() != size * size) {
         throw std::runtime_error("hermitian_min_eigenvalue_lanczos: matrix size mismatch");
@@ -309,7 +316,8 @@ double hermitian_min_eigenvalue_lanczos(
         [&](std::span<const Complex> x, std::vector<Complex> &y) {
             hermitian_matvec(matrix, size, x, y);
         },
-        absolute_uncertainty
+        gap_atol,
+        gap_rtol
     );
 }
 

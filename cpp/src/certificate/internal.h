@@ -78,14 +78,16 @@ void negate_in_place(std::vector<Complex> &matrix);
 double hermitian_min_eigenvalue_lanczos(
     std::span<const Complex> matrix,
     size_t size,
-    double absolute_uncertainty
+    double gap_atol,
+    double gap_rtol
 );
 
 double generalized_hermitian_min_eigenvalue_lanczos(
     std::span<const Complex> matrix,
     std::span<const Complex> metric,
     size_t size,
-    double absolute_uncertainty
+    double gap_atol,
+    double gap_rtol
 );
 
 std::vector<Complex> positive_frame_metric(

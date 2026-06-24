@@ -160,7 +160,8 @@ double generalized_hermitian_min_eigenvalue_lanczos(
     std::span<const Complex> matrix,
     std::span<const Complex> metric,
     size_t size,
-    double absolute_uncertainty
+    double gap_atol,
+    double gap_rtol
 ) {
     if (matrix.size() != size * size || metric.size() != size * size) {
         throw std::runtime_error("generalized_hermitian_min_eigenvalue_lanczos: matrix size mismatch");
@@ -172,7 +173,8 @@ double generalized_hermitian_min_eigenvalue_lanczos(
     return hermitian_min_eigenvalue_lanczos(
         std::span<const Complex>(transformed.data(), transformed.size()),
         size,
-        absolute_uncertainty
+        gap_atol,
+        gap_rtol
     );
 }
 

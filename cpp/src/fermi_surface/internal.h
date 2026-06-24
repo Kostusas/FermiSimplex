@@ -98,10 +98,10 @@ FermiSurfaceResult run_fermi_surface(
     double mu,
     double min_feature_size,
     std::int64_t max_diagonalizations,
-    double margin,
-    double tol,
-    bool return_states,
-    std::optional<double> gap_bound_precision = std::nullopt
+    double margin = 0.0,
+    double tol = 1e-14,
+    bool return_states = false,
+    std::optional<simplex_certificate::GapPrecision> gap_precision = std::nullopt
 );
 
 }  // namespace lineartetrahedron::fermi_surface_detail

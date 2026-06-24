@@ -23,7 +23,7 @@ examples = [
 ]
 
 [tool.scikit-build]
-wheel.packages = ["lineartetrahedron"]
+wheel.packages = ["python/lineartetrahedron"]
 cmake.source-dir = "."
 
 [tool.pytest.ini_options]

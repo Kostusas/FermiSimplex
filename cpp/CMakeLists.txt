@@ -99,11 +99,7 @@ if(NOT LINEARTETRAHEDRON_BLAS_ZHEMM_SYMBOL)
 endif()
 
 set(
-  _lineartetrahedron_sources
-  src/bindings/fermi_surface.cpp
-  src/bindings/integration.cpp
-  src/bindings/module.cpp
-  src/bindings/tight_binding.cpp
+  _lineartetrahedron_core_sources
   src/certificate/blas.cpp
   src/certificate/blocks.cpp
   src/certificate/rotated_vertex.cpp
@@ -120,22 +116,41 @@ set(
   src/core/tight_binding.cpp
 )
 
-nanobind_add_module(
-  _native
-  NB_STATIC
-  ${_lineartetrahedron_sources}
+add_library(lineartetrahedron_core STATIC ${_lineartetrahedron_core_sources})
+target_compile_features(lineartetrahedron_core PUBLIC cxx_std_20)
+target_include_directories(lineartetrahedron_core PUBLIC "${CMAKE_CURRENT_SOURCE_DIR}/src")
+target_link_libraries(
+  lineartetrahedron_core
+  PUBLIC
+    adaptivesimplex::adaptive
+    adaptivesimplex::cut
+  PRIVATE
+    ${LAPACK_LIBRARIES}
 )
-target_compile_features(_native PRIVATE cxx_std_20)
-target_include_directories(_native PRIVATE "${CMAKE_CURRENT_SOURCE_DIR}/src")
-target_link_libraries(_native PRIVATE adaptivesimplex::adaptive adaptivesimplex::cut ${LAPACK_LIBRARIES})
-target_link_options(_native PRIVATE ${LAPACK_LINKER_FLAGS})
+target_link_options(lineartetrahedron_core PRIVATE ${LAPACK_LINKER_FLAGS})
 target_compile_definitions(
-  _native PRIVATE
+  lineartetrahedron_core PRIVATE
   LINEARTETRAHEDRON_LAPACK_ZHEEVD=${LINEARTETRAHEDRON_LAPACK_ZHEEVD_SYMBOL}
   LINEARTETRAHEDRON_LAPACK_ZPOTRF=${LINEARTETRAHEDRON_LAPACK_ZPOTRF_SYMBOL}
   LINEARTETRAHEDRON_BLAS_ZGEMM=${LINEARTETRAHEDRON_BLAS_ZGEMM_SYMBOL}
   LINEARTETRAHEDRON_BLAS_ZHER2K=${LINEARTETRAHEDRON_BLAS_ZHER2K_SYMBOL}
   LINEARTETRAHEDRON_BLAS_ZHEMM=${LINEARTETRAHEDRON_BLAS_ZHEMM_SYMBOL}
 )
+
+nanobind_add_module(
+  _native
+  NB_STATIC
+  ../python/src/bindings/fermi_surface.cpp
+  ../python/src/bindings/integration.cpp
+  ../python/src/bindings/module.cpp
+  ../python/src/bindings/tight_binding.cpp
+)
+target_compile_features(_native PRIVATE cxx_std_20)
+target_include_directories(
+  _native PRIVATE
+  "${CMAKE_CURRENT_SOURCE_DIR}/src"
+  "${CMAKE_CURRENT_SOURCE_DIR}/../python/src/bindings"
+)
+target_link_libraries(_native PRIVATE lineartetrahedron_core)
 
 install(TARGETS _native LIBRARY DESTINATION lineartetrahedron)

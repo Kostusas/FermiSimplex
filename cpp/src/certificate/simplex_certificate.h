@@ -6,17 +6,24 @@
 #include <adaptivesimplex/core/types.h>
 #include <adaptivesimplex/core/vertex_cache.h>
 
+#include <cstddef>
+
 namespace lineartetrahedron::simplex_certificate {
 
 namespace core = adaptivesimplex::core;
 
-enum class InertiaDecision {
+enum class SimplexCertificateStatus {
     CertifiedGapped,
     VisibleCut,
     Inconclusive,
 };
 
-InertiaDecision classify_rotated_vertex_frame_simplex(
+struct SimplexCertificate {
+    SimplexCertificateStatus status = SimplexCertificateStatus::Inconclusive;
+    size_t vertex_occupation = 0;
+};
+
+SimplexCertificate certify_simplex_gap(
     double mu,
     const core::Geometry &geometry,
     core::SimplexId simplex_id,

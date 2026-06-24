@@ -9,7 +9,6 @@
 #include <algorithm>
 #include <cmath>
 #include <cstdint>
-#include <limits>
 #include <vector>
 
 namespace lineartetrahedron {
@@ -53,21 +52,16 @@ struct ChargeRefinementScore {
     }
 };
 
-double certificate_error_for(const adaptive::Options &options) {
-    return std::nextafter(options.target_error, std::numeric_limits<double>::infinity());
-}
-
 auto make_charge_integrand(
     IntegrationWorkspace &workspace,
-    double mu,
-    double certificate_error
+    double mu
 ) {
     return adaptive::simplex_integrand(
         workspace.cache(),
         [&workspace](std::span<const double> point) {
             return workspace.evaluate_vertex(point);
         },
-        [&workspace, mu, certificate_error](
+        [&workspace, mu](
             const core::Geometry &geometry,
             core::SimplexId simplex_id,
             const core::VertexCache<VertexSpectra> &cache
@@ -77,8 +71,7 @@ auto make_charge_integrand(
                 workspace,
                 geometry,
                 simplex_id,
-                cache,
-                certificate_error
+                cache
             );
         },
         adaptive::estimation_policies<ChargeStoppingError, ChargeRefinementScore>{}
@@ -91,11 +84,9 @@ ChargeIntegrateResult IntegrationRuntime::integrate_charge(
     double mu,
     const adaptive::Options &options
 ) {
-    const auto certificate_error = certificate_error_for(options);
     auto integrand = make_charge_integrand(
         workspace_,
-        mu,
-        certificate_error
+        mu
     );
     const auto raw = adaptive::run(workspace_.geometry(), integrand, options);
     return ChargeIntegrateResult{
@@ -114,11 +105,9 @@ ChargeIntegrateResult IntegrationRuntime::evaluate_charge(
     double mu,
     const adaptive::Options &options
 ) {
-    const auto certificate_error = certificate_error_for(options);
     auto integrand = make_charge_integrand(
         workspace_,
-        mu,
-        certificate_error
+        mu
     );
 
     const auto preview_depth = std::max<std::uint32_t>(options.preview_depth, 1);

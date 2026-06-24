@@ -50,11 +50,15 @@ def _aliased_pocket_band() -> dict[tuple[int, ...], np.ndarray]:
 
 
 def _rotating_constant_gap_band() -> dict[tuple[int, ...], np.ndarray]:
+    return _winding_constant_gap_band(2)
+
+
+def _winding_constant_gap_band(winding: int) -> dict[tuple[int, ...], np.ndarray]:
     sigma_z = np.diag([1.0, -1.0]).astype(complex)
     sigma_x = np.array([[0.0, 1.0], [1.0, 0.0]], dtype=complex)
     return {
-        (2,): 0.5 * sigma_z + 0.5j * sigma_x,
-        (-2,): 0.5 * sigma_z - 0.5j * sigma_x,
+        (winding,): 0.5 * sigma_z + 0.5j * sigma_x,
+        (-winding,): 0.5 * sigma_z - 0.5j * sigma_x,
     }
 
 
@@ -429,6 +433,30 @@ def test_preview_certified_charge_integrates_without_refinement():
     assert result.charge == pytest.approx(1.0)
     assert result.charge_error == pytest.approx(0.0)
     assert result.converged
+
+
+@requires_native
+def test_volume_bounded_certificate_error_can_be_within_charge_tolerance():
+    runtime = Runtime(_winding_constant_gap_band(3), keys=[(0,)])
+    options = AdaptiveOptions(target_error=1.1, max_refinements=0, preview_depth=1)
+
+    result = runtime.evaluate_charge(0.0, options)
+
+    assert result.charge == pytest.approx(1.0)
+    assert result.charge_error == pytest.approx(1.0)
+    assert result.converged
+
+
+@requires_native
+def test_volume_bounded_certificate_error_can_block_charge_convergence():
+    runtime = Runtime(_winding_constant_gap_band(3), keys=[(0,)])
+    options = AdaptiveOptions(target_error=0.75, max_refinements=0, preview_depth=1)
+
+    result = runtime.evaluate_charge(0.0, options)
+
+    assert result.charge == pytest.approx(1.0)
+    assert result.charge_error == pytest.approx(1.0)
+    assert not result.converged
 
 
 @requires_native

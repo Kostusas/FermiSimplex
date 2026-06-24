@@ -69,23 +69,26 @@ ChargeValue charge_on_simplex(
     const IntegrationWorkspace &workspace,
     const core::Geometry &geometry,
     core::SimplexId simplex_id,
-    const core::VertexCache<VertexSpectra> &cache,
-    double certificate_error
+    const core::VertexCache<VertexSpectra> &cache
 ) {
     const auto &simplex = geometry.simplices().simplex(simplex_id);
     ChargeValue result;
-    if (certificate_error > 0.0) {
-        const auto decision = simplex_certificate::classify_rotated_vertex_frame_simplex(
-            mu,
-            geometry,
-            simplex_id,
-            cache,
-            0.0,
-            workspace.tol()
+    const auto certificate = simplex_certificate::certify_simplex_gap(
+        mu,
+        geometry,
+        simplex_id,
+        cache,
+        0.0,
+        workspace.tol()
+    );
+    if (certificate.status == simplex_certificate::SimplexCertificateStatus::Inconclusive) {
+        const auto occupation = std::min(certificate.vertex_occupation, workspace.ndof());
+        const auto unresolved_occupation_bound = std::max(
+            occupation,
+            workspace.ndof() - occupation
         );
-        if (decision == simplex_certificate::InertiaDecision::Inconclusive) {
-            result.certificate_error = certificate_error;
-        }
+        result.certificate_error =
+            static_cast<double>(unresolved_occupation_bound) * simplex.volume;
     }
 
     for (size_t band = 0; band < workspace.ndof(); ++band) {

@@ -43,7 +43,7 @@ MarkResult classify_frontier(
     MarkResult result;
     for (const auto simplex_id : frontier) {
         const auto refinable = max_reduced_edge_length(geometry, simplex_id) > min_feature_size;
-        const auto decision = simplex_certificate::classify_rotated_vertex_frame_simplex(
+        const auto certificate = simplex_certificate::certify_simplex_gap(
             mu,
             geometry,
             simplex_id,
@@ -51,10 +51,11 @@ MarkResult classify_frontier(
             margin,
             tol
         );
+        const auto status = certificate.status;
 
-        if (decision == simplex_certificate::InertiaDecision::CertifiedGapped) {
+        if (status == simplex_certificate::SimplexCertificateStatus::CertifiedGapped) {
             continue;
-        } else if (decision == simplex_certificate::InertiaDecision::VisibleCut) {
+        } else if (status == simplex_certificate::SimplexCertificateStatus::VisibleCut) {
             if (refinable) {
                 result.marked.push_back(simplex_id);
             } else {

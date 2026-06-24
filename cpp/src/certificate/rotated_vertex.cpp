@@ -5,12 +5,27 @@
 #include <algorithm>
 #include <cmath>
 #include <limits>
+#include <stdexcept>
 #include <span>
 #include <vector>
 
 namespace lineartetrahedron::simplex_certificate {
 
-InertiaDecision classify_rotated_vertex_frame_simplex(
+namespace {
+
+SimplexCertificate certificate(
+    SimplexCertificateStatus status,
+    size_t vertex_occupation
+) {
+    return SimplexCertificate{
+        .status = status,
+        .vertex_occupation = vertex_occupation,
+    };
+}
+
+}  // namespace
+
+SimplexCertificate certify_simplex_gap(
     double mu,
     const core::Geometry &geometry,
     core::SimplexId simplex_id,
@@ -22,7 +37,7 @@ InertiaDecision classify_rotated_vertex_frame_simplex(
 
     const auto &simplex = geometry.simplices().simplex(simplex_id);
     if (simplex.vertex_ids.empty()) {
-        return InertiaDecision::Inconclusive;
+        throw std::runtime_error("certify_simplex_gap: simplex must not be empty");
     }
 
     const auto &first = vertex_cache.get(simplex.vertex_ids.front());
@@ -40,7 +55,7 @@ InertiaDecision classify_rotated_vertex_frame_simplex(
             const auto d = signed_eigenvalue(spectra, band, mu);
             const auto gap = std::abs(d);
             if (gap <= tol) {
-                return InertiaDecision::VisibleCut;
+                return certificate(SimplexCertificateStatus::VisibleCut, vertex_occupation);
             }
             min_gap = std::min(min_gap, gap);
             if (d < -tol) {
@@ -51,7 +66,7 @@ InertiaDecision classify_rotated_vertex_frame_simplex(
             reference_occupation = vertex_occupation;
             has_reference_occupation = true;
         } else if (vertex_occupation != reference_occupation) {
-            return InertiaDecision::VisibleCut;
+            return certificate(SimplexCertificateStatus::VisibleCut, reference_occupation);
         }
         if (min_gap > best_gap) {
             best_gap = min_gap;
@@ -72,7 +87,7 @@ InertiaDecision classify_rotated_vertex_frame_simplex(
         } else if (d < -tol) {
             negative_gaps.push_back(-d);
         } else {
-            return InertiaDecision::Inconclusive;
+            return certificate(SimplexCertificateStatus::Inconclusive, reference_occupation);
         }
     }
 
@@ -118,7 +133,7 @@ InertiaDecision classify_rotated_vertex_frame_simplex(
             rotated_positive_block(vertex_blocks, rotation_span, npos, nneg);
         subtract_positive_frame_margin(positive_block, rotation_span, npos, nneg, margin);
         if (!positive_definite(std::move(positive_block), npos, tol)) {
-            return InertiaDecision::Inconclusive;
+            return certificate(SimplexCertificateStatus::Inconclusive, reference_occupation);
         }
 
         auto negative_block =
@@ -126,11 +141,11 @@ InertiaDecision classify_rotated_vertex_frame_simplex(
         negate_in_place(negative_block);
         subtract_negative_frame_margin(negative_block, rotation_span, npos, nneg, margin);
         if (!positive_definite(std::move(negative_block), nneg, tol)) {
-            return InertiaDecision::Inconclusive;
+            return certificate(SimplexCertificateStatus::Inconclusive, reference_occupation);
         }
     }
 
-    return InertiaDecision::CertifiedGapped;
+    return certificate(SimplexCertificateStatus::CertifiedGapped, reference_occupation);
 }
 
 }  // namespace lineartetrahedron::simplex_certificate

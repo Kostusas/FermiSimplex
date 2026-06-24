@@ -18,20 +18,20 @@ for a tight-binding term with lattice vector `R` is
 
 ## Install
 
-Recommended: use Pixi to provide the compiler, CMake/Ninja, BLAS/LAPACK, and
-Python dependencies, then install the Git branch with pip:
+Recommended: add the Git branch as a Pixi source package. Pixi will build the
+native extension with the right compiler, CMake/Ninja, BLAS/LAPACK, and Python
+dependencies:
 
 ```bash
 pixi init
-pixi add "python>=3.11,<3.14" numpy cmake ninja nanobind scikit-build-core \
-  libblas liblapack pip cxx-compiler matplotlib
-pixi run python -m pip install --no-build-isolation \
-  "git+https://gitlab.kwant-project.org/qt/lineartetrahedron.git@inertia-marking"
+pixi add matplotlib
+pixi add lineartetrahedron \
+  --git https://gitlab.kwant-project.org/qt/lineartetrahedron.git \
+  --branch inertia-marking
 ```
 
 The build fetches a pinned AdaptiveSimplex source automatically, so installation
-needs internet access. On macOS, direct pip can often work because CMake finds
-Apple Accelerate automatically; on Linux, Pixi is the safer route.
+needs internet access.
 
 ## Plot A Fermi Surface
 

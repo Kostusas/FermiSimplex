@@ -1,6 +1,35 @@
 [workspace]
 channels = ["conda-forge"]
 platforms = ["osx-arm64", "linux-64", "osx-64", "win-64"]
+preview = ["pixi-build"]
+
+[package]
+name = "lineartetrahedron"
+version = "0.1.0"
+
+[package.build]
+backend = { name = "pixi-build-python", version = "*", channels = ["https://prefix.dev/conda-forge"] }
+
+[package.build.config]
+compilers = ["cxx"]
+noarch = false
+
+[package.host-dependencies]
+python = ">=3.11,<3.14"
+numpy = ">=2.0"
+nanobind = ">=2.2"
+scikit-build-core = ">=0.10"
+cmake = ">=3.25"
+ninja = ">=1.11"
+libblas = "*"
+liblapack = "*"
+pip = "*"
+
+[package.run-dependencies]
+python = ">=3.11,<3.14"
+numpy = ">=2.0"
+libblas = "*"
+liblapack = "*"
 
 [dependencies]
 cmake = ">=3.25"
@@ -20,6 +49,6 @@ cxx-compiler = ">=1.11"
 
 [tasks]
 install-editable = "python -m pip install -v --no-build-isolation -e ."
-install-inertia-marking = "python -m pip install --no-build-isolation 'git+https://gitlab.kwant-project.org/qt/lineartetrahedron.git@inertia-marking'"
 smoke-test = "python -c \"import numpy as np; from lineartetrahedron import fermi_surface; H=lambda kx, ky: np.array([[np.cos(2*np.pi*kx)+np.cos(2*np.pi*ky)]], dtype=complex); s=fermi_surface(H, mu=0.2, min_feature_size=0.03); print({'converged': s.converged, 'points': s.points.shape, 'cells': s.cells.shape, 'diagonalizations': s.stats.evaluated_vertices})\""
+build-package = "pixi build --output-dir dist"
 test = { cmd = "pytest", depends-on = ["install-editable"] }

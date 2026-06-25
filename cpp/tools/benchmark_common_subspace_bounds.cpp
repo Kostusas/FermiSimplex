@@ -1,6 +1,7 @@
 #include "certificate/internal.h"
 #include "core/types.h"
 
+#include <algorithm>
 #include <chrono>
 #include <cmath>
 #include <complex>
@@ -8,6 +9,7 @@
 #include <cstdint>
 #include <iomanip>
 #include <iostream>
+#include <limits>
 #include <random>
 #include <string>
 #include <utility>
@@ -19,6 +21,19 @@ using Complex = std::complex<double>;
 namespace detail = lineartetrahedron::simplex_certificate::detail;
 
 constexpr double kTol = 1e-12;
+using Clock = std::chrono::steady_clock;
+
+struct EstimatorProfile {
+    double total_us = 0.0;
+    double order_us = 0.0;
+    double permute_us = 0.0;
+    double prefix_cholesky_us = 0.0;
+    size_t checksum = 0;
+};
+
+double elapsed_us(Clock::time_point start, Clock::time_point end) {
+    return std::chrono::duration<double, std::micro>(end - start).count();
+}
 
 std::vector<Complex> hermitian_2x2(double a, double b, double c) {
     return {
@@ -36,18 +51,14 @@ std::vector<Complex> winding_hamiltonian(int winding, double reduced_k) {
     return hermitian_2x2(c, s, -c);
 }
 
-std::vector<Complex> negated(std::vector<Complex> matrix) {
-    for (auto &value : matrix) {
-        value = -value;
-    }
-    return matrix;
-}
-
 std::vector<std::vector<Complex>> winding_blocks(bool positive_side) {
     std::vector<std::vector<Complex>> blocks;
     for (const auto point : {0.0, 0.125, 0.25}) {
         auto block = winding_hamiltonian(3, point);
-        blocks.push_back(positive_side ? std::move(block) : negated(std::move(block)));
+        const auto value = positive_side
+            ? std::real(block[detail::column_major_index(0, 0, 2)])
+            : -std::real(block[detail::column_major_index(1, 1, 2)]);
+        blocks.push_back({Complex{value, 0.0}});
     }
     return blocks;
 }
@@ -77,28 +88,118 @@ std::vector<std::vector<Complex>> dense_blocks(size_t size, std::uint32_t seed) 
     return blocks;
 }
 
+std::vector<size_t> candidate_order_by_worst_margin(
+    const std::vector<std::vector<Complex>> &blocks,
+    size_t size
+) {
+    std::vector<std::pair<double, size_t>> margins;
+    margins.reserve(size);
+    for (size_t index = 0; index < size; ++index) {
+        auto margin = std::numeric_limits<double>::infinity();
+        for (const auto &block : blocks) {
+            margin = std::min(
+                margin,
+                std::real(block[detail::column_major_index(index, index, size)])
+            );
+        }
+        margins.emplace_back(margin, index);
+    }
+
+    std::sort(
+        margins.begin(),
+        margins.end(),
+        [](const auto &left, const auto &right) {
+            if (left.first != right.first) {
+                return left.first > right.first;
+            }
+            return left.second < right.second;
+        }
+    );
+
+    std::vector<size_t> order;
+    order.reserve(size);
+    for (const auto &[unused_margin, index] : margins) {
+        (void)unused_margin;
+        order.push_back(index);
+    }
+    return order;
+}
+
+std::vector<Complex> permuted_block(
+    const std::vector<Complex> &block,
+    const std::vector<size_t> &order,
+    size_t size
+) {
+    std::vector<Complex> result(size * size, Complex{0.0, 0.0});
+    for (size_t column = 0; column < size; ++column) {
+        const auto source_column = order[column];
+        for (size_t row = 0; row < size; ++row) {
+            result[detail::column_major_index(row, column, size)] =
+                block[detail::column_major_index(order[row], source_column, size)];
+        }
+    }
+    return result;
+}
+
+EstimatorProfile profile_estimator(
+    const std::vector<std::vector<Complex>> &blocks,
+    size_t size,
+    size_t iterations
+) {
+    auto profile = EstimatorProfile{};
+    for (size_t iter = 0; iter < iterations; ++iter) {
+        const auto total_start = Clock::now();
+
+        const auto order_start = Clock::now();
+        const auto order = candidate_order_by_worst_margin(blocks, size);
+        const auto order_end = Clock::now();
+        profile.order_us += elapsed_us(order_start, order_end);
+
+        auto rank = size;
+        for (const auto &block : blocks) {
+            const auto permute_start = Clock::now();
+            auto permuted = permuted_block(block, order, size);
+            const auto permute_end = Clock::now();
+            profile.permute_us += elapsed_us(permute_start, permute_end);
+
+            const auto prefix_start = Clock::now();
+            rank = std::min(
+                rank,
+                detail::positive_definite_prefix(std::move(permuted), size, kTol)
+            );
+            const auto prefix_end = Clock::now();
+            profile.prefix_cholesky_us += elapsed_us(prefix_start, prefix_end);
+        }
+
+        const auto total_end = Clock::now();
+        profile.total_us += elapsed_us(total_start, total_end);
+        profile.checksum += rank;
+    }
+    return profile;
+}
+
 double microseconds_for(
     const std::vector<std::vector<Complex>> &blocks,
     size_t size,
     size_t iterations,
-    bool enabled
+    bool estimate_common_rank
 ) {
     auto checksum = size_t{0};
-    const auto start = std::chrono::steady_clock::now();
+    const auto start = Clock::now();
     for (size_t iter = 0; iter < iterations; ++iter) {
         for (const auto &block : blocks) {
             auto candidate = block;
             checksum += detail::positive_definite(std::move(candidate), size, kTol) ? 1 : 0;
         }
-        if (enabled) {
+        if (estimate_common_rank) {
             checksum += detail::estimate_common_rank(blocks, size, kTol);
         }
     }
-    const auto end = std::chrono::steady_clock::now();
-    if (checksum == 0 && enabled) {
+    const auto end = Clock::now();
+    if (checksum == 0 && estimate_common_rank) {
         std::cerr << "";
     }
-    return std::chrono::duration<double, std::micro>(end - start).count();
+    return elapsed_us(start, end);
 }
 
 void run_case(
@@ -107,25 +208,45 @@ void run_case(
     size_t size,
     size_t iterations
 ) {
-    const auto off_us = microseconds_for(blocks, size, iterations, false);
-    const auto on_us = microseconds_for(blocks, size, iterations, true);
-    const auto off_each = off_us / static_cast<double>(iterations);
-    const auto on_each = on_us / static_cast<double>(iterations);
+    const auto baseline_us = microseconds_for(blocks, size, iterations, false);
+    const auto bounded_us = microseconds_for(blocks, size, iterations, true);
+    const auto baseline_each = baseline_us / static_cast<double>(iterations);
+    const auto bounded_each = bounded_us / static_cast<double>(iterations);
+    const auto rank = detail::estimate_common_rank(blocks, size, kTol);
+    const auto profile = profile_estimator(blocks, size, iterations);
+    if (profile.checksum == 0 && rank != 0) {
+        std::cerr << "";
+    }
+    const auto profile_scale = 1.0 / static_cast<double>(iterations);
+    const auto profiled_estimator_each = profile.total_us * profile_scale;
+    const auto order_each = profile.order_us * profile_scale;
+    const auto permute_each = profile.permute_us * profile_scale;
+    const auto prefix_cholesky_each = profile.prefix_cholesky_us * profile_scale;
+    const auto unaccounted_each =
+        profiled_estimator_each - order_each - permute_each - prefix_cholesky_each;
     std::cout
         << "{\"case\":\"" << name
         << "\",\"certificates\":" << iterations
-        << ",\"off_us_per_certificate\":" << std::setprecision(8) << off_each
-        << ",\"on_us_per_certificate\":" << on_each
-        << ",\"overhead_ratio\":" << (off_each == 0.0 ? 0.0 : on_each / off_each)
+        << ",\"baseline_us_per_certificate\":" << std::setprecision(8) << baseline_each
+        << ",\"bounded_us_per_certificate\":" << bounded_each
+        << ",\"estimator_extra_us_per_certificate\":" << (bounded_each - baseline_each)
+        << ",\"profiled_estimator_us_per_certificate\":" << profiled_estimator_each
+        << ",\"order_us_per_certificate\":" << order_each
+        << ",\"permute_us_per_certificate\":" << permute_each
+        << ",\"prefix_cholesky_us_per_certificate\":" << prefix_cholesky_each
+        << ",\"profile_unaccounted_us_per_certificate\":" << unaccounted_each
+        << ",\"overhead_ratio\":"
+        << (baseline_each == 0.0 ? 0.0 : bounded_each / baseline_each)
+        << ",\"rank\":" << rank
         << "}\n";
 }
 
 }  // namespace
 
 int main() {
-    run_case("winding-2-band-plus", winding_blocks(true), 2, 20000);
-    run_case("winding-2-band-minus", winding_blocks(false), 2, 20000);
+    run_case("winding-2-band-plus", winding_blocks(true), 1, 20000);
+    run_case("winding-2-band-minus", winding_blocks(false), 1, 20000);
     run_case("dense-10-band", dense_blocks(10, 10), 10, 4000);
-    run_case("dense-60-band", dense_blocks(60, 60), 60, 200);
+    run_case("dense-60-band", dense_blocks(60, 60), 60, 100);
     return 0;
 }

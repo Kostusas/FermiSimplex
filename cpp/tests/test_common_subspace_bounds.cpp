@@ -23,12 +23,6 @@ namespace detail = lineartetrahedron::simplex_certificate::detail;
 
 constexpr double kTol = 1e-12;
 
-void expect(bool condition, const std::string &message) {
-    if (!condition) {
-        throw std::runtime_error(message);
-    }
-}
-
 void expect_eq(size_t actual, size_t expected, const std::string &message) {
     if (actual != expected) {
         throw std::runtime_error(
@@ -74,23 +68,20 @@ std::vector<Complex> winding_hamiltonian(int winding, double reduced_k) {
     return hermitian_2x2(c, s, -c);
 }
 
-std::vector<Complex> negated(std::vector<Complex> matrix) {
-    for (auto &value : matrix) {
-        value = -value;
-    }
-    return matrix;
-}
-
 std::pair<size_t, size_t> winding_bounds(int winding, std::initializer_list<double> points) {
     std::vector<std::vector<Complex>> plus_blocks;
     std::vector<std::vector<Complex>> minus_blocks;
     for (const auto point : points) {
         auto h = winding_hamiltonian(winding, point);
-        plus_blocks.push_back(h);
-        minus_blocks.push_back(negated(std::move(h)));
+        plus_blocks.push_back(diagonal_matrix({
+            std::real(h[detail::column_major_index(0, 0, 2)]),
+        }));
+        minus_blocks.push_back(diagonal_matrix({
+            -std::real(h[detail::column_major_index(1, 1, 2)]),
+        }));
     }
-    const auto r_minus = detail::estimate_common_rank(minus_blocks, 2, kTol);
-    const auto r_plus = detail::estimate_common_rank(plus_blocks, 2, kTol);
+    const auto r_minus = detail::estimate_common_rank(minus_blocks, 1, kTol);
+    const auto r_plus = detail::estimate_common_rank(plus_blocks, 1, kTol);
     return {r_minus, 2 - r_plus};
 }
 
@@ -170,12 +161,25 @@ void test_explicit_common_rank_cases() {
             kTol
         ),
         2,
-        "binary search should return the largest passing nested rank"
+        "sorted-prefix test should return the largest passing prefix rank"
+    );
+
+    expect_eq(
+        detail::estimate_common_rank(
+            {
+                diagonal_matrix({1.0, 3.0, 2.0}),
+                diagonal_matrix({1.0, -1.0, 2.0}),
+            },
+            3,
+            kTol
+        ),
+        2,
+        "sorted-prefix test should sort directions by worst vertex margin"
     );
 }
 
 void test_winding_model_bounds() {
-    const auto short_bounds = winding_bounds(2, {0.0, 0.125});
+    const auto short_bounds = winding_bounds(2, {0.0, 0.0625});
     expect_eq(short_bounds.first, 1, "short winding interval lower bound");
     expect_eq(short_bounds.second, 1, "short winding interval upper bound");
 

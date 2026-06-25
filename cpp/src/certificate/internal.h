@@ -25,6 +25,11 @@ struct VertexBlocks {
     std::vector<Complex> positive_negative_coupling;
 };
 
+struct CommonRankEstimate {
+    size_t rank = 0;
+    double mu_radius = 0.0;
+};
+
 void gemm(
     char transa,
     char transb,
@@ -73,6 +78,8 @@ bool positive_definite(std::vector<Complex> block, size_t size, double tol);
 
 size_t positive_definite_prefix(std::vector<Complex> block, size_t size, double tol);
 
+double positive_definite_margin(double tol);
+
 void negate_in_place(std::vector<Complex> &matrix);
 
 void subtract_positive_frame_margin(
@@ -115,6 +122,12 @@ std::vector<Complex> rotated_negative_block(
 );
 
 size_t estimate_common_rank(
+    const std::vector<std::vector<Complex>> &blocks,
+    size_t size,
+    double tol
+);
+
+CommonRankEstimate estimate_common_rank_with_mu_radius(
     const std::vector<std::vector<Complex>> &blocks,
     size_t size,
     double tol

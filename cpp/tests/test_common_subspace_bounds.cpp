@@ -1,9 +1,11 @@
 #include "certificate/internal.h"
 #include "certificate/simplex_certificate.h"
 #include "core/tight_binding.h"
+#include "core/vertex_spectra.h"
 #include "integration/runtime.h"
 
 #include <adaptivesimplex/adaptive/types.h>
+#include <adaptivesimplex/core/root_mesh.h>
 
 #include <cmath>
 #include <complex>
@@ -22,6 +24,12 @@ using Complex = std::complex<double>;
 namespace detail = lineartetrahedron::simplex_certificate::detail;
 
 constexpr double kTol = 1e-12;
+
+void expect(bool condition, const std::string &message) {
+    if (!condition) {
+        throw std::runtime_error(message);
+    }
+}
 
 void expect_eq(size_t actual, size_t expected, const std::string &message) {
     if (actual != expected) {
@@ -176,6 +184,34 @@ void test_explicit_common_rank_cases() {
         2,
         "sorted-prefix test should sort directions by worst vertex margin"
     );
+
+    const auto full_rank_estimate = detail::estimate_common_rank_with_mu_radius(
+        {
+            diagonal_matrix({2.0, 3.0}),
+            diagonal_matrix({1.5, 2.5}),
+        },
+        2,
+        kTol
+    );
+    expect_eq(full_rank_estimate.rank, 2, "rank estimate should report full rank");
+    expect(
+        full_rank_estimate.mu_radius > 1.0 && full_rank_estimate.mu_radius < 1.6,
+        "rank estimate should report a finite one-sided mu radius"
+    );
+
+    const auto zero_rank_estimate = detail::estimate_common_rank_with_mu_radius(
+        {
+            diagonal_matrix({1.0, -1.0}),
+            diagonal_matrix({-1.0, 1.0}),
+        },
+        2,
+        kTol
+    );
+    expect_eq(zero_rank_estimate.rank, 0, "zero-rank estimate should report zero rank");
+    expect(
+        std::isinf(zero_rank_estimate.mu_radius),
+        "zero-rank estimate should impose no one-sided mu constraint"
+    );
 }
 
 void test_winding_model_bounds() {
@@ -186,6 +222,85 @@ void test_winding_model_bounds() {
     const auto antipodal_bounds = winding_bounds(2, {0.0, 0.25});
     expect_eq(antipodal_bounds.first, 0, "antipodal winding interval lower bound");
     expect_eq(antipodal_bounds.second, 2, "antipodal winding interval upper bound");
+}
+
+void test_certified_simplex_reports_mu_bounds() {
+    auto default_certificate = lineartetrahedron::simplex_certificate::SimplexCertificate{};
+    expect(
+        default_certificate.lower_mu_bound > default_certificate.upper_mu_bound,
+        "default certificate should have an empty mu range"
+    );
+
+    auto geometry = adaptivesimplex::core::root_geometry(1, 4);
+    const auto active = geometry.simplices().active_simplices();
+    const auto simplex_id = *active.begin();
+    const auto model = winding_model(1);
+    auto evaluator = lineartetrahedron::VertexSpectraEvaluator(model);
+    auto cache = adaptivesimplex::core::VertexCache<lineartetrahedron::VertexSpectra>{};
+    for (const auto vertex_id : geometry.simplices().simplex(simplex_id).vertex_ids) {
+        cache.insert(vertex_id, evaluator.evaluate(geometry, vertex_id));
+    }
+
+    const auto certificate = lineartetrahedron::simplex_certificate::certify_simplex_gap(
+        0.0,
+        geometry,
+        simplex_id,
+        cache,
+        0.0,
+        kTol,
+        true
+    );
+    expect(
+        certificate.status ==
+            lineartetrahedron::simplex_certificate::SimplexCertificateStatus::CertifiedGapped,
+        "short winding interval should be certified gapped"
+    );
+    expect(
+        certificate.lower_mu_bound <= 0.0 && certificate.upper_mu_bound >= 0.0,
+        "certified mu range should contain the certified chemical potential"
+    );
+    expect(
+        certificate.lower_mu_bound < certificate.upper_mu_bound,
+        "constant-gap winding certificate should have a non-empty reusable mu range"
+    );
+}
+
+void test_occupation_bound_certificate_reports_mu_bounds() {
+    auto geometry = adaptivesimplex::core::root_geometry(1, 2);
+    const auto active = geometry.simplices().active_simplices();
+    const auto simplex_id = *active.begin();
+    const auto model = winding_model(2);
+    auto evaluator = lineartetrahedron::VertexSpectraEvaluator(model);
+    auto cache = adaptivesimplex::core::VertexCache<lineartetrahedron::VertexSpectra>{};
+    for (const auto vertex_id : geometry.simplices().simplex(simplex_id).vertex_ids) {
+        cache.insert(vertex_id, evaluator.evaluate(geometry, vertex_id));
+    }
+
+    const auto certificate = lineartetrahedron::simplex_certificate::certify_simplex_gap(
+        0.0,
+        geometry,
+        simplex_id,
+        cache,
+        0.0,
+        kTol,
+        true
+    );
+    expect(
+        certificate.status ==
+            lineartetrahedron::simplex_certificate::SimplexCertificateStatus::Inconclusive,
+        "winding interval should be inconclusive but occupation-bounded"
+    );
+    expect(certificate.has_occupation_bounds, "inconclusive certificate should report bounds");
+    expect_eq(certificate.lower_occupation_bound, 0, "inconclusive lower occupation bound");
+    expect_eq(certificate.upper_occupation_bound, 2, "inconclusive upper occupation bound");
+    expect(
+        certificate.lower_mu_bound <= 0.0 && certificate.upper_mu_bound >= 0.0,
+        "occupation-bound mu range should contain the certified chemical potential"
+    );
+    expect(
+        certificate.lower_mu_bound < certificate.upper_mu_bound,
+        "occupation-bound certificate should report a non-empty mu range"
+    );
 }
 
 void test_charge_path_uses_occupation_bounds() {
@@ -236,6 +351,8 @@ int main() {
     try {
         test_explicit_common_rank_cases();
         test_winding_model_bounds();
+        test_certified_simplex_reports_mu_bounds();
+        test_occupation_bound_certificate_reports_mu_bounds();
         test_charge_path_uses_occupation_bounds();
     } catch (const std::exception &exc) {
         std::cerr << exc.what() << "\n";

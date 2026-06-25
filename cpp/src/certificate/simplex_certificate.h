@@ -7,6 +7,7 @@
 #include <adaptivesimplex/core/vertex_cache.h>
 
 #include <cstddef>
+#include <limits>
 
 namespace lineartetrahedron::simplex_certificate {
 
@@ -24,6 +25,8 @@ struct SimplexCertificate {
     bool has_occupation_bounds = false;
     size_t lower_occupation_bound = 0;
     size_t upper_occupation_bound = 0;
+    double lower_mu_bound = std::numeric_limits<double>::infinity();
+    double upper_mu_bound = -std::numeric_limits<double>::infinity();
 };
 
 SimplexCertificate certify_simplex_gap(

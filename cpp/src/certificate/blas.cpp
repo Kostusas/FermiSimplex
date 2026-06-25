@@ -233,7 +233,7 @@ bool positive_definite(std::vector<Complex> block, size_t size, double tol) {
     if (size == 0) {
         return true;
     }
-    const auto margin = std::max(kBlockMargin, tol);
+    const auto margin = positive_definite_margin(tol);
     for (size_t index = 0; index < size; ++index) {
         block[column_major_index(index, index, size)] =
             Complex{std::real(block[column_major_index(index, index, size)]), 0.0};
@@ -258,7 +258,7 @@ size_t positive_definite_prefix(std::vector<Complex> block, size_t size, double 
     if (size == 0) {
         return 0;
     }
-    const auto margin = std::max(kBlockMargin, tol);
+    const auto margin = positive_definite_margin(tol);
     for (size_t index = 0; index < size; ++index) {
         block[column_major_index(index, index, size)] =
             Complex{std::real(block[column_major_index(index, index, size)]), 0.0};
@@ -280,6 +280,10 @@ size_t positive_definite_prefix(std::vector<Complex> block, size_t size, double 
         return size;
     }
     return static_cast<size_t>(info - 1);
+}
+
+double positive_definite_margin(double tol) {
+    return std::max(kBlockMargin, tol);
 }
 
 }  // namespace lineartetrahedron::simplex_certificate::detail

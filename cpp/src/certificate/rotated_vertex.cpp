@@ -24,7 +24,132 @@ SimplexCertificate certificate(
     };
 }
 
+detail::Complex lower_triangle_entry(
+    const std::vector<detail::Complex> &matrix,
+    size_t size,
+    size_t row,
+    size_t column
+) {
+    if (row >= column) {
+        return matrix[detail::column_major_index(row, column, size)];
+    }
+    return std::conj(matrix[detail::column_major_index(column, row, size)]);
+}
+
+double gershgorin_row_lower_bound(
+    const std::vector<detail::Complex> &matrix,
+    size_t size,
+    size_t row
+) {
+    auto bound = std::real(matrix[detail::column_major_index(row, row, size)]);
+    for (size_t column = 0; column < size; ++column) {
+        if (column != row) {
+            bound -= std::abs(lower_triangle_entry(matrix, size, row, column));
+        }
+    }
+    return bound;
+}
+
+double side_mu_radius(
+    const std::vector<detail::Complex> &signed_block,
+    std::span<const double> gram_row_bounds,
+    size_t size,
+    double tol
+) {
+    if (size == 0) {
+        return std::numeric_limits<double>::infinity();
+    }
+
+    auto radius = std::numeric_limits<double>::infinity();
+    const auto margin = detail::positive_definite_margin(tol);
+    for (size_t row = 0; row < size; ++row) {
+        const auto denominator = gram_row_bounds[row];
+        if (denominator <= 0.0) {
+            return 0.0;
+        }
+        const auto row_radius =
+            (gershgorin_row_lower_bound(signed_block, size, row) - margin) / denominator;
+        radius = std::min(radius, row_radius);
+    }
+    return std::max(0.0, radius);
+}
+
+std::vector<double> positive_frame_gram_row_bounds(
+    std::span<const detail::Complex> rotation,
+    size_t npos,
+    size_t nneg
+) {
+    std::vector<double> result(npos, 1.0);
+    if (npos == 0 || nneg == 0) {
+        return result;
+    }
+
+    std::vector<detail::Complex> gram(npos * npos, detail::Complex{0.0, 0.0});
+    detail::gemm(
+        'N',
+        'C',
+        npos,
+        npos,
+        nneg,
+        detail::Complex{1.0, 0.0},
+        rotation.data(),
+        npos,
+        rotation.data(),
+        npos,
+        detail::Complex{0.0, 0.0},
+        gram.data(),
+        npos
+    );
+    for (size_t row = 0; row < npos; ++row) {
+        result[row] += std::real(gram[detail::column_major_index(row, row, npos)]);
+        for (size_t column = 0; column < npos; ++column) {
+            if (column != row) {
+                result[row] += std::abs(lower_triangle_entry(gram, npos, row, column));
+            }
+        }
+    }
+    return result;
+}
+
+std::vector<double> negative_frame_gram_row_bounds(
+    std::span<const detail::Complex> rotation,
+    size_t npos,
+    size_t nneg
+) {
+    std::vector<double> result(nneg, 1.0);
+    if (npos == 0 || nneg == 0) {
+        return result;
+    }
+
+    std::vector<detail::Complex> gram(nneg * nneg, detail::Complex{0.0, 0.0});
+    detail::gemm(
+        'C',
+        'N',
+        nneg,
+        nneg,
+        npos,
+        detail::Complex{1.0, 0.0},
+        rotation.data(),
+        npos,
+        rotation.data(),
+        npos,
+        detail::Complex{0.0, 0.0},
+        gram.data(),
+        nneg
+    );
+    for (size_t row = 0; row < nneg; ++row) {
+        result[row] += std::real(gram[detail::column_major_index(row, row, nneg)]);
+        for (size_t column = 0; column < nneg; ++column) {
+            if (column != row) {
+                result[row] += std::abs(lower_triangle_entry(gram, nneg, row, column));
+            }
+        }
+    }
+    return result;
+}
+
 SimplexCertificate inconclusive_certificate(
+    double mu,
     size_t vertex_occupation,
     size_t ndof,
     size_t npos,
@@ -50,14 +175,18 @@ SimplexCertificate inconclusive_certificate(
         negative_blocks.push_back(std::move(negative_block));
     }
 
-    const auto r_minus = detail::estimate_common_rank(negative_blocks, nneg, tol);
-    const auto r_plus = detail::estimate_common_rank(positive_blocks, npos, tol);
-    const auto lower = r_minus;
-    const auto upper = ndof - r_plus;
+    const auto minus_estimate =
+        detail::estimate_common_rank_with_mu_radius(negative_blocks, nneg, tol);
+    const auto plus_estimate =
+        detail::estimate_common_rank_with_mu_radius(positive_blocks, npos, tol);
+    const auto lower = minus_estimate.rank;
+    const auto upper = ndof - plus_estimate.rank;
     if (lower <= upper) {
         result.has_occupation_bounds = true;
         result.lower_occupation_bound = lower;
         result.upper_occupation_bound = upper;
+        result.lower_mu_bound = mu - minus_estimate.mu_radius;
+        result.upper_mu_bound = mu + plus_estimate.mu_radius;
     }
     return result;
 }
@@ -168,12 +297,31 @@ SimplexCertificate certify_simplex_gap(
     }
 
     const auto rotation_span = std::span<const Complex>(rotation.data(), rotation.size());
+    const auto positive_gram_row_bounds =
+        positive_frame_gram_row_bounds(rotation_span, npos, nneg);
+    const auto negative_gram_row_bounds =
+        negative_frame_gram_row_bounds(rotation_span, npos, nneg);
+    auto positive_mu_radius = std::numeric_limits<double>::infinity();
+    auto negative_mu_radius = std::numeric_limits<double>::infinity();
     for (const auto &vertex_blocks : blocks) {
         auto positive_block =
             rotated_positive_block(vertex_blocks, rotation_span, npos, nneg);
         subtract_positive_frame_margin(positive_block, rotation_span, npos, nneg, margin);
+        positive_mu_radius = std::min(
+            positive_mu_radius,
+            side_mu_radius(
+                positive_block,
+                std::span<const double>(
+                    positive_gram_row_bounds.data(),
+                    positive_gram_row_bounds.size()
+                ),
+                npos,
+                tol
+            )
+        );
         if (!positive_definite(std::move(positive_block), npos, tol)) {
             return inconclusive_certificate(
+                mu,
                 reference_occupation,
                 ndof,
                 npos,
@@ -188,8 +336,21 @@ SimplexCertificate certify_simplex_gap(
             rotated_negative_block(vertex_blocks, rotation_span, npos, nneg);
         negate_in_place(negative_block);
         subtract_negative_frame_margin(negative_block, rotation_span, npos, nneg, margin);
+        negative_mu_radius = std::min(
+            negative_mu_radius,
+            side_mu_radius(
+                negative_block,
+                std::span<const double>(
+                    negative_gram_row_bounds.data(),
+                    negative_gram_row_bounds.size()
+                ),
+                nneg,
+                tol
+            )
+        );
         if (!positive_definite(std::move(negative_block), nneg, tol)) {
             return inconclusive_certificate(
+                mu,
                 reference_occupation,
                 ndof,
                 npos,
@@ -201,7 +362,10 @@ SimplexCertificate certify_simplex_gap(
         }
     }
 
-    return certificate(SimplexCertificateStatus::CertifiedGapped, reference_occupation);
+    auto result = certificate(SimplexCertificateStatus::CertifiedGapped, reference_occupation);
+    result.lower_mu_bound = mu - negative_mu_radius;
+    result.upper_mu_bound = mu + positive_mu_radius;
+    return result;
 }
 
 }  // namespace lineartetrahedron::simplex_certificate

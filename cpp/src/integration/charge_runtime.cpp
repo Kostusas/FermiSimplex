@@ -4,11 +4,13 @@
 
 #include <adaptivesimplex/adaptive/adaptive_loop.h>
 #include <adaptivesimplex/adaptive/evaluation.h>
-#include <adaptivesimplex/adaptive/simplex_integrand.h>
+#include <adaptivesimplex/adaptive/types.h>
 
 #include <algorithm>
 #include <cmath>
 #include <cstdint>
+#include <span>
+#include <utility>
 #include <vector>
 
 namespace lineartetrahedron {
@@ -52,32 +54,101 @@ struct ChargeRefinementScore {
     }
 };
 
-auto make_charge_integrand(
-    IntegrationWorkspace &workspace,
-    double mu,
-    bool certify
-) {
-    return adaptive::simplex_integrand(
-        workspace.cache(),
-        [&workspace](std::span<const double> point) {
-            return workspace.evaluate_vertex(point);
-        },
-        [&workspace, mu, certify](
-            const core::Geometry &geometry,
-            core::SimplexId simplex_id,
-            const core::VertexCache<VertexSpectra> &cache
-        ) {
-            return charge_on_simplex(
-                mu,
-                workspace,
+struct ChargeEstimateContext {
+    const ChargeValue &preview;
+    const ChargeValue &correction;
+};
+
+class ChargeIntegrand {
+public:
+    using vertex_value_type = VertexSpectra;
+    using integral_value_type = ChargeValue;
+    using cache_type = core::VertexCache<VertexSpectra>;
+
+    ChargeIntegrand(
+        IntegrationWorkspace &workspace,
+        double mu,
+        bool certify_preview
+    ) : workspace_(workspace),
+        cache_(workspace.cache()),
+        mu_(mu),
+        certify_preview_(certify_preview) {}
+
+    cache_type &cache() {
+        return cache_;
+    }
+
+    auto stopping_global_error() const {
+        return ChargeStoppingError{};
+    }
+
+    vertex_value_type evaluate_vertex(core::Geometry &geometry, core::VertexId vertex_id) const {
+        const auto point = geometry.vertices().dyadic_vertex(vertex_id).to_point();
+        return workspace_.evaluate_vertex(std::span<const double>(point.data(), point.size()));
+    }
+
+    std::vector<adaptive::SimplexEstimate<integral_value_type>> estimate_simplices(
+        core::Geometry &geometry,
+        std::span<const core::SimplexId> simplex_ids,
+        std::uint32_t preview_depth
+    ) const {
+        std::vector<adaptive::SimplexEstimate<integral_value_type>> estimates;
+        estimates.reserve(simplex_ids.size());
+        for (const auto simplex_id : simplex_ids) {
+            auto coarse = charge_on_simplex(
+                mu_,
+                workspace_,
                 geometry,
                 simplex_id,
-                cache,
-                certify
+                cache_,
+                false
             );
-        },
-        adaptive::estimation_policies<ChargeStoppingError, ChargeRefinementScore>{}
-    );
+
+            auto preview = integral_value_type{};
+            const auto preview_ids = geometry.preview_active(simplex_id, preview_depth);
+            for (const auto preview_id : preview_ids) {
+                preview += charge_on_simplex(
+                    mu_,
+                    workspace_,
+                    geometry,
+                    preview_id,
+                    cache_,
+                    certify_preview_
+                );
+            }
+
+            auto correction = preview;
+            correction -= coarse;
+            const auto context = ChargeEstimateContext{
+                .preview = preview,
+                .correction = correction,
+            };
+            const auto refinement_score =
+                static_cast<double>(ChargeRefinementScore{}(context));
+
+            estimates.push_back(adaptive::SimplexEstimate<integral_value_type>{
+                .coarse = std::move(coarse),
+                .preview = std::move(preview),
+                .correction = std::move(correction),
+                .refinement_score = refinement_score,
+            });
+        }
+        return estimates;
+    }
+
+private:
+    IntegrationWorkspace &workspace_;
+    cache_type &cache_;
+    double mu_ = 0.0;
+    bool certify_preview_ = false;
+};
+
+ChargeIntegrand make_charge_integrand(
+    IntegrationWorkspace &workspace,
+    double mu,
+    bool certify_preview
+) {
+    return ChargeIntegrand(workspace, mu, certify_preview);
 }
 
 }  // namespace

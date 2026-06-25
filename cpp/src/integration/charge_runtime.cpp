@@ -68,11 +68,13 @@ public:
     ChargeIntegrand(
         IntegrationWorkspace &workspace,
         double mu,
-        bool certify_preview
+        bool certify_preview,
+        ChargeCertificateCache &certificate_cache
     ) : workspace_(workspace),
         cache_(workspace.cache()),
         mu_(mu),
-        certify_preview_(certify_preview) {}
+        certify_preview_(certify_preview),
+        certificate_cache_(certificate_cache) {}
 
     cache_type &cache() {
         return cache_;
@@ -101,7 +103,8 @@ public:
                 geometry,
                 simplex_id,
                 cache_,
-                false
+                false,
+                nullptr
             );
 
             auto preview = integral_value_type{};
@@ -113,7 +116,8 @@ public:
                     geometry,
                     preview_id,
                     cache_,
-                    certify_preview_
+                    certify_preview_,
+                    certify_preview_ ? &certificate_cache_ : nullptr
                 );
             }
 
@@ -141,14 +145,16 @@ private:
     cache_type &cache_;
     double mu_ = 0.0;
     bool certify_preview_ = false;
+    ChargeCertificateCache &certificate_cache_;
 };
 
 ChargeIntegrand make_charge_integrand(
     IntegrationWorkspace &workspace,
     double mu,
-    bool certify_preview
+    bool certify_preview,
+    ChargeCertificateCache &certificate_cache
 ) {
-    return ChargeIntegrand(workspace, mu, certify_preview);
+    return ChargeIntegrand(workspace, mu, certify_preview, certificate_cache);
 }
 
 }  // namespace
@@ -160,7 +166,8 @@ ChargeIntegrateResult IntegrationRuntime::integrate_charge(
     auto integrand = make_charge_integrand(
         workspace_,
         mu,
-        true
+        true,
+        charge_certificate_cache_
     );
     const auto raw = adaptive::run(workspace_.geometry(), integrand, options);
     return ChargeIntegrateResult{
@@ -183,7 +190,8 @@ ChargeIntegrateResult IntegrationRuntime::evaluate_charge(
     auto integrand = make_charge_integrand(
         workspace_,
         mu,
-        certify
+        certify,
+        charge_certificate_cache_
     );
 
     const auto preview_depth = std::max<std::uint32_t>(options.preview_depth, 1);

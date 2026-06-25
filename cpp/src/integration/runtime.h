@@ -1,5 +1,6 @@
 #pragma once
 
+#include "integration/charge.h"
 #include "integration/density.h"
 #include "integration/workspace.h"
 
@@ -48,6 +49,7 @@ public:
 private:
     IntegrationWorkspace workspace_;
     DensityComponents density_;
+    ChargeCertificateCache charge_certificate_cache_;
 };
 
 }  // namespace lineartetrahedron

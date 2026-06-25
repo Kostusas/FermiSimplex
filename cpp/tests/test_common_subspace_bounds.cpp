@@ -2,6 +2,7 @@
 #include "certificate/simplex_certificate.h"
 #include "core/tight_binding.h"
 #include "core/vertex_spectra.h"
+#include "integration/charge.h"
 #include "integration/runtime.h"
 
 #include <adaptivesimplex/adaptive/types.h>
@@ -13,6 +14,7 @@
 #include <iostream>
 #include <initializer_list>
 #include <memory>
+#include <span>
 #include <stdexcept>
 #include <string>
 #include <utility>
@@ -303,6 +305,84 @@ void test_occupation_bound_certificate_reports_mu_bounds() {
     );
 }
 
+void test_charge_certificate_cache_respects_mu_range() {
+    auto cache = lineartetrahedron::ChargeCertificateCache{};
+    auto certificate = lineartetrahedron::simplex_certificate::SimplexCertificate{};
+    certificate.status =
+        lineartetrahedron::simplex_certificate::SimplexCertificateStatus::CertifiedGapped;
+    certificate.lower_mu_bound = -0.2;
+    certificate.upper_mu_bound = 0.3;
+
+    cache.insert(7, certificate);
+    expect_eq(cache.size(), 1, "cache should store reusable certificates");
+    expect(cache.find(7, 0.0) != nullptr, "cache should hit inside the mu range");
+    expect(cache.find(7, 0.3) != nullptr, "cache should hit the upper mu endpoint");
+    expect(cache.find(7, 0.31) == nullptr, "cache should miss outside the mu range");
+    expect(cache.find(8, 0.0) == nullptr, "cache should miss different simplex ids");
+
+    auto empty_range = certificate;
+    empty_range.lower_mu_bound = 1.0;
+    empty_range.upper_mu_bound = -1.0;
+    cache.insert(7, empty_range);
+    expect_eq(cache.size(), 1, "cache should ignore empty mu ranges");
+
+    cache.erase(7);
+    expect_eq(cache.size(), 0, "cache erase should remove simplex certificates");
+}
+
+void test_charge_on_simplex_reuses_cached_certificate() {
+    auto geometry = adaptivesimplex::core::root_geometry(1, 4);
+    const auto active = geometry.simplices().active_simplices();
+    const auto simplex_id = *active.begin();
+    auto workspace = lineartetrahedron::IntegrationWorkspace(winding_model(1), kTol);
+    auto &cache = workspace.cache();
+    for (const auto vertex_id : geometry.simplices().simplex(simplex_id).vertex_ids) {
+        const auto point = geometry.vertices().dyadic_vertex(vertex_id).to_point();
+        cache.insert(
+            vertex_id,
+            workspace.evaluate_vertex(std::span<const double>(point.data(), point.size()))
+        );
+    }
+
+    auto certificate_cache = lineartetrahedron::ChargeCertificateCache{};
+    (void)lineartetrahedron::charge_on_simplex(
+        0.0,
+        workspace,
+        geometry,
+        simplex_id,
+        cache,
+        true,
+        &certificate_cache
+    );
+    expect_eq(
+        certificate_cache.size(),
+        1,
+        "first certified charge evaluation should cache one certificate"
+    );
+    const auto *cached = certificate_cache.find(simplex_id, 0.0);
+    expect(cached != nullptr, "cached certificate should contain the original mu");
+    expect(
+        cached->upper_mu_bound > 0.0,
+        "test fixture should provide a positive reusable mu interval"
+    );
+
+    const auto inside_mu = 0.5 * cached->upper_mu_bound;
+    (void)lineartetrahedron::charge_on_simplex(
+        inside_mu,
+        workspace,
+        geometry,
+        simplex_id,
+        cache,
+        true,
+        &certificate_cache
+    );
+    expect_eq(
+        certificate_cache.size(),
+        1,
+        "charge evaluation inside cached mu range should reuse the certificate"
+    );
+}
+
 void test_charge_path_uses_occupation_bounds() {
     const auto options = adaptivesimplex::adaptive::Options{
         .target_error = 0.75,
@@ -353,6 +433,8 @@ int main() {
         test_winding_model_bounds();
         test_certified_simplex_reports_mu_bounds();
         test_occupation_bound_certificate_reports_mu_bounds();
+        test_charge_certificate_cache_respects_mu_range();
+        test_charge_on_simplex_reuses_cached_certificate();
         test_charge_path_uses_occupation_bounds();
     } catch (const std::exception &exc) {
         std::cerr << exc.what() << "\n";

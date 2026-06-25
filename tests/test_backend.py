@@ -436,39 +436,39 @@ def test_preview_certified_charge_integrates_without_refinement():
 
 
 @requires_native
-def test_volume_bounded_certificate_error_can_be_within_charge_tolerance():
+def test_occupation_bounded_certificate_error_can_be_within_charge_tolerance():
     runtime = Runtime(_winding_constant_gap_band(3), keys=[(0,)])
-    options = AdaptiveOptions(target_error=1.1, max_refinements=0, preview_depth=1)
+    options = AdaptiveOptions(target_error=2.1, max_refinements=0, preview_depth=1)
 
     result = runtime.evaluate_charge(0.0, options)
 
     assert result.charge == pytest.approx(1.0)
-    assert result.charge_error == pytest.approx(1.0)
+    assert result.charge_error == pytest.approx(2.0)
     assert result.converged
 
 
 @requires_native
-def test_volume_bounded_certificate_error_can_block_charge_convergence():
+def test_occupation_bounded_certificate_error_can_block_charge_convergence():
     runtime = Runtime(_winding_constant_gap_band(3), keys=[(0,)])
-    options = AdaptiveOptions(target_error=0.75, max_refinements=0, preview_depth=1)
+    options = AdaptiveOptions(target_error=1.75, max_refinements=0, preview_depth=1)
 
     result = runtime.evaluate_charge(0.0, options)
 
     assert result.charge == pytest.approx(1.0)
-    assert result.charge_error == pytest.approx(1.0)
+    assert result.charge_error == pytest.approx(2.0)
     assert not result.converged
 
 
 @requires_native
 def test_uncertified_charge_evaluation_suppresses_certificate_error():
     runtime = Runtime(_winding_constant_gap_band(3), keys=[(0,)])
-    options = AdaptiveOptions(target_error=0.75, max_refinements=0, preview_depth=1)
+    options = AdaptiveOptions(target_error=1.75, max_refinements=0, preview_depth=1)
 
     certified = runtime.evaluate_charge(0.0, options)
     uncertified = runtime.evaluate_charge(0.0, options, certify=False)
 
     assert certified.charge == pytest.approx(uncertified.charge)
-    assert certified.charge_error == pytest.approx(1.0)
+    assert certified.charge_error == pytest.approx(2.0)
     assert not certified.converged
     assert uncertified.charge_error == pytest.approx(0.0)
     assert uncertified.converged

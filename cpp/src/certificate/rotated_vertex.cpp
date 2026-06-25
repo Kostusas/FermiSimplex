@@ -7,6 +7,7 @@
 #include <limits>
 #include <stdexcept>
 #include <span>
+#include <utility>
 #include <vector>
 
 namespace lineartetrahedron::simplex_certificate {
@@ -23,6 +24,44 @@ SimplexCertificate certificate(
     };
 }
 
+SimplexCertificate inconclusive_certificate(
+    size_t vertex_occupation,
+    size_t ndof,
+    size_t npos,
+    size_t nneg,
+    const std::vector<detail::VertexBlocks> &blocks,
+    double tol,
+    bool estimate_occupation_bounds
+) {
+    auto result = certificate(SimplexCertificateStatus::Inconclusive, vertex_occupation);
+    if (!estimate_occupation_bounds) {
+        return result;
+    }
+
+    std::vector<std::vector<detail::Complex>> positive_blocks;
+    std::vector<std::vector<detail::Complex>> negative_blocks;
+    positive_blocks.reserve(blocks.size());
+    negative_blocks.reserve(blocks.size());
+    for (const auto &block : blocks) {
+        positive_blocks.push_back(block.positive_same_sign);
+
+        auto negative_block = block.negative_same_sign;
+        detail::negate_in_place(negative_block);
+        negative_blocks.push_back(std::move(negative_block));
+    }
+
+    const auto r_minus = detail::estimate_common_rank(negative_blocks, nneg, tol);
+    const auto r_plus = detail::estimate_common_rank(positive_blocks, npos, tol);
+    const auto lower = r_minus;
+    const auto upper = ndof - r_plus;
+    if (lower <= upper) {
+        result.has_occupation_bounds = true;
+        result.lower_occupation_bound = lower;
+        result.upper_occupation_bound = upper;
+    }
+    return result;
+}
+
 }  // namespace
 
 SimplexCertificate certify_simplex_gap(
@@ -31,7 +70,8 @@ SimplexCertificate certify_simplex_gap(
     core::SimplexId simplex_id,
     const core::VertexCache<VertexSpectra> &vertex_cache,
     double margin,
-    double tol
+    double tol,
+    bool estimate_occupation_bounds
 ) {
     using namespace detail;
 
@@ -133,7 +173,15 @@ SimplexCertificate certify_simplex_gap(
             rotated_positive_block(vertex_blocks, rotation_span, npos, nneg);
         subtract_positive_frame_margin(positive_block, rotation_span, npos, nneg, margin);
         if (!positive_definite(std::move(positive_block), npos, tol)) {
-            return certificate(SimplexCertificateStatus::Inconclusive, reference_occupation);
+            return inconclusive_certificate(
+                reference_occupation,
+                ndof,
+                npos,
+                nneg,
+                blocks,
+                tol,
+                estimate_occupation_bounds
+            );
         }
 
         auto negative_block =
@@ -141,7 +189,15 @@ SimplexCertificate certify_simplex_gap(
         negate_in_place(negative_block);
         subtract_negative_frame_margin(negative_block, rotation_span, npos, nneg, margin);
         if (!positive_definite(std::move(negative_block), nneg, tol)) {
-            return certificate(SimplexCertificateStatus::Inconclusive, reference_occupation);
+            return inconclusive_certificate(
+                reference_occupation,
+                ndof,
+                npos,
+                nneg,
+                blocks,
+                tol,
+                estimate_occupation_bounds
+            );
         }
     }
 

@@ -102,6 +102,7 @@ set(
   _lineartetrahedron_core_sources
   src/certificate/blas.cpp
   src/certificate/blocks.cpp
+  src/certificate/common_subspace.cpp
   src/certificate/rotated_vertex.cpp
   src/certificate/rotated_blocks.cpp
   src/fermi_surface/api.cpp
@@ -112,6 +113,7 @@ set(
   src/integration/density.cpp
   src/integration/runtime.cpp
   src/integration/workspace.cpp
+  src/core/linear_algebra.cpp
   src/core/vertex_spectra.cpp
   src/core/tight_binding.cpp
 )
@@ -154,3 +156,33 @@ target_include_directories(
 target_link_libraries(_native PRIVATE lineartetrahedron_core)
 
 install(TARGETS _native LIBRARY DESTINATION lineartetrahedron)
+
+if(BUILD_TESTING)
+  add_executable(
+    lineartetrahedron_cpp_tests
+    EXCLUDE_FROM_ALL
+    tests/test_common_subspace_bounds.cpp
+  )
+  target_compile_features(lineartetrahedron_cpp_tests PRIVATE cxx_std_20)
+  target_include_directories(
+    lineartetrahedron_cpp_tests PRIVATE
+    "${CMAKE_CURRENT_SOURCE_DIR}/src"
+  )
+  target_link_libraries(lineartetrahedron_cpp_tests PRIVATE lineartetrahedron_core)
+  add_test(
+    NAME lineartetrahedron_cpp_tests
+    COMMAND $<TARGET_FILE:lineartetrahedron_cpp_tests>
+  )
+
+  add_executable(
+    lineartetrahedron_common_subspace_benchmark
+    EXCLUDE_FROM_ALL
+    tools/benchmark_common_subspace_bounds.cpp
+  )
+  target_compile_features(lineartetrahedron_common_subspace_benchmark PRIVATE cxx_std_20)
+  target_include_directories(
+    lineartetrahedron_common_subspace_benchmark PRIVATE
+    "${CMAKE_CURRENT_SOURCE_DIR}/src"
+  )
+  target_link_libraries(lineartetrahedron_common_subspace_benchmark PRIVATE lineartetrahedron_core)
+endif()

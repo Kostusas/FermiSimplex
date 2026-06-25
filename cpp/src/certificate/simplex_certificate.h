@@ -21,6 +21,9 @@ enum class SimplexCertificateStatus {
 struct SimplexCertificate {
     SimplexCertificateStatus status = SimplexCertificateStatus::Inconclusive;
     size_t vertex_occupation = 0;
+    bool has_occupation_bounds = false;
+    size_t lower_occupation_bound = 0;
+    size_t upper_occupation_bound = 0;
 };
 
 SimplexCertificate certify_simplex_gap(
@@ -29,7 +32,8 @@ SimplexCertificate certify_simplex_gap(
     core::SimplexId simplex_id,
     const core::VertexCache<VertexSpectra> &vertex_cache,
     double margin,
-    double tol
+    double tol,
+    bool estimate_occupation_bounds = false
 );
 
 }  // namespace lineartetrahedron::simplex_certificate

@@ -71,6 +71,8 @@ void hemm(
 
 bool positive_definite(std::vector<Complex> block, size_t size, double tol);
 
+size_t positive_definite_prefix(std::vector<Complex> block, size_t size, double tol);
+
 void negate_in_place(std::vector<Complex> &matrix);
 
 void subtract_positive_frame_margin(
@@ -110,6 +112,12 @@ std::vector<Complex> rotated_negative_block(
     std::span<const Complex> rotation,
     size_t npos,
     size_t nneg
+);
+
+size_t estimate_common_rank(
+    const std::vector<std::vector<Complex>> &blocks,
+    size_t size,
+    double tol
 );
 
 }  // namespace lineartetrahedron::simplex_certificate::detail

@@ -254,4 +254,32 @@ bool positive_definite(std::vector<Complex> block, size_t size, double tol) {
     return info == 0;
 }
 
+size_t positive_definite_prefix(std::vector<Complex> block, size_t size, double tol) {
+    if (size == 0) {
+        return 0;
+    }
+    const auto margin = std::max(kBlockMargin, tol);
+    for (size_t index = 0; index < size; ++index) {
+        block[column_major_index(index, index, size)] =
+            Complex{std::real(block[column_major_index(index, index, size)]), 0.0};
+        block[column_major_index(index, index, size)] -= margin;
+    }
+    if (size > static_cast<size_t>(std::numeric_limits<int>::max())) {
+        throw std::runtime_error("simplex certificate: LAPACK dimension exceeds LP64 range");
+    }
+
+    const char uplo = 'L';
+    const int n = static_cast<int>(size);
+    const int lda = std::max(1, n);
+    auto info = 0;
+    LINEARTETRAHEDRON_LAPACK_ZPOTRF(&uplo, &n, block.data(), &lda, &info);
+    if (info < 0) {
+        throw std::runtime_error("simplex certificate: zpotrf failed");
+    }
+    if (info == 0) {
+        return size;
+    }
+    return static_cast<size_t>(info - 1);
+}
+
 }  // namespace lineartetrahedron::simplex_certificate::detail

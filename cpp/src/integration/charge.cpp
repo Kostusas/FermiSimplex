@@ -7,6 +7,7 @@
 #include <algorithm>
 #include <cmath>
 #include <span>
+#include <stdexcept>
 #include <vector>
 
 namespace lineartetrahedron {
@@ -81,14 +82,15 @@ ChargeValue charge_on_simplex(
             simplex_id,
             cache,
             0.0,
-            workspace.tol()
+            workspace.tol(),
+            true
         );
         if (certificate.status == simplex_certificate::SimplexCertificateStatus::Inconclusive) {
-            const auto occupation = std::min(certificate.vertex_occupation, workspace.ndof());
-            const auto unresolved_occupation_bound = std::max(
-                occupation,
-                workspace.ndof() - occupation
-            );
+            if (!certificate.has_occupation_bounds) {
+                throw std::runtime_error("charge certificate: inconclusive simplex has no occupation bounds");
+            }
+            const auto unresolved_occupation_bound =
+                certificate.upper_occupation_bound - certificate.lower_occupation_bound;
             result.certificate_error =
                 static_cast<double>(unresolved_occupation_bound) * simplex.volume;
         }

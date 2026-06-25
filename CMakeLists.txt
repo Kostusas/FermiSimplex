@@ -6,4 +6,6 @@ project(
   LANGUAGES CXX
 )
 
+include(CTest)
+
 add_subdirectory(cpp)

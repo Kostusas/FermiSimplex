@@ -8,7 +8,6 @@
 #include <cmath>
 #include <span>
 #include <stdexcept>
-#include <utility>
 #include <vector>
 
 namespace lineartetrahedron {
@@ -16,19 +15,6 @@ namespace core = adaptivesimplex::core;
 namespace cut = adaptivesimplex::cut;
 
 namespace {
-
-bool has_reusable_mu_range(
-    const simplex_certificate::SimplexCertificate &certificate
-) {
-    if (certificate.lower_mu_bound > certificate.upper_mu_bound) {
-        return false;
-    }
-    if (certificate.status == simplex_certificate::SimplexCertificateStatus::CertifiedGapped) {
-        return true;
-    }
-    return certificate.status == simplex_certificate::SimplexCertificateStatus::Inconclusive &&
-           certificate.has_occupation_bounds;
-}
 
 double occupied_fraction_derivative(
     std::span<const double> energies,
@@ -79,50 +65,6 @@ std::vector<double> sorted_band_energies(
 
 }  // namespace
 
-const simplex_certificate::SimplexCertificate *ChargeCertificateCache::find(
-    core::SimplexId simplex_id,
-    double mu
-) const {
-    const auto found = records_.find(simplex_id);
-    if (found == records_.end()) {
-        return nullptr;
-    }
-    const auto &certificates = found->second;
-    for (auto iter = certificates.rbegin(); iter != certificates.rend(); ++iter) {
-        if (iter->lower_mu_bound <= mu && mu <= iter->upper_mu_bound) {
-            return &(*iter);
-        }
-    }
-    return nullptr;
-}
-
-void ChargeCertificateCache::insert(
-    core::SimplexId simplex_id,
-    simplex_certificate::SimplexCertificate certificate
-) {
-    if (!has_reusable_mu_range(certificate)) {
-        return;
-    }
-    records_[simplex_id].push_back(std::move(certificate));
-}
-
-void ChargeCertificateCache::erase(core::SimplexId simplex_id) {
-    records_.erase(simplex_id);
-}
-
-void ChargeCertificateCache::clear() {
-    records_.clear();
-}
-
-size_t ChargeCertificateCache::size() const noexcept {
-    auto count = size_t{0};
-    for (const auto &[unused_simplex_id, certificates] : records_) {
-        (void)unused_simplex_id;
-        count += certificates.size();
-    }
-    return count;
-}
-
 ChargeValue charge_on_simplex(
     double mu,
     const IntegrationWorkspace &workspace,
@@ -142,10 +84,10 @@ ChargeValue charge_on_simplex(
             certificate = *cached_certificate;
         } else {
             certificate = simplex_certificate::certify_simplex_gap(
-                mu,
                 geometry,
                 simplex_id,
                 cache,
+                mu,
                 0.0,
                 workspace.tol(),
                 true
@@ -155,13 +97,9 @@ ChargeValue charge_on_simplex(
             }
         }
         if (certificate.status == simplex_certificate::SimplexCertificateStatus::Inconclusive) {
-            if (!certificate.has_occupation_bounds) {
-                throw std::runtime_error("charge certificate: inconclusive simplex has no occupation bounds");
-            }
-            const auto unresolved_occupation_bound =
-                certificate.upper_occupation_bound - certificate.lower_occupation_bound;
             result.certificate_error =
-                static_cast<double>(unresolved_occupation_bound) * simplex.volume;
+                static_cast<double>(simplex_certificate::occupation_width(certificate)) *
+                simplex.volume;
         }
     }
 

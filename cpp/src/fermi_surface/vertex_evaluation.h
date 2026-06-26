@@ -1,6 +1,5 @@
 #pragma once
 
-#include "certificate/simplex_certificate.h"
 #include "core/vertex_spectra.h"
 #include "fermi_surface/fermi_surface.h"
 
@@ -9,7 +8,6 @@
 #include <adaptivesimplex/core/vertex_cache.h>
 
 #include <cstddef>
-#include <cstdint>
 #include <span>
 #include <vector>
 
@@ -72,34 +70,5 @@ void evaluate_missing_vertices(
         std::span<const core::VertexId>(missing.data(), missing.size())
     );
 }
-
-struct MarkResult {
-    std::vector<core::SimplexId> marked;
-    std::vector<core::SimplexId> surface_terminal;
-    std::int64_t cut = 0;
-    std::int64_t feature_size = 0;
-    std::int64_t unresolved = 0;
-};
-
-void extract_surface(
-    const HamiltonianModel &model,
-    const core::Geometry &geometry,
-    const SpectraCache &cache,
-    std::span<const core::SimplexId> simplex_ids,
-    double mu,
-    double tol,
-    bool return_states,
-    FermiSurfaceResult &result
-);
-
-FermiSurfaceResult run_fermi_surface(
-    std::shared_ptr<const HamiltonianModel> model,
-    double mu,
-    double min_feature_size,
-    std::int64_t max_diagonalizations,
-    double margin,
-    double tol,
-    bool return_states
-);
 
 }  // namespace lineartetrahedron::fermi_surface_detail

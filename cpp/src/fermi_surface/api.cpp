@@ -1,31 +1,13 @@
 #include "fermi_surface/fermi_surface.h"
 
-#include "internal.h"
-
-#include <adaptivesimplex/core/root_mesh.h>
+#include "fermi_surface/adaptive_refinement.h"
+#include "fermi_surface/vertex_evaluation.h"
 
 #include <cmath>
 #include <stdexcept>
 #include <utility>
 
 namespace lineartetrahedron {
-
-namespace core = adaptivesimplex::core;
-
-namespace fermi_surface_detail {
-
-thread_local FermiSurfaceStats fermi_surface_stats_;
-
-core::Geometry make_fermi_geometry(size_t ndim) {
-    return core::root_geometry(ndim, ndim == 1 ? 2U : 1U);
-}
-
-std::vector<core::SimplexId> active_simplices(const core::Geometry &geometry) {
-    const auto active = geometry.simplices().active_simplices();
-    return std::vector<core::SimplexId>(active.begin(), active.end());
-}
-
-}  // namespace fermi_surface_detail
 
 void reset_fermi_surface_stats() {
     fermi_surface_detail::fermi_surface_stats_ = FermiSurfaceStats{};
@@ -36,26 +18,6 @@ FermiSurfaceStats fermi_surface_stats() {
 }
 
 FermiSurfaceResult fermi_surface(
-    std::shared_ptr<TightBindingModel> model,
-    double mu,
-    double min_feature_size,
-    std::int64_t max_diagonalizations,
-    double margin,
-    double tol,
-    bool return_states
-) {
-    return fermi_surface_from_model(
-        std::static_pointer_cast<const HamiltonianModel>(std::move(model)),
-        mu,
-        min_feature_size,
-        max_diagonalizations,
-        margin,
-        tol,
-        return_states
-    );
-}
-
-FermiSurfaceResult fermi_surface_from_model(
     std::shared_ptr<const HamiltonianModel> model,
     double mu,
     double min_feature_size,

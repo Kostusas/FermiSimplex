@@ -1,7 +1,11 @@
-#include "internal.h"
+#include "certificate/bounds/occupation_bounds.h"
+
+#include "certificate/linalg/cholesky.h"
+#include "certificate/bounds/mu_bounds.h"
 
 #include <algorithm>
 #include <limits>
+#include <span>
 #include <stdexcept>
 #include <utility>
 
@@ -15,12 +19,12 @@ void require_block_shape(
     const auto expected = size * size;
     for (const auto &block : blocks) {
         if (block.size() != expected) {
-            throw std::runtime_error("simplex certificate: common-rank block shape mismatch");
+            throw std::runtime_error("simplex certificate: occupation-bound block shape mismatch");
         }
     }
 }
 
-std::vector<size_t> candidate_order_by_worst_margin(
+std::vector<size_t> ordered_subset_by_worst_margin(
     const std::vector<std::vector<Complex>> &blocks,
     size_t size
 ) {
@@ -73,20 +77,9 @@ std::vector<Complex> permuted_block(
     return result;
 }
 
-Complex hermitian_entry(
-    const std::vector<Complex> &matrix,
-    size_t size,
-    size_t row,
-    size_t column
-) {
-    if (row >= column) {
-        return matrix[column_major_index(row, column, size)];
-    }
-    return std::conj(matrix[column_major_index(column, row, size)]);
-}
-
-double leading_prefix_mu_radius(
-    const std::vector<std::vector<Complex>> &permuted_blocks,
+double ordered_subset_mu_radius(
+    const std::vector<std::vector<Complex>> &blocks,
+    std::span<const size_t> order,
     size_t size,
     size_t rank,
     double tol
@@ -96,15 +89,12 @@ double leading_prefix_mu_radius(
     }
 
     auto radius = std::numeric_limits<double>::infinity();
-    const auto margin = positive_definite_margin(tol);
-    for (const auto &block : permuted_blocks) {
+    const auto margin = certificate_margin(tol);
+    for (const auto &block : blocks) {
+        const auto permuted = permuted_block(block, order, size);
         for (size_t row = 0; row < rank; ++row) {
-            auto row_bound = std::real(block[column_major_index(row, row, size)]);
-            for (size_t column = 0; column < rank; ++column) {
-                if (column != row) {
-                    row_bound -= std::abs(hermitian_entry(block, size, row, column));
-                }
-            }
+            const auto row_bound =
+                gershgorin_row_lower_bound(permuted, size, row, rank);
             radius = std::min(radius, row_bound - margin);
         }
     }
@@ -113,45 +103,42 @@ double leading_prefix_mu_radius(
 
 }  // namespace
 
-CommonRankEstimate estimate_common_rank_with_mu_radius(
+OccupationRankEstimate estimate_ordered_subset_rank_with_mu_radius(
     const std::vector<std::vector<Complex>> &blocks,
     size_t size,
     double tol
 ) {
     if (size == 0 || blocks.empty()) {
-        return CommonRankEstimate{
+        return OccupationRankEstimate{
             .rank = 0,
             .mu_radius = std::numeric_limits<double>::infinity(),
         };
     }
     require_block_shape(blocks, size);
 
-    const auto order = candidate_order_by_worst_margin(blocks, size);
+    const auto order = ordered_subset_by_worst_margin(blocks, size);
     const auto order_span = std::span<const size_t>(order.data(), order.size());
 
     auto rank = size;
-    std::vector<std::vector<Complex>> permuted_blocks;
-    permuted_blocks.reserve(blocks.size());
     for (const auto &block : blocks) {
         auto permuted = permuted_block(block, order_span, size);
         rank = std::min(
             rank,
-            positive_definite_prefix(permuted, size, tol)
+            positive_definite(permuted, size, certificate_margin(tol)).accepted_rank
         );
-        permuted_blocks.push_back(std::move(permuted));
     }
-    return CommonRankEstimate{
+    return OccupationRankEstimate{
         .rank = rank,
-        .mu_radius = leading_prefix_mu_radius(permuted_blocks, size, rank, tol),
+        .mu_radius = ordered_subset_mu_radius(blocks, order_span, size, rank, tol),
     };
 }
 
-size_t estimate_common_rank(
+size_t estimate_ordered_subset_rank(
     const std::vector<std::vector<Complex>> &blocks,
     size_t size,
     double tol
 ) {
-    return estimate_common_rank_with_mu_radius(blocks, size, tol).rank;
+    return estimate_ordered_subset_rank_with_mu_radius(blocks, size, tol).rank;
 }
 
 }  // namespace lineartetrahedron::simplex_certificate::detail

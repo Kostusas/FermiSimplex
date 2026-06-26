@@ -15,27 +15,48 @@ namespace core = adaptivesimplex::core;
 
 enum class SimplexCertificateStatus {
     CertifiedGapped,
-    VisibleCut,
+    VisibleGapless,
     Inconclusive,
+};
+
+constexpr double kDefaultTolerance = 1e-14;
+
+struct OccupationBounds {
+    size_t lower = 0;
+    size_t upper = 0;
+};
+
+struct MuInterval {
+    // Empty by default: no reusable chemical-potential certification range.
+    double lower = std::numeric_limits<double>::infinity();
+    double upper = -std::numeric_limits<double>::infinity();
 };
 
 struct SimplexCertificate {
     SimplexCertificateStatus status = SimplexCertificateStatus::Inconclusive;
-    size_t vertex_occupation = 0;
-    bool has_occupation_bounds = false;
-    size_t lower_occupation_bound = 0;
-    size_t upper_occupation_bound = 0;
-    double lower_mu_bound = std::numeric_limits<double>::infinity();
-    double upper_mu_bound = -std::numeric_limits<double>::infinity();
+    OccupationBounds occupation_bounds;
+    MuInterval mu_interval;
 };
 
+inline bool has_mu_interval(const SimplexCertificate &certificate) {
+    return certificate.mu_interval.lower <= certificate.mu_interval.upper;
+}
+
+inline bool reusable_at(const SimplexCertificate &certificate, double mu) {
+    return certificate.mu_interval.lower <= mu && mu <= certificate.mu_interval.upper;
+}
+
+inline size_t occupation_width(const SimplexCertificate &certificate) {
+    return certificate.occupation_bounds.upper - certificate.occupation_bounds.lower;
+}
+
 SimplexCertificate certify_simplex_gap(
-    double mu,
     const core::Geometry &geometry,
     core::SimplexId simplex_id,
     const core::VertexCache<VertexSpectra> &vertex_cache,
-    double margin,
-    double tol,
+    double mu = 0.0,
+    double margin = 0.0,
+    double tol = kDefaultTolerance,
     bool estimate_occupation_bounds = false
 );
 

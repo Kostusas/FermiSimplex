@@ -1,4 +1,6 @@
-#include "internal.h"
+#include "certificate/simplex/vertex_blocks.h"
+
+#include "certificate/linalg/lapack.h"
 
 #include <algorithm>
 
@@ -82,20 +84,14 @@ void hermitize_square(std::vector<Complex> &matrix, size_t size) {
 
 }  // namespace
 
-void negate_in_place(std::vector<Complex> &matrix) {
-    for (auto &value : matrix) {
-        value = -value;
-    }
-}
-
 VertexBlocks build_vertex_blocks(
     std::span<const Complex> anchor_vectors,
     size_t ndof,
-    size_t npos,
-    size_t nneg,
+    size_t nocc,
     const VertexSpectra &target,
     double mu
 ) {
+    const auto nunocc = ndof - nocc;
     const auto target_vectors =
         std::span<const Complex>(target.eigenvectors.data(), target.eigenvectors.size());
     const auto overlap = full_overlap(anchor_vectors, ndof, target_vectors);
@@ -120,32 +116,32 @@ VertexBlocks build_vertex_blocks(
     );
 
     VertexBlocks blocks;
-    blocks.positive_same_sign = submatrix_copy(
+    blocks.unoccupied_block = submatrix_copy(
         std::span<const Complex>(anchor_matrix.data(), anchor_matrix.size()),
         ndof,
-        nneg,
-        nneg,
-        npos,
-        npos
+        nocc,
+        nocc,
+        nunocc,
+        nunocc
     );
-    blocks.negative_same_sign = submatrix_copy(
+    blocks.occupied_block = submatrix_copy(
         std::span<const Complex>(anchor_matrix.data(), anchor_matrix.size()),
         ndof,
         0,
         0,
-        nneg,
-        nneg
+        nocc,
+        nocc
     );
-    blocks.positive_negative_coupling = submatrix_copy(
+    blocks.coupling_block = submatrix_copy(
         std::span<const Complex>(anchor_matrix.data(), anchor_matrix.size()),
         ndof,
-        nneg,
+        nocc,
         0,
-        npos,
-        nneg
+        nunocc,
+        nocc
     );
-    hermitize_square(blocks.positive_same_sign, npos);
-    hermitize_square(blocks.negative_same_sign, nneg);
+    hermitize_square(blocks.unoccupied_block, nunocc);
+    hermitize_square(blocks.occupied_block, nocc);
     return blocks;
 }
 

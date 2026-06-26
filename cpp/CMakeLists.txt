@@ -100,15 +100,24 @@ endif()
 
 set(
   _lineartetrahedron_core_sources
-  src/certificate/blas.cpp
-  src/certificate/blocks.cpp
-  src/certificate/common_subspace.cpp
-  src/certificate/rotated_vertex.cpp
-  src/certificate/rotated_blocks.cpp
+  src/certificate/simplex/anchor_selection.cpp
+  src/certificate/linalg/cholesky.cpp
+  src/certificate/linalg/lapack.cpp
+  src/certificate/bounds/occupation_bounds.cpp
+  src/certificate/simplex/occupation_certificate.cpp
+  src/certificate/bounds/mu_bounds.cpp
+  src/certificate/linalg/rotated_blocks.cpp
+  src/certificate/simplex/simplex_blocks.cpp
+  src/certificate/simplex_certificate.cpp
+  src/certificate/simplex/vertex_blocks.cpp
   src/fermi_surface/api.cpp
-  src/fermi_surface/extraction.cpp
-  src/fermi_surface/run.cpp
+  src/fermi_surface/adaptive_refinement.cpp
+  src/fermi_surface/simplex_classification.cpp
+  src/fermi_surface/surface_extraction.cpp
+  src/fermi_surface/surface_triangulation.cpp
+  src/fermi_surface/vertex_evaluation.cpp
   src/integration/charge.cpp
+  src/integration/charge_certificate_cache.cpp
   src/integration/charge_runtime.cpp
   src/integration/density.cpp
   src/integration/runtime.cpp
@@ -158,31 +167,42 @@ target_link_libraries(_native PRIVATE lineartetrahedron_core)
 install(TARGETS _native LIBRARY DESTINATION lineartetrahedron)
 
 if(BUILD_TESTING)
-  add_executable(
-    lineartetrahedron_cpp_tests
-    EXCLUDE_FROM_ALL
-    tests/test_common_subspace_bounds.cpp
+  set(_ltt_cpp_test_targets)
+  foreach(_ltt_test IN ITEMS
+    occupation_bounds
+    simplex_certificate
+    charge_certificates
   )
-  target_compile_features(lineartetrahedron_cpp_tests PRIVATE cxx_std_20)
-  target_include_directories(
-    lineartetrahedron_cpp_tests PRIVATE
-    "${CMAKE_CURRENT_SOURCE_DIR}/src"
-  )
-  target_link_libraries(lineartetrahedron_cpp_tests PRIVATE lineartetrahedron_core)
-  add_test(
-    NAME lineartetrahedron_cpp_tests
-    COMMAND $<TARGET_FILE:lineartetrahedron_cpp_tests>
-  )
+    set(_ltt_test_target "lineartetrahedron_${_ltt_test}_tests")
+    add_executable(
+      ${_ltt_test_target}
+      EXCLUDE_FROM_ALL
+      "tests/test_${_ltt_test}.cpp"
+    )
+    target_compile_features(${_ltt_test_target} PRIVATE cxx_std_20)
+    target_include_directories(
+      ${_ltt_test_target} PRIVATE
+      "${CMAKE_CURRENT_SOURCE_DIR}/src"
+      "${CMAKE_CURRENT_SOURCE_DIR}/tests"
+    )
+    target_link_libraries(${_ltt_test_target} PRIVATE lineartetrahedron_core)
+    add_test(
+      NAME ${_ltt_test_target}
+      COMMAND $<TARGET_FILE:${_ltt_test_target}>
+    )
+    list(APPEND _ltt_cpp_test_targets ${_ltt_test_target})
+  endforeach()
+  add_custom_target(lineartetrahedron_cpp_tests DEPENDS ${_ltt_cpp_test_targets})
 
   add_executable(
-    lineartetrahedron_common_subspace_benchmark
+    lineartetrahedron_occupation_bounds_benchmark
     EXCLUDE_FROM_ALL
-    tools/benchmark_common_subspace_bounds.cpp
+    tools/benchmark_occupation_bounds.cpp
   )
-  target_compile_features(lineartetrahedron_common_subspace_benchmark PRIVATE cxx_std_20)
+  target_compile_features(lineartetrahedron_occupation_bounds_benchmark PRIVATE cxx_std_20)
   target_include_directories(
-    lineartetrahedron_common_subspace_benchmark PRIVATE
+    lineartetrahedron_occupation_bounds_benchmark PRIVATE
     "${CMAKE_CURRENT_SOURCE_DIR}/src"
   )
-  target_link_libraries(lineartetrahedron_common_subspace_benchmark PRIVATE lineartetrahedron_core)
+  target_link_libraries(lineartetrahedron_occupation_bounds_benchmark PRIVATE lineartetrahedron_core)
 endif()

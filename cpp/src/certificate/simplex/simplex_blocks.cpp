@@ -1,0 +1,55 @@
+#include "certificate/simplex/simplex_blocks.h"
+
+namespace lineartetrahedron::simplex_certificate::detail {
+
+SimplexBlocks build_simplex_blocks(
+    double mu,
+    const core::Simplex &simplex,
+    const core::VertexCache<VertexSpectra> &vertex_cache,
+    std::span<const Complex> anchor_vectors,
+    size_t ndof,
+    size_t nocc
+) {
+    const auto nunocc = ndof - nocc;
+    SimplexBlocks blocks;
+    blocks.vertices.reserve(simplex.vertex_ids.size());
+    blocks.average_coupling.assign(nunocc * nocc, Complex{0.0, 0.0});
+    for (const auto vertex_id : simplex.vertex_ids) {
+        blocks.vertices.push_back(build_vertex_blocks(
+            anchor_vectors,
+            ndof,
+            nocc,
+            vertex_cache.get(vertex_id),
+            mu
+        ));
+        for (size_t index = 0; index < blocks.average_coupling.size(); ++index) {
+            blocks.average_coupling[index] += blocks.vertices.back().coupling_block[index];
+        }
+    }
+
+    const auto average_scale = 1.0 / static_cast<double>(simplex.vertex_ids.size());
+    for (auto &value : blocks.average_coupling) {
+        value *= average_scale;
+    }
+    return blocks;
+}
+
+std::vector<Complex> perturbative_rotation(
+    std::span<const Complex> average_coupling,
+    std::span<const double> unoccupied_gaps,
+    std::span<const double> occupied_gaps
+) {
+    const auto nunocc = unoccupied_gaps.size();
+    const auto nocc = occupied_gaps.size();
+    std::vector<Complex> rotation(nunocc * nocc, Complex{0.0, 0.0});
+    for (size_t occ = 0; occ < nocc; ++occ) {
+        for (size_t unocc = 0; unocc < nunocc; ++unocc) {
+            rotation[column_major_index(unocc, occ, nunocc)] =
+                average_coupling[column_major_index(unocc, occ, nunocc)] /
+                (unoccupied_gaps[unocc] + occupied_gaps[occ]);
+        }
+    }
+    return rotation;
+}
+
+}  // namespace lineartetrahedron::simplex_certificate::detail

@@ -1,4 +1,4 @@
-#include "internal.h"
+#include "certificate/linalg/lapack.h"
 
 #include <algorithm>
 #include <limits>
@@ -78,8 +78,6 @@ void LINEARTETRAHEDRON_LAPACK_ZPOTRF(
 
 namespace lineartetrahedron::simplex_certificate::detail {
 namespace {
-
-constexpr double kBlockMargin = 1e-10;
 
 void check_lp64(size_t value) {
     if (value > static_cast<size_t>(std::numeric_limits<int>::max())) {
@@ -229,61 +227,21 @@ void hemm(
     );
 }
 
-bool positive_definite(std::vector<Complex> block, size_t size, double tol) {
-    if (size == 0) {
-        return true;
-    }
-    const auto margin = positive_definite_margin(tol);
-    for (size_t index = 0; index < size; ++index) {
-        block[column_major_index(index, index, size)] =
-            Complex{std::real(block[column_major_index(index, index, size)]), 0.0};
-        block[column_major_index(index, index, size)] -= margin;
-    }
-    if (size > static_cast<size_t>(std::numeric_limits<int>::max())) {
-        throw std::runtime_error("simplex certificate: LAPACK dimension exceeds LP64 range");
-    }
-
-    const char uplo = 'L';
-    const int n = static_cast<int>(size);
-    const int lda = std::max(1, n);
-    auto info = 0;
-    LINEARTETRAHEDRON_LAPACK_ZPOTRF(&uplo, &n, block.data(), &lda, &info);
-    if (info < 0) {
-        throw std::runtime_error("simplex certificate: zpotrf failed");
-    }
-    return info == 0;
-}
-
-size_t positive_definite_prefix(std::vector<Complex> block, size_t size, double tol) {
+int potrf(Complex *matrix, size_t size) {
     if (size == 0) {
         return 0;
     }
-    const auto margin = positive_definite_margin(tol);
-    for (size_t index = 0; index < size; ++index) {
-        block[column_major_index(index, index, size)] =
-            Complex{std::real(block[column_major_index(index, index, size)]), 0.0};
-        block[column_major_index(index, index, size)] -= margin;
-    }
-    if (size > static_cast<size_t>(std::numeric_limits<int>::max())) {
-        throw std::runtime_error("simplex certificate: LAPACK dimension exceeds LP64 range");
-    }
+    check_lp64(size);
 
     const char uplo = 'L';
     const int n = static_cast<int>(size);
     const int lda = std::max(1, n);
     auto info = 0;
-    LINEARTETRAHEDRON_LAPACK_ZPOTRF(&uplo, &n, block.data(), &lda, &info);
+    LINEARTETRAHEDRON_LAPACK_ZPOTRF(&uplo, &n, matrix, &lda, &info);
     if (info < 0) {
         throw std::runtime_error("simplex certificate: zpotrf failed");
     }
-    if (info == 0) {
-        return size;
-    }
-    return static_cast<size_t>(info - 1);
-}
-
-double positive_definite_margin(double tol) {
-    return std::max(kBlockMargin, tol);
+    return info;
 }
 
 }  // namespace lineartetrahedron::simplex_certificate::detail

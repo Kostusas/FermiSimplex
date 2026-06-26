@@ -1,6 +1,6 @@
 #pragma once
 
-#include "integration/charge.h"
+#include "integration/charge_certificate_cache.h"
 #include "integration/density.h"
 #include "integration/workspace.h"
 

@@ -84,8 +84,28 @@ FermiSurfaceResult fermi_surface_callable(
     double tol,
     bool return_states
 ) {
-    return fermi_surface_from_model(
+    return fermi_surface(
         std::make_shared<PythonHamiltonianModel>(std::move(callable), ndim, ndof),
+        mu,
+        min_feature_size,
+        max_diagonalizations,
+        margin,
+        tol,
+        return_states
+    );
+}
+
+FermiSurfaceResult fermi_surface_tight_binding(
+    std::shared_ptr<TightBindingModel> model,
+    double mu,
+    double min_feature_size,
+    std::int64_t max_diagonalizations,
+    double margin,
+    double tol,
+    bool return_states
+) {
+    return fermi_surface(
+        std::static_pointer_cast<const HamiltonianModel>(std::move(model)),
         mu,
         min_feature_size,
         max_diagonalizations,
@@ -157,7 +177,7 @@ void bind_fermi_surface(nb::module_ &m) {
 
     m.def(
         "fermi_surface",
-        &fermi_surface,
+        &fermi_surface_tight_binding,
         "model"_a,
         "mu"_a,
         "min_feature_size"_a,

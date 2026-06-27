@@ -83,7 +83,7 @@ ChargeValue charge_on_simplex(
         if (cached_certificate != nullptr) {
             certificate = *cached_certificate;
         } else {
-            certificate = simplex_certificate::certify_simplex_gap(
+            certificate = simplex_certificate::certify_mesh_simplex(
                 geometry,
                 simplex_id,
                 cache,

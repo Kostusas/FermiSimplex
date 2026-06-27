@@ -36,12 +36,12 @@ std::vector<Complex> scale_overlap_columns(
     size_t overlap_rows,
     size_t rows,
     size_t columns,
-    const VertexSpectra &target,
+    std::span<const double> target_eigenvalues,
     double mu
 ) {
     std::vector<Complex> result(rows * columns, Complex{0.0, 0.0});
     for (size_t column = 0; column < columns; ++column) {
-        const auto scale = signed_eigenvalue(target, column, mu);
+        const auto scale = signed_eigenvalue(target_eigenvalues, column, mu);
         for (size_t row = 0; row < rows; ++row) {
             result[column_major_index(row, column, rows)] =
                 scale * overlap[column_major_index(row, column, overlap_rows)];
@@ -88,15 +88,14 @@ VertexBlocks build_vertex_blocks(
     std::span<const Complex> anchor_vectors,
     size_t ndof,
     size_t nocc,
-    const VertexSpectra &target,
+    std::span<const double> target_eigenvalues,
+    std::span<const Complex> target_eigenvectors,
     double mu
 ) {
     const auto nunocc = ndof - nocc;
-    const auto target_vectors =
-        std::span<const Complex>(target.eigenvectors.data(), target.eigenvectors.size());
-    const auto overlap = full_overlap(anchor_vectors, ndof, target_vectors);
+    const auto overlap = full_overlap(anchor_vectors, ndof, target_eigenvectors);
     const auto scaled_overlap =
-        scale_overlap_columns(overlap.data(), ndof, ndof, ndof, target, mu);
+        scale_overlap_columns(overlap.data(), ndof, ndof, ndof, target_eigenvalues, mu);
 
     std::vector<Complex> anchor_matrix(ndof * ndof, Complex{0.0, 0.0});
     gemm(

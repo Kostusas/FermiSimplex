@@ -46,7 +46,7 @@ SimplexClassification classify_frontier(
     SimplexClassification result;
     for (const auto simplex_id : frontier) {
         const auto refinable = max_reduced_edge_length(geometry, simplex_id) > min_feature_size;
-        const auto certificate = simplex_certificate::certify_simplex_gap(
+        const auto certificate = simplex_certificate::certify_mesh_simplex(
             geometry,
             simplex_id,
             cache,

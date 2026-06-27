@@ -17,7 +17,7 @@ namespace lineartetrahedron {
 class IntegrationWorkspace {
 public:
     explicit IntegrationWorkspace(
-        std::shared_ptr<TightBindingModel> model,
+        std::shared_ptr<const HamiltonianModel> model,
         double tol = 1e-14
     );
 
@@ -39,7 +39,7 @@ public:
     VertexSpectra evaluate_vertex(std::span<const double> reduced_point) const;
 
 private:
-    std::shared_ptr<TightBindingModel> model_;
+    std::shared_ptr<const HamiltonianModel> model_;
     adaptivesimplex::core::Geometry geometry_;
     adaptivesimplex::core::VertexCache<VertexSpectra> cache_;
     VertexSpectraEvaluator evaluator_;

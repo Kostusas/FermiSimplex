@@ -8,6 +8,8 @@
 
 #include <cstddef>
 #include <limits>
+#include <span>
+#include <complex>
 
 namespace lineartetrahedron::simplex_certificate {
 
@@ -50,7 +52,16 @@ inline size_t occupation_width(const SimplexCertificate &certificate) {
     return certificate.occupation_bounds.upper - certificate.occupation_bounds.lower;
 }
 
-SimplexCertificate certify_simplex_gap(
+SimplexCertificate certify_simplex(
+    std::span<const std::span<const double>> eigenvalues,
+    std::span<const std::span<const std::complex<double>>> eigenvectors,
+    double mu = 0.0,
+    double margin = 0.0,
+    double tol = kDefaultTolerance,
+    bool estimate_occupation_bounds = false
+);
+
+SimplexCertificate certify_mesh_simplex(
     const core::Geometry &geometry,
     core::SimplexId simplex_id,
     const core::VertexCache<VertexSpectra> &vertex_cache,

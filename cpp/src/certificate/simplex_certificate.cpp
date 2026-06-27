@@ -6,9 +6,11 @@
 #include "certificate/simplex/simplex_blocks.h"
 
 #include <algorithm>
+#include <complex>
 #include <limits>
 #include <span>
 #include <stdexcept>
+#include <vector>
 
 namespace lineartetrahedron::simplex_certificate {
 namespace {
@@ -24,12 +26,38 @@ OccupationBounds exact_occupation(size_t occupation) {
     return OccupationBounds{.lower = occupation, .upper = occupation};
 }
 
+void validate_simplex_spectra(
+    std::span<const std::span<const double>> eigenvalues,
+    std::span<const std::span<const std::complex<double>>> eigenvectors
+) {
+    if (eigenvalues.empty()) {
+        throw std::runtime_error("certify_simplex: simplex must not be empty");
+    }
+    if (eigenvalues.size() != eigenvectors.size()) {
+        throw std::runtime_error("certify_simplex: eigenvalue/eigenvector vertex counts differ");
+    }
+
+    const auto ndof = eigenvalues.front().size();
+    if (ndof == 0) {
+        throw std::runtime_error("certify_simplex: vertex spectra must not be empty");
+    }
+    for (size_t vertex = 0; vertex < eigenvalues.size(); ++vertex) {
+        if (eigenvalues[vertex].size() != ndof) {
+            throw std::runtime_error("certify_simplex: all vertices must have the same ndof");
+        }
+        if (eigenvectors[vertex].size() != ndof * ndof) {
+            throw std::runtime_error(
+                "certify_simplex: each eigenvector block must have size ndof * ndof"
+            );
+        }
+    }
+}
+
 }  // namespace
 
-SimplexCertificate certify_simplex_gap(
-    const core::Geometry &geometry,
-    core::SimplexId simplex_id,
-    const core::VertexCache<VertexSpectra> &vertex_cache,
+SimplexCertificate certify_simplex(
+    std::span<const std::span<const double>> eigenvalues,
+    std::span<const std::span<const std::complex<double>>> eigenvectors,
     double mu,
     double margin,
     double tol,
@@ -37,20 +65,18 @@ SimplexCertificate certify_simplex_gap(
 ) {
     using namespace detail;
 
-    const auto &simplex = geometry.simplices().simplex(simplex_id);
-    if (simplex.vertex_ids.empty()) {
-        throw std::runtime_error("certify_simplex_gap: simplex must not be empty");
-    }
+    validate_simplex_spectra(eigenvalues, eigenvectors);
 
     const auto anchor_selection_result =
-        choose_anchor_vertex(mu, simplex, vertex_cache, tol);
+        choose_anchor_spectrum(mu, eigenvalues, tol);
     if (anchor_selection_result.early_certificate.has_value()) {
         return *anchor_selection_result.early_certificate;
     }
     const auto anchor_selection = anchor_selection_result.selection;
 
-    const auto &anchor = vertex_cache.get(anchor_selection.vertex_id);
-    auto split_result = split_anchor_spectrum(anchor, mu, tol, anchor_selection.ndof);
+    const auto anchor_eigenvalues = eigenvalues[anchor_selection.vertex_index];
+    const auto anchor_eigenvectors = eigenvectors[anchor_selection.vertex_index];
+    auto split_result = split_anchor_spectrum(anchor_eigenvalues, mu, tol, anchor_selection.ndof);
     if (split_result.early_certificate.has_value()) {
         return *split_result.early_certificate;
     }
@@ -59,13 +85,11 @@ SimplexCertificate certify_simplex_gap(
     const auto nocc = anchor_selection.nocc;
     const auto ndof = anchor_selection.ndof;
     const auto nunocc = ndof - nocc;
-    const auto anchor_vectors =
-        std::span<const Complex>(anchor.eigenvectors.data(), anchor.eigenvectors.size());
     const auto blocks = build_simplex_blocks(
         mu,
-        simplex,
-        vertex_cache,
-        anchor_vectors,
+        eigenvalues,
+        eigenvectors,
+        anchor_eigenvectors,
         ndof,
         nocc
     );
@@ -154,6 +178,49 @@ SimplexCertificate certify_simplex_gap(
         .upper = mu + unoccupied_mu_radius,
     };
     return result;
+}
+
+SimplexCertificate certify_mesh_simplex(
+    const core::Geometry &geometry,
+    core::SimplexId simplex_id,
+    const core::VertexCache<VertexSpectra> &vertex_cache,
+    double mu,
+    double margin,
+    double tol,
+    bool estimate_occupation_bounds
+) {
+    const auto &simplex = geometry.simplices().simplex(simplex_id);
+    if (simplex.vertex_ids.empty()) {
+        throw std::runtime_error("certify_mesh_simplex: simplex must not be empty");
+    }
+
+    std::vector<std::span<const double>> eigenvalues;
+    std::vector<std::span<const std::complex<double>>> eigenvectors;
+    eigenvalues.reserve(simplex.vertex_ids.size());
+    eigenvectors.reserve(simplex.vertex_ids.size());
+    for (const auto vertex_id : simplex.vertex_ids) {
+        const auto &spectra = vertex_cache.get(vertex_id);
+        eigenvalues.push_back(
+            std::span<const double>(spectra.eigenvalues.data(), spectra.eigenvalues.size())
+        );
+        eigenvectors.push_back(
+            std::span<const std::complex<double>>(
+                spectra.eigenvectors.data(),
+                spectra.eigenvectors.size()
+            )
+        );
+    }
+    return certify_simplex(
+        std::span<const std::span<const double>>(eigenvalues.data(), eigenvalues.size()),
+        std::span<const std::span<const std::complex<double>>>(
+            eigenvectors.data(),
+            eigenvectors.size()
+        ),
+        mu,
+        margin,
+        tol,
+        estimate_occupation_bounds
+    );
 }
 
 }  // namespace lineartetrahedron::simplex_certificate

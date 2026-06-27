@@ -17,8 +17,8 @@ struct SimplexBlocks {
 
 SimplexBlocks build_simplex_blocks(
     double mu,
-    const core::Simplex &simplex,
-    const core::VertexCache<VertexSpectra> &vertex_cache,
+    std::span<const std::span<const double>> eigenvalues,
+    std::span<const std::span<const Complex>> eigenvectors,
     std::span<const Complex> anchor_vectors,
     size_t ndof,
     size_t nocc

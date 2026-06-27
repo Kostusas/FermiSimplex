@@ -8,7 +8,7 @@ namespace core = adaptivesimplex::core;
 
 namespace {
 
-size_t supported_dimension(const std::shared_ptr<TightBindingModel> &model) {
+size_t supported_dimension(const std::shared_ptr<const HamiltonianModel> &model) {
     if (!model) {
         throw std::runtime_error("IntegrationWorkspace: model must not be null");
     }
@@ -19,7 +19,7 @@ size_t supported_dimension(const std::shared_ptr<TightBindingModel> &model) {
     return ndim;
 }
 
-core::Geometry make_root_geometry(const std::shared_ptr<TightBindingModel> &model) {
+core::Geometry make_root_geometry(const std::shared_ptr<const HamiltonianModel> &model) {
     const size_t ndim = supported_dimension(model);
     return core::root_geometry(ndim, ndim == 1 ? 2U : 1U);
 }
@@ -27,7 +27,7 @@ core::Geometry make_root_geometry(const std::shared_ptr<TightBindingModel> &mode
 }  // namespace
 
 IntegrationWorkspace::IntegrationWorkspace(
-    std::shared_ptr<TightBindingModel> model,
+    std::shared_ptr<const HamiltonianModel> model,
     double tol
 ) : model_(std::move(model)),
     geometry_(make_root_geometry(model_)),

@@ -22,6 +22,9 @@ using HoppingMatrixArray =
     nb::ndarray<nb::numpy, const std::complex<double>, nb::ndim<3>, nb::c_contig>;
 using CallbackMatrixArray =
     nb::ndarray<nb::numpy, const std::complex<double>, nb::ndim<2>, nb::c_contig>;
+using EigenvalueArray = nb::ndarray<nb::numpy, const double, nb::ndim<2>, nb::c_contig>;
+using EigenvectorArray =
+    nb::ndarray<nb::numpy, const std::complex<double>, nb::ndim<3>, nb::c_contig>;
 
 template <typename T>
 nb::ndarray<nb::numpy, T> make_array(

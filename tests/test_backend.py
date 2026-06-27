@@ -5,9 +5,12 @@ import pytest
 
 from lineartetrahedron import (
     AdaptiveOptions,
-    Runtime,
-    density_matrix_at_mu_zero_temp,
+    SpectralMesh,
+    certify_simplex,
+    charge,
+    density_matrix_components,
     fermi_surface,
+    tight_binding_hamiltonian,
 )
 from lineartetrahedron.backend import _tb_to_tight_binding_model
 
@@ -62,6 +65,60 @@ def _winding_constant_gap_band(winding: int) -> dict[tuple[int, ...], np.ndarray
     }
 
 
+def _mesh(tb: dict[tuple[int, ...], np.ndarray]) -> SpectralMesh:
+    return SpectralMesh(tight_binding_hamiltonian(tb))
+
+
+def _all_components(ndof: int) -> list[tuple[int, int]]:
+    return [(row, col) for row in range(ndof) for col in range(ndof)]
+
+
+def _components_to_density_dict(result, ndof: int):
+    rho = {key: np.zeros((ndof, ndof), dtype=complex) for key in result.keys}
+    error = {key: np.zeros((ndof, ndof), dtype=float) for key in result.keys}
+    for key_index, key in enumerate(result.keys):
+        for component_index, (row, col) in enumerate(result.components):
+            rho[key][row, col] = result.values[key_index, component_index]
+            error[key][row, col] = result.errors[key_index, component_index]
+    return rho, error
+
+
+def _density_dict(
+    mesh: SpectralMesh,
+    *,
+    mu: float,
+    keys,
+    components=None,
+    target_error: float,
+    max_refinements: int | None = None,
+    options=None,
+    refine: bool = True,
+):
+    selected_components = _all_components(mesh.ndof) if components is None else components
+    result = density_matrix_components(
+        mesh,
+        mu=mu,
+        keys=keys,
+        components=selected_components,
+        target_error=target_error if options is None else None,
+        options=options,
+        max_refinements=max_refinements,
+        refine=refine,
+    )
+    rho, error = _components_to_density_dict(result, mesh.ndof)
+    return rho, error, result.stats
+
+
+def _spectra_for_points(tb: dict[tuple[int, ...], np.ndarray], points: list[float]):
+    eigenvalues = []
+    eigenvectors = []
+    for point in points:
+        values, vectors = np.linalg.eigh(tb_k_matrix(tb, np.array([point], dtype=float)))
+        eigenvalues.append(values)
+        eigenvectors.append(vectors)
+    return np.asarray(eigenvalues), np.asarray(eigenvectors)
+
+
 @requires_native
 def test_compiled_tight_binding_model_matches_python_fourier_evaluation():
     tb = qiwuzhang()
@@ -91,7 +148,7 @@ def test_fermi_surface_extracts_nd_level_set(ndim):
     mu = 0.3
     feature_size = {1: 0.1, 2: 0.1, 3: 0.24, 4: 0.56}[ndim]
     surface = fermi_surface(
-        _axis_cosine_band(ndim),
+        tight_binding_hamiltonian(_axis_cosine_band(ndim)),
         mu=mu,
         min_feature_size=feature_size,
         max_diagonalizations=20000,
@@ -115,7 +172,7 @@ def test_fermi_surface_callable_matches_tight_binding_dict():
         return np.array([[np.cos(2.0 * np.pi * kx)]], dtype=complex)
 
     tb_surface = fermi_surface(
-        _axis_cosine_band(1),
+        tight_binding_hamiltonian(_axis_cosine_band(1)),
         mu=0.25,
         min_feature_size=0.03,
     )
@@ -134,6 +191,20 @@ def test_fermi_surface_callable_matches_tight_binding_dict():
         atol=0.04,
     )
     assert callable_surface.states is None
+
+
+@requires_native
+def test_fermi_surface_accepts_spectral_mesh():
+    def callable_band(kx: float) -> np.ndarray:
+        return np.array([[np.cos(2.0 * np.pi * kx)]], dtype=complex)
+
+    mesh = SpectralMesh(callable_band)
+    surface = fermi_surface(mesh, mu=0.25, min_feature_size=0.03)
+
+    assert surface.parameters.ndim == 1
+    assert surface.parameters.ndof == 1
+    assert surface.converged
+    assert surface.points.shape[0] > 0
 
 
 @requires_native
@@ -164,7 +235,7 @@ def test_fermi_surface_can_return_states():
 def test_fermi_surface_rejects_unknown_return_states_mode():
     with pytest.raises(TypeError, match="return_states"):
         fermi_surface(
-            _axis_cosine_band(1),
+            tight_binding_hamiltonian(_axis_cosine_band(1)),
             mu=0.25,
             min_feature_size=0.03,
             return_states="interpolated",
@@ -223,9 +294,46 @@ def test_fermi_surface_rejects_invalid_callable_matrix_outputs():
 
 
 @requires_native
+def test_spectral_mesh_accepts_callable_and_tight_binding_helper_inputs():
+    tb_mesh = _mesh(_constant_insulator(1))
+    assert tb_mesh.ndim == 1
+    assert tb_mesh.ndof == 2
+
+    def callable_insulator(kx: float) -> np.ndarray:
+        return np.diag([-1.0, 1.0]).astype(complex)
+
+    callable_mesh = SpectralMesh(callable_insulator)
+    result = charge(callable_mesh, target_error=1e-12, max_refinements=0)
+
+    assert callable_mesh.ndim == 1
+    assert callable_mesh.ndof == 2
+    assert result.charge == pytest.approx(1.0)
+
+
+@requires_native
+def test_public_hamiltonian_inputs_reject_raw_tight_binding_dicts():
+    with pytest.raises(TypeError, match="callable"):
+        SpectralMesh(_constant_insulator(1))
+    with pytest.raises(TypeError, match="callable"):
+        fermi_surface(_constant_insulator(1), min_feature_size=0.1)
+
+
+@requires_native
+def test_spectral_mesh_rejects_shape_changing_callable_during_evaluation():
+    def shape_changing(kx: float) -> np.ndarray:
+        if kx == 0.0:
+            return np.array([[1.0]], dtype=complex)
+        return np.eye(2, dtype=complex)
+
+    mesh = SpectralMesh(shape_changing)
+    with pytest.raises(ValueError, match="inconsistent shape"):
+        charge(mesh, target_error=1e-12, max_refinements=0)
+
+
+@requires_native
 def test_fermi_surface_respects_max_diagonalizations():
     surface = fermi_surface(
-        _axis_cosine_band(2),
+        tight_binding_hamiltonian(_axis_cosine_band(2)),
         mu=0.0,
         min_feature_size=0.02,
         max_diagonalizations=3,
@@ -239,7 +347,7 @@ def test_fermi_surface_respects_max_diagonalizations():
 @requires_native
 def test_fermi_surface_reports_unresolved_when_diagonalization_budget_exhausted():
     surface = fermi_surface(
-        _axis_cosine_band(1),
+        tight_binding_hamiltonian(_axis_cosine_band(1)),
         mu=0.0,
         min_feature_size=0.1,
         max_diagonalizations=0,
@@ -253,7 +361,7 @@ def test_fermi_surface_reports_unresolved_when_diagonalization_budget_exhausted(
 @requires_native
 def test_fermi_surface_inertia_certificate_certifies_constant_insulator():
     surface = fermi_surface(
-        _constant_insulator(2),
+        tight_binding_hamiltonian(_constant_insulator(2)),
         mu=0.0,
         min_feature_size=0.4,
     )
@@ -269,13 +377,13 @@ def test_fermi_surface_inertia_certificate_certifies_constant_insulator():
 @requires_native
 def test_fermi_surface_margin_is_reported_and_can_block_certification():
     safe = fermi_surface(
-        _constant_insulator(1),
+        tight_binding_hamiltonian(_constant_insulator(1)),
         mu=0.0,
         min_feature_size=1.0,
         margin=0.5,
     )
     strict = fermi_surface(
-        _constant_insulator(1),
+        tight_binding_hamiltonian(_constant_insulator(1)),
         mu=0.0,
         min_feature_size=1.0,
         margin=2.0,
@@ -291,13 +399,18 @@ def test_fermi_surface_margin_is_reported_and_can_block_certification():
 @requires_native
 def test_fermi_surface_rejects_negative_margin():
     with pytest.raises(ValueError, match="margin"):
-        fermi_surface(_constant_insulator(1), mu=0.0, min_feature_size=0.1, margin=-1e-3)
+        fermi_surface(
+            tight_binding_hamiltonian(_constant_insulator(1)),
+            mu=0.0,
+            min_feature_size=0.1,
+            margin=-1e-3,
+        )
 
 
 @requires_native
 def test_fermi_surface_inertia_certificate_accepts_cut_below_feature_size():
     surface = fermi_surface(
-        _axis_cosine_band(1),
+        tight_binding_hamiltonian(_axis_cosine_band(1)),
         mu=0.0,
         min_feature_size=0.4,
     )
@@ -310,12 +423,12 @@ def test_fermi_surface_inertia_certificate_accepts_cut_below_feature_size():
 @requires_native
 def test_fermi_surface_inertia_certificate_repeated_runs_preserve_metadata():
     first = fermi_surface(
-        _aliased_pocket_band(),
+        tight_binding_hamiltonian(_aliased_pocket_band()),
         mu=0.0,
         min_feature_size=0.4,
     )
     second = fermi_surface(
-        _aliased_pocket_band(),
+        tight_binding_hamiltonian(_aliased_pocket_band()),
         mu=0.0,
         min_feature_size=0.4,
     )
@@ -328,16 +441,64 @@ def test_fermi_surface_inertia_certificate_repeated_runs_preserve_metadata():
 
 
 @requires_native
+def test_certify_simplex_reports_certified_gapped_spectra():
+    eigenvalues = np.array([[-1.0, 1.0], [-1.0, 1.0]])
+    eigenvectors = np.repeat(np.eye(2, dtype=complex)[None, :, :], 2, axis=0)
+
+    certificate = certify_simplex(eigenvalues, eigenvectors)
+
+    assert certificate.status == "certified_gapped"
+    assert certificate.occupation_bounds.lower == 1
+    assert certificate.occupation_bounds.upper == 1
+    assert certificate.occupation_width == 0
+    assert certificate.reusable_at(0.0)
+
+
+@requires_native
+def test_certify_simplex_reports_visible_gapless_spectra():
+    eigenvalues = np.array([[0.0, 1.0], [-1.0, 1.0]])
+    eigenvectors = np.repeat(np.eye(2, dtype=complex)[None, :, :], 2, axis=0)
+
+    certificate = certify_simplex(eigenvalues, eigenvectors)
+
+    assert certificate.status == "visible_gapless"
+    assert certificate.occupation_bounds.lower == 0
+    assert certificate.occupation_bounds.upper == 2
+    assert not certificate.has_mu_interval
+
+
+@requires_native
+def test_certify_simplex_reports_inconclusive_occupation_bounds():
+    eigenvalues, eigenvectors = _spectra_for_points(_winding_constant_gap_band(2), [0.0, 0.25])
+
+    certificate = certify_simplex(eigenvalues, eigenvectors)
+
+    assert certificate.status == "inconclusive"
+    assert certificate.occupation_bounds.lower == 0
+    assert certificate.occupation_bounds.upper == 2
+    assert certificate.occupation_width == 2
+
+
+@requires_native
+def test_removed_python_api_names_are_not_exported():
+    import lineartetrahedron as lt
+
+    assert not hasattr(lt, "Runtime")
+    assert not hasattr(lt, "density_matrix_at_mu_zero_temp")
+
+
+@requires_native
 @pytest.mark.parametrize("ndim", (1, 2, 3, 4))
 def test_runtime_accepts_reduced_coordinate_dimensions(ndim):
     tb = _constant_insulator(ndim)
     key = (0,) * ndim
-    rho, _error, info = density_matrix_at_mu_zero_temp(
-        tb,
+    mesh = _mesh(tb)
+    rho, _error, info = _density_dict(
+        mesh,
         mu=0.0,
         keys=[key],
-        density_atol=1e-12,
-        max_subdivisions=8,
+        target_error=1e-12,
+        max_refinements=8,
     )
 
     assert np.allclose(rho[key], np.diag([1.0, 0.0]), atol=1e-12)
@@ -348,7 +509,7 @@ def test_runtime_accepts_reduced_coordinate_dimensions(ndim):
 def test_runtime_accepts_adaptive_options():
     tb = _constant_insulator(1)
     key = (0,)
-    runtime = Runtime(tb, keys=[key])
+    mesh = _mesh(tb)
     options = AdaptiveOptions(
         target_error=1e-12,
         max_refinements=8,
@@ -357,11 +518,17 @@ def test_runtime_accepts_adaptive_options():
         max_refinement_batch_size=100,
     )
 
-    charge = runtime.integrate_charge(0.0, options)
-    fixed_charge = runtime.evaluate_charge(0.0, options)
-    rho, _error, _info = runtime.integrate_density(0.0, options)
+    charge_result = charge(mesh, mu=0.0, options=options)
+    fixed_charge = charge(mesh, mu=0.0, options=options, refine=False)
+    rho, _error, _info = _density_dict(
+        mesh,
+        mu=0.0,
+        keys=[key],
+        target_error=1e-12,
+        options=options,
+    )
 
-    assert charge.charge == pytest.approx(1.0)
+    assert charge_result.charge == pytest.approx(1.0)
     assert fixed_charge.charge == pytest.approx(1.0)
     assert fixed_charge.refinements == 0
     assert np.allclose(rho[key], np.diag([1.0, 0.0]))
@@ -371,15 +538,21 @@ def test_runtime_accepts_adaptive_options():
 def test_degenerate_band_at_mu_uses_on_level_half_occupation():
     tb = {(0,): np.zeros((2, 2), dtype=complex)}
     key = (0,)
-    runtime = Runtime(tb, keys=[key])
+    mesh = _mesh(tb)
     options = AdaptiveOptions(target_error=1e-12, max_refinements=0)
 
-    charge = runtime.integrate_charge(0.0, options)
-    rho, error, _info = runtime.integrate_density(0.0, options)
+    charge_result = charge(mesh, mu=0.0, options=options)
+    rho, error, _info = _density_dict(
+        mesh,
+        mu=0.0,
+        keys=[key],
+        target_error=1e-12,
+        options=options,
+    )
 
-    assert charge.charge == pytest.approx(1.0)
-    assert charge.charge_error == pytest.approx(0.0)
-    assert charge.dcharge_dmu == pytest.approx(0.0)
+    assert charge_result.charge == pytest.approx(1.0)
+    assert charge_result.charge_error == pytest.approx(0.0)
+    assert charge_result.dcharge_dmu == pytest.approx(0.0)
     assert np.allclose(rho[key], 0.5 * np.eye(2))
     assert np.allclose(error[key], 0.0)
 
@@ -387,10 +560,12 @@ def test_degenerate_band_at_mu_uses_on_level_half_occupation():
 @requires_native
 def test_charge_derivative_matches_linear_1d_reference():
     tb = _cosine_band(1)
-    runtime = Runtime(tb, keys=[(0,)])
-    result = runtime.evaluate_charge(
-        0.25,
-        AdaptiveOptions(target_error=1e-12, max_refinements=0, preview_depth=1),
+    mesh = _mesh(tb)
+    result = charge(
+        mesh,
+        mu=0.25,
+        options=AdaptiveOptions(target_error=1e-12, max_refinements=0, preview_depth=1),
+        refine=False,
     )
 
     # This is the piecewise-linear derivative on the root preview mesh, not the exact cosine DOS.
@@ -401,10 +576,12 @@ def test_charge_derivative_matches_linear_1d_reference():
 @pytest.mark.parametrize("ndim", (2, 3, 4))
 def test_charge_derivative_is_finite_and_nonnegative_for_higher_dimensions(ndim):
     tb = _cosine_band(ndim)
-    runtime = Runtime(tb, keys=[(0,) * ndim])
-    result = runtime.evaluate_charge(
-        0.0,
-        AdaptiveOptions(target_error=1e-12, max_refinements=0, preview_depth=1),
+    mesh = _mesh(tb)
+    result = charge(
+        mesh,
+        mu=0.0,
+        options=AdaptiveOptions(target_error=1e-12, max_refinements=0, preview_depth=1),
+        refine=False,
     )
 
     assert np.isfinite(result.dcharge_dmu)
@@ -413,10 +590,10 @@ def test_charge_derivative_is_finite_and_nonnegative_for_higher_dimensions(ndim)
 
 @requires_native
 def test_charge_certificate_uses_preview_error_for_stopping():
-    runtime = Runtime(_rotating_constant_gap_band(), keys=[(0,)])
+    mesh = _mesh(_rotating_constant_gap_band())
     options = AdaptiveOptions(target_error=1e-3, max_refinements=0, preview_depth=1)
 
-    result = runtime.evaluate_charge(0.0, options)
+    result = charge(mesh, mu=0.0, options=options, refine=False)
 
     assert result.charge == pytest.approx(1.0)
     assert result.charge_error == pytest.approx(0.0)
@@ -425,10 +602,10 @@ def test_charge_certificate_uses_preview_error_for_stopping():
 
 @requires_native
 def test_preview_certified_charge_integrates_without_refinement():
-    runtime = Runtime(_rotating_constant_gap_band(), keys=[(0,)])
+    mesh = _mesh(_rotating_constant_gap_band())
     options = AdaptiveOptions(target_error=1e-3, max_refinements=0, preview_depth=1)
 
-    result = runtime.integrate_charge(0.0, options)
+    result = charge(mesh, mu=0.0, options=options)
 
     assert result.charge == pytest.approx(1.0)
     assert result.charge_error == pytest.approx(0.0)
@@ -437,10 +614,10 @@ def test_preview_certified_charge_integrates_without_refinement():
 
 @requires_native
 def test_occupation_bounded_certificate_error_can_be_within_charge_tolerance():
-    runtime = Runtime(_winding_constant_gap_band(3), keys=[(0,)])
+    mesh = _mesh(_winding_constant_gap_band(3))
     options = AdaptiveOptions(target_error=2.1, max_refinements=0, preview_depth=1)
 
-    result = runtime.evaluate_charge(0.0, options)
+    result = charge(mesh, mu=0.0, options=options, refine=False)
 
     assert result.charge == pytest.approx(1.0)
     assert result.charge_error == pytest.approx(2.0)
@@ -449,10 +626,10 @@ def test_occupation_bounded_certificate_error_can_be_within_charge_tolerance():
 
 @requires_native
 def test_occupation_bounded_certificate_error_can_block_charge_convergence():
-    runtime = Runtime(_winding_constant_gap_band(3), keys=[(0,)])
+    mesh = _mesh(_winding_constant_gap_band(3))
     options = AdaptiveOptions(target_error=1.75, max_refinements=0, preview_depth=1)
 
-    result = runtime.evaluate_charge(0.0, options)
+    result = charge(mesh, mu=0.0, options=options, refine=False)
 
     assert result.charge == pytest.approx(1.0)
     assert result.charge_error == pytest.approx(2.0)
@@ -460,12 +637,12 @@ def test_occupation_bounded_certificate_error_can_block_charge_convergence():
 
 
 @requires_native
-def test_uncertified_charge_evaluation_suppresses_certificate_error():
-    runtime = Runtime(_winding_constant_gap_band(3), keys=[(0,)])
+def test_uncertified_charge_integration_suppresses_certificate_error():
+    mesh = _mesh(_winding_constant_gap_band(3))
     options = AdaptiveOptions(target_error=1.75, max_refinements=0, preview_depth=1)
 
-    certified = runtime.evaluate_charge(0.0, options)
-    uncertified = runtime.evaluate_charge(0.0, options, certify=False)
+    certified = charge(mesh, mu=0.0, options=options, refine=False)
+    uncertified = charge(mesh, mu=0.0, options=options, refine=False, certify=False)
 
     assert certified.charge == pytest.approx(uncertified.charge)
     assert certified.charge_error == pytest.approx(2.0)
@@ -475,13 +652,13 @@ def test_uncertified_charge_evaluation_suppresses_certificate_error():
 
 
 @requires_native
-def test_uncertified_charge_evaluation_does_not_refine_active_mesh():
-    runtime = Runtime(_winding_constant_gap_band(3), keys=[(0,)])
+def test_uncertified_charge_integration_does_not_refine_active_mesh():
+    mesh = _mesh(_winding_constant_gap_band(3))
     options = AdaptiveOptions(target_error=0.75, max_refinements=0, preview_depth=1)
 
-    active_before = runtime.n_active_simplices
-    result = runtime.evaluate_charge(0.0, options, certify=False)
-    active_after = runtime.n_active_simplices
+    active_before = mesh.n_active_simplices
+    result = charge(mesh, mu=0.0, options=options, refine=False, certify=False)
+    active_after = mesh.n_active_simplices
 
     assert result.refinements == 0
     assert active_after == active_before
@@ -489,20 +666,20 @@ def test_uncertified_charge_evaluation_does_not_refine_active_mesh():
 
 @requires_native
 def test_integrate_charge_remains_certified():
-    runtime = Runtime(_winding_constant_gap_band(3), keys=[(0,)])
+    mesh = _mesh(_winding_constant_gap_band(3))
     options = AdaptiveOptions(target_error=0.75, max_refinements=0, preview_depth=1)
 
     with pytest.raises(RuntimeError, match="did not converge"):
-        runtime.integrate_charge(0.0, options)
+        charge(mesh, mu=0.0, options=options)
 
 
 @requires_native
 def test_inertia_certificate_repeated_charge_evaluation_is_deterministic():
-    runtime = Runtime(_axis_cosine_band(1), keys=[(0,)])
+    mesh = _mesh(_axis_cosine_band(1))
     options = AdaptiveOptions(target_error=1e-3, max_refinements=0, preview_depth=2)
 
-    first = runtime.evaluate_charge(0.0, options)
-    second = runtime.evaluate_charge(0.0, options)
+    first = charge(mesh, mu=0.0, options=options, refine=False)
+    second = charge(mesh, mu=0.0, options=options, refine=False)
 
     assert second.charge == pytest.approx(first.charge)
     assert second.charge_error == pytest.approx(first.charge_error)
@@ -512,20 +689,20 @@ def test_inertia_certificate_repeated_charge_evaluation_is_deterministic():
 
 @requires_native
 def test_inertia_certificate_does_not_add_error_for_visible_charge_cut():
-    runtime = Runtime(_axis_cosine_band(1), keys=[(0,)])
+    mesh = _mesh(_axis_cosine_band(1))
     options = AdaptiveOptions(target_error=1e-3, max_refinements=0, preview_depth=1)
 
-    result = runtime.evaluate_charge(0.0, options)
+    result = charge(mesh, mu=0.0, options=options, refine=False)
 
     assert result.charge_error < options.target_error
 
 
 @requires_native
 def test_inertia_certificate_does_not_add_error_for_certified_gapped_simplex():
-    runtime = Runtime(_constant_insulator(1), keys=[(0,)])
+    mesh = _mesh(_constant_insulator(1))
     options = AdaptiveOptions(target_error=1e-3, max_refinements=0, preview_depth=1)
 
-    result = runtime.evaluate_charge(0.0, options)
+    result = charge(mesh, mu=0.0, options=options, refine=False)
 
     assert result.charge_error == pytest.approx(0.0)
 
@@ -534,25 +711,29 @@ def test_inertia_certificate_does_not_add_error_for_certified_gapped_simplex():
 def test_selected_density_components_match_full_density_slice():
     tb = dimerized_chain()
     keys = [(0,), (1,), (-1,)]
-    selected_components = [(0, 0, (0,)), (1, 1, (0,)), (0, 1, (1,))]
-    full_rho, _full_error, _full_info = density_matrix_at_mu_zero_temp(
-        tb,
+    selected_entries = [(0, 0, (0,)), (1, 1, (0,)), (0, 1, (1,))]
+    selected_components = [(0, 0), (1, 1), (0, 1)]
+    mesh = _mesh(tb)
+    full_rho, _full_error, _full_info = _density_dict(
+        mesh,
         mu=0.0,
         keys=keys,
-        density_atol=1e-3,
-        max_subdivisions=80,
+        target_error=1e-3,
+        max_refinements=80,
     )
-    selected_rho, _selected_error, _selected_info = density_matrix_at_mu_zero_temp(
-        tb,
+    selected = density_matrix_components(
+        mesh,
         mu=0.0,
         keys=keys,
-        density_components=selected_components,
-        density_atol=1e-3,
-        max_subdivisions=80,
+        components=selected_components,
+        target_error=1e-3,
+        max_refinements=80,
     )
 
-    for row, col, key in selected_components:
-        assert selected_rho[key][row, col] == pytest.approx(full_rho[key][row, col])
+    for row, col, key in selected_entries:
+        key_index = selected.keys.index(key)
+        component_index = selected.components.index((row, col))
+        assert selected.values[key_index, component_index] == pytest.approx(full_rho[key][row, col])
 
 
 @requires_native
@@ -560,12 +741,13 @@ def test_fixed_mu_density_matches_dense_reference():
     tb = dimerized_chain()
     keys = [(0,), (1,), (-1,)]
     reference = dense_reference(tb, mu=0.0, keys=keys, nk=2001)
-    rho, error, info = density_matrix_at_mu_zero_temp(
-        tb,
+    mesh = _mesh(tb)
+    rho, error, info = _density_dict(
+        mesh,
         mu=0.0,
         keys=keys,
-        density_atol=5e-3,
-        max_subdivisions=512,
+        target_error=5e-3,
+        max_refinements=512,
     )
 
     assert max_density_error(rho, reference.rho) <= 5e-3
@@ -574,19 +756,22 @@ def test_fixed_mu_density_matches_dense_reference():
 
 
 @requires_native
-def test_charge_evaluation_does_not_change_active_simplex_count():
+def test_charge_current_mesh_integration_does_not_change_active_simplex_count():
     tb = dimerized_chain()
-    keys = [(0,), (1,), (-1,)]
-    runtime = Runtime(tb, keys=keys)
-    runtime.integrate_charge(
-        0.0,
-        AdaptiveOptions(target_error=2e-3, max_refinements=64),
+    mesh = _mesh(tb)
+    charge(
+        mesh,
+        mu=0.0,
+        options=AdaptiveOptions(target_error=2e-3, max_refinements=64),
     )
     options = AdaptiveOptions(target_error=2e-3, max_refinements=0, preview_depth=2)
 
-    active_before = runtime.n_active_simplices
-    values = [runtime.evaluate_charge(mu, options) for mu in (-1.0, 0.0, 1.0, 0.25)]
-    active_after = runtime.n_active_simplices
+    active_before = mesh.n_active_simplices
+    values = [
+        charge(mesh, mu=mu, options=options, refine=False)
+        for mu in (-1.0, 0.0, 1.0, 0.25)
+    ]
+    active_after = mesh.n_active_simplices
 
     assert active_after == active_before
     assert all(np.isfinite(value.charge) for value in values)
@@ -597,21 +782,25 @@ def test_charge_evaluation_does_not_change_active_simplex_count():
 def test_cached_density_initial_path_reuses_charge_vertices():
     tb = dimerized_chain()
     keys = [(0,), (1,), (-1,)]
-    runtime = Runtime(tb, keys=keys)
-    runtime.integrate_charge(
-        0.0,
-        AdaptiveOptions(target_error=2e-3, max_refinements=64, preview_depth=2),
+    mesh = _mesh(tb)
+    charge(
+        mesh,
+        mu=0.0,
+        options=AdaptiveOptions(target_error=2e-3, max_refinements=64, preview_depth=2),
     )
-    cached_before = runtime.n_cached_nodes
+    cached_before = mesh.n_cached_nodes
 
-    rho, error, info = runtime.integrate_density(
-        0.0,
-        AdaptiveOptions(target_error=1.0, max_refinements=0, preview_depth=2),
+    rho, error, info = _density_dict(
+        mesh,
+        mu=0.0,
+        keys=keys,
+        target_error=1.0,
+        options=AdaptiveOptions(target_error=1.0, max_refinements=0, preview_depth=2),
     )
 
     assert info.n_evaluator_evals == 0
     assert info.subdivisions == 0
-    assert runtime.n_cached_nodes == cached_before
+    assert mesh.n_cached_nodes == cached_before
     assert set(rho) == set(keys)
     assert set(error) == set(keys)
     assert max(float(np.max(np.abs(block))) for block in error.values()) <= 1.0
@@ -621,15 +810,19 @@ def test_cached_density_initial_path_reuses_charge_vertices():
 def test_density_tight_target_refines():
     tb = dimerized_chain()
     keys = [(0,), (1,), (-1,)]
-    runtime = Runtime(tb, keys=keys)
-    runtime.integrate_charge(
-        0.0,
-        AdaptiveOptions(target_error=2e-3, max_refinements=64, preview_depth=2),
+    mesh = _mesh(tb)
+    charge(
+        mesh,
+        mu=0.0,
+        options=AdaptiveOptions(target_error=2e-3, max_refinements=64, preview_depth=2),
     )
 
-    rho, error, info = runtime.integrate_density(
-        0.0,
-        AdaptiveOptions(target_error=1e-3, max_refinements=64, preview_depth=2),
+    rho, error, info = _density_dict(
+        mesh,
+        mu=0.0,
+        keys=keys,
+        target_error=1e-3,
+        options=AdaptiveOptions(target_error=1e-3, max_refinements=64, preview_depth=2),
     )
 
     assert info.subdivisions > 0
@@ -639,22 +832,22 @@ def test_density_tight_target_refines():
 
 
 @requires_native
-def test_charge_evaluation_can_be_wrapped_for_solver_callbacks():
+def test_charge_current_mesh_integration_can_be_wrapped_for_solver_callbacks():
     tb = dimerized_chain()
-    keys = [(0,), (1,), (-1,)]
-    runtime = Runtime(tb, keys=keys)
-    runtime.integrate_charge(
-        0.0,
-        AdaptiveOptions(target_error=2e-3, max_refinements=64),
+    mesh = _mesh(tb)
+    charge(
+        mesh,
+        mu=0.0,
+        options=AdaptiveOptions(target_error=2e-3, max_refinements=64),
     )
     options = AdaptiveOptions(target_error=2e-3, max_refinements=0, preview_depth=2)
 
     def evaluate(mu):
-        result = runtime.evaluate_charge(mu, options)
+        result = charge(mesh, mu=mu, options=options, refine=False)
         return result.charge, result.charge_error, result.dcharge_dmu
 
-    charge, charge_error, derivative = evaluate(0.0)
+    charge_value, charge_error, derivative = evaluate(0.0)
 
-    assert charge == pytest.approx(1.0, abs=2e-3)
+    assert charge_value == pytest.approx(1.0, abs=2e-3)
     assert charge_error <= 2e-3
     assert derivative >= 0.0

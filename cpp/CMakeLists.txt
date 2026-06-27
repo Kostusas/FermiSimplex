@@ -151,9 +151,11 @@ target_compile_definitions(
 nanobind_add_module(
   _native
   NB_STATIC
+  ../python/src/bindings/certificate.cpp
   ../python/src/bindings/fermi_surface.cpp
   ../python/src/bindings/integration.cpp
   ../python/src/bindings/module.cpp
+  ../python/src/bindings/python_hamiltonian.cpp
   ../python/src/bindings/tight_binding.cpp
 )
 target_compile_features(_native PRIVATE cxx_std_20)

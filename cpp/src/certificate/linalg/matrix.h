@@ -1,7 +1,5 @@
 #pragma once
 
-#include "core/vertex_spectra.h"
-
 #include <complex>
 #include <cstddef>
 #include <span>
@@ -15,8 +13,8 @@ inline size_t column_major_index(size_t row, size_t column, size_t rows) {
     return row + column * rows;
 }
 
-inline double signed_eigenvalue(const VertexSpectra &spectra, size_t band, double mu) {
-    return spectra.eigenvalues[band] - mu;
+inline double signed_eigenvalue(std::span<const double> eigenvalues, size_t band, double mu) {
+    return eigenvalues[band] - mu;
 }
 
 inline std::vector<Complex> adjoint_rectangular_copy(

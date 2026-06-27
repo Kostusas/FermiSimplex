@@ -4,6 +4,7 @@
 
 #include <cstddef>
 #include <optional>
+#include <span>
 #include <vector>
 
 namespace lineartetrahedron::simplex_certificate::detail {
@@ -11,7 +12,7 @@ namespace lineartetrahedron::simplex_certificate::detail {
 struct AnchorSelection {
     size_t ndof = 0;
     size_t nocc = 0;
-    core::VertexId vertex_id = 0;
+    size_t vertex_index = 0;
 };
 
 struct AnchorSelectionResult {
@@ -29,15 +30,14 @@ struct AnchorSplitResult {
     std::optional<SimplexCertificate> early_certificate;
 };
 
-AnchorSelectionResult choose_anchor_vertex(
+AnchorSelectionResult choose_anchor_spectrum(
     double mu,
-    const core::Simplex &simplex,
-    const core::VertexCache<VertexSpectra> &vertex_cache,
+    std::span<const std::span<const double>> eigenvalues,
     double tol
 );
 
 AnchorSplitResult split_anchor_spectrum(
-    const VertexSpectra &anchor,
+    std::span<const double> anchor_eigenvalues,
     double mu,
     double tol,
     size_t fallback_ndof

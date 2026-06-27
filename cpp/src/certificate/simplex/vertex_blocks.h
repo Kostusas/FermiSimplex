@@ -1,7 +1,6 @@
 #pragma once
 
 #include "certificate/linalg/matrix.h"
-#include "core/vertex_spectra.h"
 
 #include <cstddef>
 #include <span>
@@ -19,7 +18,8 @@ VertexBlocks build_vertex_blocks(
     std::span<const Complex> anchor_vectors,
     size_t ndof,
     size_t nocc,
-    const VertexSpectra &target,
+    std::span<const double> target_eigenvalues,
+    std::span<const Complex> target_eigenvectors,
     double mu
 );
 

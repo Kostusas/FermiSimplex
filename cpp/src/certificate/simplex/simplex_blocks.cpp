@@ -4,22 +4,23 @@ namespace lineartetrahedron::simplex_certificate::detail {
 
 SimplexBlocks build_simplex_blocks(
     double mu,
-    const core::Simplex &simplex,
-    const core::VertexCache<VertexSpectra> &vertex_cache,
+    std::span<const std::span<const double>> eigenvalues,
+    std::span<const std::span<const Complex>> eigenvectors,
     std::span<const Complex> anchor_vectors,
     size_t ndof,
     size_t nocc
 ) {
     const auto nunocc = ndof - nocc;
     SimplexBlocks blocks;
-    blocks.vertices.reserve(simplex.vertex_ids.size());
+    blocks.vertices.reserve(eigenvalues.size());
     blocks.average_coupling.assign(nunocc * nocc, Complex{0.0, 0.0});
-    for (const auto vertex_id : simplex.vertex_ids) {
+    for (size_t vertex = 0; vertex < eigenvalues.size(); ++vertex) {
         blocks.vertices.push_back(build_vertex_blocks(
             anchor_vectors,
             ndof,
             nocc,
-            vertex_cache.get(vertex_id),
+            eigenvalues[vertex],
+            eigenvectors[vertex],
             mu
         ));
         for (size_t index = 0; index < blocks.average_coupling.size(); ++index) {
@@ -27,7 +28,7 @@ SimplexBlocks build_simplex_blocks(
         }
     }
 
-    const auto average_scale = 1.0 / static_cast<double>(simplex.vertex_ids.size());
+    const auto average_scale = 1.0 / static_cast<double>(eigenvalues.size());
     for (auto &value : blocks.average_coupling) {
         value *= average_scale;
     }

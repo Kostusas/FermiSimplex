@@ -15,13 +15,15 @@ struct OccupationRankEstimate {
 size_t estimate_ordered_subset_rank(
     const std::vector<std::vector<Complex>> &blocks,
     size_t size,
-    double tol
+    double tol,
+    double margin = 0.0
 );
 
 OccupationRankEstimate estimate_ordered_subset_rank_with_mu_radius(
     const std::vector<std::vector<Complex>> &blocks,
     size_t size,
-    double tol
+    double tol,
+    double margin = 0.0
 );
 
 }  // namespace lineartetrahedron::simplex_certificate::detail

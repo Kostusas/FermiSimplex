@@ -1,7 +1,9 @@
 #include "arrays.h"
 #include "bindings.h"
+#include "energy_bound.h"
 #include "python_hamiltonian.h"
 
+#include "fermi_surface/adaptive_refinement.h"
 #include "fermi_surface/fermi_surface.h"
 
 #include <nanobind/stl/shared_ptr.h>
@@ -22,16 +24,23 @@ FermiSurfaceResult fermi_surface_callable(
     double mu,
     double min_feature_size,
     std::int64_t max_diagonalizations,
-    double margin,
+    nb::object hessian_bound,
+    double anharmonicity_bound,
     double tol,
     bool return_states
 ) {
-    return fermi_surface(
+    auto energy_bound_model = EnergyBoundModel(std::move(hessian_bound), anharmonicity_bound);
+    return fermi_surface_detail::run_fermi_surface(
         make_python_hamiltonian_model(std::move(callable), ndim, ndof),
         mu,
         min_feature_size,
         max_diagonalizations,
-        margin,
+        [energy_bound_model](
+            const core::Geometry &geometry,
+            core::SimplexId simplex_id
+        ) {
+            return energy_bound_model.on_simplex(geometry, simplex_id);
+        },
         tol,
         return_states
     );
@@ -42,7 +51,8 @@ FermiSurfaceResult fermi_surface_tight_binding(
     double mu,
     double min_feature_size,
     std::int64_t max_diagonalizations,
-    double margin,
+    double hessian_bound,
+    double anharmonicity_bound,
     double tol,
     bool return_states
 ) {
@@ -51,7 +61,8 @@ FermiSurfaceResult fermi_surface_tight_binding(
         mu,
         min_feature_size,
         max_diagonalizations,
-        margin,
+        hessian_bound,
+        anharmonicity_bound,
         tol,
         return_states
     );
@@ -124,7 +135,8 @@ void bind_fermi_surface(nb::module_ &m) {
         "mu"_a,
         "min_feature_size"_a,
         "max_diagonalizations"_a = -1,
-        "margin"_a = 0.0,
+        "hessian_bound"_a = 0.0,
+        "anharmonicity_bound"_a = 0.0,
         "tol"_a = 1e-14,
         "return_states"_a = false
     );
@@ -137,7 +149,8 @@ void bind_fermi_surface(nb::module_ &m) {
         "mu"_a,
         "min_feature_size"_a,
         "max_diagonalizations"_a = -1,
-        "margin"_a = 0.0,
+        "hessian_bound"_a = 0.0,
+        "anharmonicity_bound"_a = 0.0,
         "tol"_a = 1e-14,
         "return_states"_a = false
     );

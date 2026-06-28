@@ -10,6 +10,7 @@
 #include <cmath>
 #include <cstdint>
 #include <span>
+#include <stdexcept>
 #include <utility>
 #include <vector>
 
@@ -29,9 +30,9 @@ struct ChargeStoppingError {
     state_type<IntegralValue> contribution(
         const adaptive::SimplexEstimate<IntegralValue> &estimate
     ) const {
-        auto correction_contribution = estimate.correction;
-        correction_contribution.certificate_error = estimate.preview.certificate_error;
-        return correction_contribution;
+        auto contribution = IntegralValue{};
+        contribution.certificate_error = estimate.preview.certificate_error;
+        return contribution;
     }
     template <class IntegralValue>
     void add(state_type<IntegralValue> &state, const state_type<IntegralValue> &value) const {
@@ -43,14 +44,13 @@ struct ChargeStoppingError {
     }
     template <class IntegralValue>
     double error(const state_type<IntegralValue> &correction_state) const {
-        // This state accumulates charge corrections, not the physical charge.
-        return std::abs(correction_state.charge) + correction_state.certificate_error;
+        return correction_state.certificate_error;
     }
 };
 
 struct ChargeRefinementScore {
     template <class Context> double operator()(const Context &context) const {
-        return std::abs(context.correction.charge) + context.preview.certificate_error;
+        return context.preview.certificate_error;
     }
 };
 
@@ -58,6 +58,17 @@ struct ChargeEstimateContext {
     const ChargeValue &preview;
     const ChargeValue &correction;
 };
+
+void validate_energy_bound_inputs(double hessian_bound, double anharmonicity_bound) {
+    if (hessian_bound < 0.0 || !std::isfinite(hessian_bound)) {
+        throw std::runtime_error("integrate_charge: hessian_bound must be finite and non-negative");
+    }
+    if (anharmonicity_bound < 0.0 || !std::isfinite(anharmonicity_bound)) {
+        throw std::runtime_error(
+            "integrate_charge: anharmonicity_bound must be finite and non-negative"
+        );
+    }
+}
 
 class ChargeIntegrand {
 public:
@@ -68,11 +79,15 @@ public:
     ChargeIntegrand(
         IntegrationWorkspace &workspace,
         double mu,
+        double hessian_bound,
+        double anharmonicity_bound,
         bool certify_preview,
         ChargeCertificateCache &certificate_cache
     ) : workspace_(workspace),
         cache_(workspace.cache()),
         mu_(mu),
+        hessian_bound_(hessian_bound),
+        anharmonicity_bound_(anharmonicity_bound),
         certify_preview_(certify_preview),
         certificate_cache_(certificate_cache) {}
 
@@ -92,7 +107,7 @@ public:
     std::vector<adaptive::SimplexEstimate<integral_value_type>> estimate_simplices(
         core::Geometry &geometry,
         std::span<const core::SimplexId> simplex_ids,
-        std::uint32_t preview_depth
+        std::uint32_t /*preview_depth*/
     ) const {
         std::vector<adaptive::SimplexEstimate<integral_value_type>> estimates;
         estimates.reserve(simplex_ids.size());
@@ -104,11 +119,13 @@ public:
                 simplex_id,
                 cache_,
                 false,
-                nullptr
+                nullptr,
+                hessian_bound_,
+                anharmonicity_bound_
             );
 
             auto preview = integral_value_type{};
-            const auto preview_ids = geometry.preview_active(simplex_id, preview_depth);
+            const auto preview_ids = geometry.preview_active(simplex_id, 1);
             for (const auto preview_id : preview_ids) {
                 preview += charge_on_simplex(
                     mu_,
@@ -117,7 +134,9 @@ public:
                     preview_id,
                     cache_,
                     certify_preview_,
-                    certify_preview_ ? &certificate_cache_ : nullptr
+                    certify_preview_ ? &certificate_cache_ : nullptr,
+                    hessian_bound_,
+                    anharmonicity_bound_
                 );
             }
 
@@ -144,6 +163,8 @@ private:
     IntegrationWorkspace &workspace_;
     cache_type &cache_;
     double mu_ = 0.0;
+    double hessian_bound_ = 0.0;
+    double anharmonicity_bound_ = 0.0;
     bool certify_preview_ = false;
     ChargeCertificateCache &certificate_cache_;
 };
@@ -151,25 +172,41 @@ private:
 ChargeIntegrand make_charge_integrand(
     IntegrationWorkspace &workspace,
     double mu,
+    double hessian_bound,
+    double anharmonicity_bound,
     bool certify_preview,
     ChargeCertificateCache &certificate_cache
 ) {
-    return ChargeIntegrand(workspace, mu, certify_preview, certificate_cache);
+    return ChargeIntegrand(
+        workspace,
+        mu,
+        hessian_bound,
+        anharmonicity_bound,
+        certify_preview,
+        certificate_cache
+    );
 }
 
 }  // namespace
 
 ChargeIntegrateResult IntegrationRuntime::integrate_charge(
     double mu,
-    const adaptive::Options &options
+    const adaptive::Options &options,
+    double hessian_bound,
+    double anharmonicity_bound
 ) {
+    validate_energy_bound_inputs(hessian_bound, anharmonicity_bound);
+    auto charge_options = options;
+    charge_options.preview_depth = 1;
     auto integrand = make_charge_integrand(
         workspace_,
         mu,
+        hessian_bound,
+        anharmonicity_bound,
         true,
         charge_certificate_cache_
     );
-    const auto raw = adaptive::run(workspace_.geometry(), integrand, options);
+    const auto raw = adaptive::run(workspace_.geometry(), integrand, charge_options);
     return ChargeIntegrateResult{
         .charge = raw.integral.charge,
         .charge_error = raw.stopping_error,
@@ -185,16 +222,21 @@ ChargeIntegrateResult IntegrationRuntime::integrate_charge(
 ChargeIntegrateResult IntegrationRuntime::evaluate_charge(
     double mu,
     const adaptive::Options &options,
-    bool certify
+    bool certify,
+    double hessian_bound,
+    double anharmonicity_bound
 ) {
+    validate_energy_bound_inputs(hessian_bound, anharmonicity_bound);
     auto integrand = make_charge_integrand(
         workspace_,
         mu,
+        hessian_bound,
+        anharmonicity_bound,
         certify,
         charge_certificate_cache_
     );
 
-    const auto preview_depth = std::max<std::uint32_t>(options.preview_depth, 1);
+    const auto preview_depth = std::uint32_t{1};
     const auto active = workspace_.geometry().simplices().active_simplices();
     const auto active_simplices = std::vector<core::SimplexId>(active.begin(), active.end());
 

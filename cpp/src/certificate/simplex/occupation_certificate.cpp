@@ -108,16 +108,18 @@ OccupationSectorCheck check_occupation_sector(
     };
 }
 
-SimplexCertificate occupation_bounded_inconclusive(
+SimplexCertificate occupation_bounded_certificate(
+    SimplexCertificateStatus status,
     double mu,
     size_t ndof,
     size_t nocc,
     const std::vector<VertexBlocks> &blocks,
     double tol,
+    double margin,
     bool estimate_occupation_bounds
 ) {
     auto result = certificate(
-        SimplexCertificateStatus::Inconclusive,
+        status,
         unconstrained_occupation(ndof)
     );
     if (!estimate_occupation_bounds) {
@@ -140,9 +142,9 @@ SimplexCertificate occupation_bounded_inconclusive(
     }
 
     const auto occupied_estimate =
-        estimate_ordered_subset_rank_with_mu_radius(occupied_blocks, nocc, tol);
+        estimate_ordered_subset_rank_with_mu_radius(occupied_blocks, nocc, tol, margin);
     const auto unoccupied_estimate =
-        estimate_ordered_subset_rank_with_mu_radius(unoccupied_blocks, nunocc, tol);
+        estimate_ordered_subset_rank_with_mu_radius(unoccupied_blocks, nunocc, tol, margin);
     const auto lower = occupied_estimate.rank;
     const auto upper = ndof - unoccupied_estimate.rank;
     if (lower <= upper) {
@@ -153,6 +155,27 @@ SimplexCertificate occupation_bounded_inconclusive(
         };
     }
     return result;
+}
+
+SimplexCertificate occupation_bounded_inconclusive(
+    double mu,
+    size_t ndof,
+    size_t nocc,
+    const std::vector<VertexBlocks> &blocks,
+    double tol,
+    double margin,
+    bool estimate_occupation_bounds
+) {
+    return occupation_bounded_certificate(
+        SimplexCertificateStatus::Inconclusive,
+        mu,
+        ndof,
+        nocc,
+        blocks,
+        tol,
+        margin,
+        estimate_occupation_bounds
+    );
 }
 
 }  // namespace lineartetrahedron::simplex_certificate::detail

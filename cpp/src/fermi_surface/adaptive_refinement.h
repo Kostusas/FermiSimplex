@@ -1,6 +1,7 @@
 #pragma once
 
 #include "fermi_surface/fermi_surface.h"
+#include "fermi_surface/simplex_classification.h"
 
 #include <cstdint>
 #include <memory>
@@ -12,7 +13,7 @@ FermiSurfaceResult run_fermi_surface(
     double mu,
     double min_feature_size,
     std::int64_t max_diagonalizations,
-    double margin,
+    EnergyBoundFunction energy_bound,
     double tol,
     bool return_states
 );

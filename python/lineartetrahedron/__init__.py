@@ -16,6 +16,7 @@ from .backend import (
     charge,
     density_matrix_components,
     fermi_surface,
+    tight_binding_hessian_bound,
     tight_binding_hamiltonian,
 )
 
@@ -35,5 +36,6 @@ __all__ = [
     "charge",
     "density_matrix_components",
     "fermi_surface",
+    "tight_binding_hessian_bound",
     "tight_binding_hamiltonian",
 ]

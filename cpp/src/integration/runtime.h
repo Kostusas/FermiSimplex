@@ -34,12 +34,16 @@ public:
 
     ChargeIntegrateResult integrate_charge(
         double mu,
-        const adaptivesimplex::adaptive::Options &options
+        const adaptivesimplex::adaptive::Options &options,
+        double hessian_bound = 0.0,
+        double anharmonicity_bound = 0.0
     );
     ChargeIntegrateResult evaluate_charge(
         double mu,
         const adaptivesimplex::adaptive::Options &options,
-        bool certify = true
+        bool certify = true,
+        double hessian_bound = 0.0,
+        double anharmonicity_bound = 0.0
     );
     DensityIntegrateResult integrate_density(
         double mu,

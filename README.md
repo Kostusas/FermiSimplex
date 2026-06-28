@@ -79,15 +79,14 @@ surface = fermi_surface(
     mu=0.0,
     min_feature_size=0.01,
     max_diagonalizations=None,
-    margin=0.0,
+    hessian_bound=0.0,
+    anharmonicity_bound=0.0,
     return_states=False,
 )
 ```
 
-`hamiltonian` may be either:
-
-- a tight-binding dictionary `{tuple[int, ...]: np.ndarray}`;
-- a callable with explicit scalar arguments, such as `H(kx, ky)`.
+`hamiltonian` must be either a callable with explicit scalar arguments, such as
+`H(kx, ky)`, or a `SpectralMesh`.
 
 For callable Hamiltonians:
 
@@ -96,8 +95,9 @@ For callable Hamiltonians:
 - the callable must return a dense square NumPy-compatible matrix;
 - vector-style callables such as `H(k)` are intentionally not accepted.
 
-For tight-binding dictionaries, keys are integer lattice vectors and values are
-dense square hopping matrices. The Hamiltonian is evaluated as
+For tight-binding dictionaries, first convert them with
+`tight_binding_hamiltonian`. Keys are integer lattice vectors and values are
+dense square hopping matrices. The resulting callable evaluates
 
 ```python
 H(k) = sum(H_R * exp(-2j * pi * dot(k, R)) for R, H_R in hamiltonian.items())
@@ -116,11 +116,16 @@ more diagonalizations.
 If the cap is hit before the adaptive run finishes, `surface.converged` is
 `False`.
 
-`margin` is an optional energy-unit safety buffer for certification. The default
-`margin=0.0` gives the usual certificate. A positive value requires certified
-same-sign states to remain at least `margin` away from `mu`, so larger margins
-force more refinement. Visible Fermi crossings are still detected independently
-of this margin.
+`hessian_bound` is an optional scalar upper bound on the local second derivative
+of `H(k)` with respect to reduced coordinates. It may be a non-negative number
+or a callable `hessian_bound(kx, ky, ...) -> float` evaluated at each simplex
+center. `anharmonicity_bound` is an optional non-negative scalar third-order
+remainder bound. The default values give the affine simplex certificate. A
+positive value accounts for nonlinear interpolation error by requiring each mesh
+simplex to certify against
+`0.5 * hessian_bound * diameter(simplex)^2 + 0.5 * anharmonicity_bound * diameter(simplex)^3`,
+so larger values can force more refinement. Visible Fermi crossings are still
+detected independently of this bound.
 
 Set `return_states=True` to attach approximate eigenstates to the extracted
 Fermi-surface points:

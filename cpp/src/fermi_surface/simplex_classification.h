@@ -3,10 +3,13 @@
 #include "fermi_surface/vertex_evaluation.h"
 
 #include <cstdint>
+#include <functional>
 #include <set>
 #include <vector>
 
 namespace lineartetrahedron::fermi_surface_detail {
+
+using EnergyBoundFunction = std::function<double(const core::Geometry &, core::SimplexId)>;
 
 struct SimplexClassification {
     std::vector<core::SimplexId> refine;
@@ -22,7 +25,7 @@ SimplexClassification classify_frontier(
     const std::vector<core::SimplexId> &frontier,
     double mu,
     double min_feature_size,
-    double margin,
+    const EnergyBoundFunction &energy_bound,
     double tol
 );
 

@@ -82,20 +82,21 @@ double ordered_subset_mu_radius(
     std::span<const size_t> order,
     size_t size,
     size_t rank,
-    double tol
+    double tol,
+    double margin
 ) {
     if (rank == 0) {
         return std::numeric_limits<double>::infinity();
     }
 
     auto radius = std::numeric_limits<double>::infinity();
-    const auto margin = certificate_margin(tol);
+    const auto total_margin = certificate_margin(tol) + margin;
     for (const auto &block : blocks) {
         const auto permuted = permuted_block(block, order, size);
         for (size_t row = 0; row < rank; ++row) {
             const auto row_bound =
                 gershgorin_row_lower_bound(permuted, size, row, rank);
-            radius = std::min(radius, row_bound - margin);
+            radius = std::min(radius, row_bound - total_margin);
         }
     }
     return std::max(0.0, radius);
@@ -106,7 +107,8 @@ double ordered_subset_mu_radius(
 OccupationRankEstimate estimate_ordered_subset_rank_with_mu_radius(
     const std::vector<std::vector<Complex>> &blocks,
     size_t size,
-    double tol
+    double tol,
+    double margin
 ) {
     if (size == 0 || blocks.empty()) {
         return OccupationRankEstimate{
@@ -124,21 +126,22 @@ OccupationRankEstimate estimate_ordered_subset_rank_with_mu_radius(
         auto permuted = permuted_block(block, order_span, size);
         rank = std::min(
             rank,
-            positive_definite(permuted, size, certificate_margin(tol)).accepted_rank
+            positive_definite(permuted, size, certificate_margin(tol) + margin).accepted_rank
         );
     }
     return OccupationRankEstimate{
         .rank = rank,
-        .mu_radius = ordered_subset_mu_radius(blocks, order_span, size, rank, tol),
+        .mu_radius = ordered_subset_mu_radius(blocks, order_span, size, rank, tol, margin),
     };
 }
 
 size_t estimate_ordered_subset_rank(
     const std::vector<std::vector<Complex>> &blocks,
     size_t size,
-    double tol
+    double tol,
+    double margin
 ) {
-    return estimate_ordered_subset_rank_with_mu_radius(blocks, size, tol).rank;
+    return estimate_ordered_subset_rank_with_mu_radius(blocks, size, tol, margin).rank;
 }
 
 }  // namespace lineartetrahedron::simplex_certificate::detail

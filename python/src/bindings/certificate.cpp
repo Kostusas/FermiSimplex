@@ -138,6 +138,12 @@ void bind_certificate(nb::module_ &m) {
             }
         )
         .def_prop_ro(
+            "energy_bound",
+            [](const certificate::SimplexCertificate &self) {
+                return self.energy_bound;
+            }
+        )
+        .def_prop_ro(
             "has_mu_interval",
             [](const certificate::SimplexCertificate &self) {
                 return certificate::has_mu_interval(self);

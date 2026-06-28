@@ -7,6 +7,7 @@
 
 #include <algorithm>
 #include <complex>
+#include <cmath>
 #include <limits>
 #include <span>
 #include <stdexcept>
@@ -24,6 +25,16 @@ SimplexCertificate certificate(SimplexCertificateStatus status, OccupationBounds
 
 OccupationBounds exact_occupation(size_t occupation) {
     return OccupationBounds{.lower = occupation, .upper = occupation};
+}
+
+OccupationBounds unconstrained_occupation(size_t ndof) {
+    return OccupationBounds{.lower = 0, .upper = ndof};
+}
+
+SimplexCertificateStatus unresolved_status(detail::VertexSpectraClassification classification) {
+    return classification == detail::VertexSpectraClassification::VisibleGapless
+        ? SimplexCertificateStatus::VisibleGapless
+        : SimplexCertificateStatus::Inconclusive;
 }
 
 void validate_simplex_spectra(
@@ -53,6 +64,28 @@ void validate_simplex_spectra(
     }
 }
 
+double simplex_diameter(
+    const core::Geometry &geometry,
+    const core::Simplex &simplex
+) {
+    auto max_squared = 0.0;
+    for (size_t left = 0; left < simplex.vertex_ids.size(); ++left) {
+        const auto left_point =
+            geometry.vertices().dyadic_vertex(simplex.vertex_ids[left]).to_point();
+        for (size_t right = left + 1; right < simplex.vertex_ids.size(); ++right) {
+            const auto right_point =
+                geometry.vertices().dyadic_vertex(simplex.vertex_ids[right]).to_point();
+            auto squared = 0.0;
+            for (size_t axis = 0; axis < geometry.ndim(); ++axis) {
+                const auto delta = left_point[axis] - right_point[axis];
+                squared += delta * delta;
+            }
+            max_squared = std::max(max_squared, squared);
+        }
+    }
+    return std::sqrt(max_squared);
+}
+
 }  // namespace
 
 SimplexCertificate certify_simplex(
@@ -67,20 +100,20 @@ SimplexCertificate certify_simplex(
 
     validate_simplex_spectra(eigenvalues, eigenvectors);
 
-    const auto anchor_selection_result =
-        choose_anchor_spectrum(mu, eigenvalues, tol);
-    if (anchor_selection_result.early_certificate.has_value()) {
-        return *anchor_selection_result.early_certificate;
-    }
-    const auto anchor_selection = anchor_selection_result.selection;
+    const auto vertex_classification = classify_vertex_spectra(mu, eigenvalues, tol);
+    const auto anchor_selection = choose_anchor_spectrum(mu, eigenvalues, tol);
 
     const auto anchor_eigenvalues = eigenvalues[anchor_selection.vertex_index];
     const auto anchor_eigenvectors = eigenvectors[anchor_selection.vertex_index];
-    auto split_result = split_anchor_spectrum(anchor_eigenvalues, mu, tol, anchor_selection.ndof);
-    if (split_result.early_certificate.has_value()) {
-        return *split_result.early_certificate;
+    auto split = split_anchor_spectrum(anchor_eigenvalues, mu, tol);
+    if (!split.has_value()) {
+        auto result = certificate(
+            unresolved_status(vertex_classification),
+            unconstrained_occupation(anchor_selection.ndof)
+        );
+        result.energy_bound = margin;
+        return result;
     }
-    const auto &split = split_result.split;
 
     const auto nocc = anchor_selection.nocc;
     const auto ndof = anchor_selection.ndof;
@@ -93,10 +126,25 @@ SimplexCertificate certify_simplex(
         ndof,
         nocc
     );
+    if (vertex_classification == VertexSpectraClassification::VisibleGapless) {
+        auto result = occupation_bounded_certificate(
+            SimplexCertificateStatus::VisibleGapless,
+            mu,
+            ndof,
+            nocc,
+            blocks.vertices,
+            tol,
+            margin,
+            estimate_occupation_bounds
+        );
+        result.energy_bound = margin;
+        return result;
+    }
+
     const auto rotation = perturbative_rotation(
         std::span<const Complex>(blocks.average_coupling.data(), blocks.average_coupling.size()),
-        std::span<const double>(split.unoccupied_gaps.data(), split.unoccupied_gaps.size()),
-        std::span<const double>(split.occupied_gaps.data(), split.occupied_gaps.size())
+        std::span<const double>(split->unoccupied_gaps.data(), split->unoccupied_gaps.size()),
+        std::span<const double>(split->occupied_gaps.data(), split->occupied_gaps.size())
     );
 
     const auto rotation_span = std::span<const Complex>(rotation.data(), rotation.size());
@@ -133,14 +181,17 @@ SimplexCertificate certify_simplex(
         );
         unoccupied_mu_radius = std::min(unoccupied_mu_radius, unoccupied.mu_radius);
         if (!unoccupied.passed) {
-            return occupation_bounded_inconclusive(
+            auto result = occupation_bounded_inconclusive(
                 mu,
                 ndof,
                 nocc,
                 blocks.vertices,
                 tol,
+                margin,
                 estimate_occupation_bounds
             );
+            result.energy_bound = margin;
+            return result;
         }
 
         const auto occupied = check_occupation_sector(
@@ -158,14 +209,17 @@ SimplexCertificate certify_simplex(
         );
         occupied_mu_radius = std::min(occupied_mu_radius, occupied.mu_radius);
         if (!occupied.passed) {
-            return occupation_bounded_inconclusive(
+            auto result = occupation_bounded_inconclusive(
                 mu,
                 ndof,
                 nocc,
                 blocks.vertices,
                 tol,
+                margin,
                 estimate_occupation_bounds
             );
+            result.energy_bound = margin;
+            return result;
         }
     }
 
@@ -177,6 +231,7 @@ SimplexCertificate certify_simplex(
         .lower = mu - occupied_mu_radius,
         .upper = mu + unoccupied_mu_radius,
     };
+    result.energy_bound = margin;
     return result;
 }
 
@@ -185,15 +240,60 @@ SimplexCertificate certify_mesh_simplex(
     core::SimplexId simplex_id,
     const core::VertexCache<VertexSpectra> &vertex_cache,
     double mu,
-    double margin,
+    double hessian_bound,
+    double anharmonicity_bound,
     double tol,
     bool estimate_occupation_bounds
 ) {
+    if (hessian_bound < 0.0 || !std::isfinite(hessian_bound)) {
+        throw std::runtime_error(
+            "certify_mesh_simplex: hessian_bound must be finite and non-negative"
+        );
+    }
+    if (anharmonicity_bound < 0.0 || !std::isfinite(anharmonicity_bound)) {
+        throw std::runtime_error(
+            "certify_mesh_simplex: anharmonicity_bound must be finite and non-negative"
+        );
+    }
+
     const auto &simplex = geometry.simplices().simplex(simplex_id);
     if (simplex.vertex_ids.empty()) {
         throw std::runtime_error("certify_mesh_simplex: simplex must not be empty");
     }
+    const auto diameter = simplex_diameter(geometry, simplex);
+    const auto energy_bound =
+        0.5 * hessian_bound * diameter * diameter +
+        0.5 * anharmonicity_bound * diameter * diameter * diameter;
+    return certify_mesh_simplex_with_energy_bound(
+        geometry,
+        simplex_id,
+        vertex_cache,
+        mu,
+        energy_bound,
+        tol,
+        estimate_occupation_bounds
+    );
+}
 
+SimplexCertificate certify_mesh_simplex_with_energy_bound(
+    const core::Geometry &geometry,
+    core::SimplexId simplex_id,
+    const core::VertexCache<VertexSpectra> &vertex_cache,
+    double mu,
+    double energy_bound,
+    double tol,
+    bool estimate_occupation_bounds
+) {
+    if (energy_bound < 0.0 || !std::isfinite(energy_bound)) {
+        throw std::runtime_error(
+            "certify_mesh_simplex_with_energy_bound: energy_bound must be finite and non-negative"
+        );
+    }
+
+    const auto &simplex = geometry.simplices().simplex(simplex_id);
+    if (simplex.vertex_ids.empty()) {
+        throw std::runtime_error("certify_mesh_simplex_with_energy_bound: simplex must not be empty");
+    }
     std::vector<std::span<const double>> eigenvalues;
     std::vector<std::span<const std::complex<double>>> eigenvectors;
     eigenvalues.reserve(simplex.vertex_ids.size());
@@ -217,7 +317,7 @@ SimplexCertificate certify_mesh_simplex(
             eigenvectors.size()
         ),
         mu,
-        margin,
+        energy_bound,
         tol,
         estimate_occupation_bounds
     );

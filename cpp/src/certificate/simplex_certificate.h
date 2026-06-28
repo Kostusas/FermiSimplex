@@ -38,6 +38,7 @@ struct SimplexCertificate {
     SimplexCertificateStatus status = SimplexCertificateStatus::Inconclusive;
     OccupationBounds occupation_bounds;
     MuInterval mu_interval;
+    double energy_bound = 0.0;
 };
 
 inline bool has_mu_interval(const SimplexCertificate &certificate) {
@@ -66,7 +67,18 @@ SimplexCertificate certify_mesh_simplex(
     core::SimplexId simplex_id,
     const core::VertexCache<VertexSpectra> &vertex_cache,
     double mu = 0.0,
-    double margin = 0.0,
+    double hessian_bound = 0.0,
+    double anharmonicity_bound = 0.0,
+    double tol = kDefaultTolerance,
+    bool estimate_occupation_bounds = false
+);
+
+SimplexCertificate certify_mesh_simplex_with_energy_bound(
+    const core::Geometry &geometry,
+    core::SimplexId simplex_id,
+    const core::VertexCache<VertexSpectra> &vertex_cache,
+    double mu = 0.0,
+    double energy_bound = 0.0,
     double tol = kDefaultTolerance,
     bool estimate_occupation_bounds = false
 );

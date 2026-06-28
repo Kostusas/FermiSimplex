@@ -22,7 +22,8 @@ FermiSurfaceResult fermi_surface(
     double mu,
     double min_feature_size,
     std::int64_t max_diagonalizations,
-    double margin,
+    double hessian_bound,
+    double anharmonicity_bound,
     double tol,
     bool return_states = false
 );

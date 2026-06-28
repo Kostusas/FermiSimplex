@@ -17,7 +17,20 @@ ChargeValue charge_on_simplex(
     adaptivesimplex::core::SimplexId simplex_id,
     const adaptivesimplex::core::VertexCache<VertexSpectra> &cache,
     bool certify = true,
-    ChargeCertificateCache *certificate_cache = nullptr
+    ChargeCertificateCache *certificate_cache = nullptr,
+    double hessian_bound = 0.0,
+    double anharmonicity_bound = 0.0
+);
+
+ChargeValue charge_on_simplex_with_energy_bound(
+    double mu,
+    const IntegrationWorkspace &workspace,
+    const adaptivesimplex::core::Geometry &geometry,
+    adaptivesimplex::core::SimplexId simplex_id,
+    const adaptivesimplex::core::VertexCache<VertexSpectra> &cache,
+    bool certify,
+    ChargeCertificateCache *certificate_cache,
+    double energy_bound
 );
 
 }  // namespace lineartetrahedron

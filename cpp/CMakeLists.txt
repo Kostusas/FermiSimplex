@@ -152,6 +152,7 @@ nanobind_add_module(
   _native
   NB_STATIC
   ../python/src/bindings/certificate.cpp
+  ../python/src/bindings/energy_bound.cpp
   ../python/src/bindings/fermi_surface.cpp
   ../python/src/bindings/integration.cpp
   ../python/src/bindings/module.cpp

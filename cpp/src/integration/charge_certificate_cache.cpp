@@ -22,15 +22,19 @@ bool is_cacheable(const cert::SimplexCertificate &certificate) {
 
 const cert::SimplexCertificate *ChargeCertificateCache::find(
     core::SimplexId simplex_id,
-    double mu
+    double mu,
+    double energy_bound
 ) const {
     const auto found = records_.find(simplex_id);
     if (found == records_.end()) {
         return nullptr;
     }
-    const auto &certificates = found->second;
-    for (auto iter = certificates.rbegin(); iter != certificates.rend(); ++iter) {
-        if (cert::reusable_at(*iter, mu)) {
+    const auto &records = found->second;
+    for (auto iter = records.rbegin(); iter != records.rend(); ++iter) {
+        if (
+            iter->energy_bound >= energy_bound &&
+            cert::reusable_at(*iter, mu)
+        ) {
             return &(*iter);
         }
     }
@@ -57,9 +61,9 @@ void ChargeCertificateCache::clear() {
 
 size_t ChargeCertificateCache::size() const noexcept {
     auto count = size_t{0};
-    for (const auto &[unused_simplex_id, certificates] : records_) {
+    for (const auto &[unused_simplex_id, records] : records_) {
         (void)unused_simplex_id;
-        count += certificates.size();
+        count += records.size();
     }
     return count;
 }

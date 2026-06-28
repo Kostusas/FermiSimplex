@@ -40,18 +40,18 @@ SimplexClassification classify_frontier(
     const std::vector<core::SimplexId> &frontier,
     double mu,
     double min_feature_size,
-    double margin,
+    const EnergyBoundFunction &energy_bound,
     double tol
 ) {
     SimplexClassification result;
     for (const auto simplex_id : frontier) {
         const auto refinable = max_reduced_edge_length(geometry, simplex_id) > min_feature_size;
-        const auto certificate = simplex_certificate::certify_mesh_simplex(
+        const auto certificate = simplex_certificate::certify_mesh_simplex_with_energy_bound(
             geometry,
             simplex_id,
             cache,
             mu,
-            margin,
+            energy_bound(geometry, simplex_id),
             tol
         );
         const auto status = certificate.status;

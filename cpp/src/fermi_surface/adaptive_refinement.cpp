@@ -18,14 +18,14 @@ public:
         double mu,
         double min_feature_size,
         std::int64_t max_diagonalizations,
-        double margin,
+        EnergyBoundFunction energy_bound,
         double tol,
         bool return_states
     ) : model_(std::move(model)),
         mu_(mu),
         min_feature_size_(min_feature_size),
         max_diagonalizations_(max_diagonalizations),
-        margin_(margin),
+        energy_bound_(std::move(energy_bound)),
         tol_(tol),
         return_states_(return_states),
         geometry_(make_fermi_geometry(model_->ndim())),
@@ -67,7 +67,7 @@ private:
             frontier_,
             mu_,
             min_feature_size_,
-            margin_,
+            energy_bound_,
             tol_
         );
     }
@@ -139,7 +139,7 @@ private:
     double mu_ = 0.0;
     double min_feature_size_ = 0.0;
     std::int64_t max_diagonalizations_ = -1;
-    double margin_ = 0.0;
+    EnergyBoundFunction energy_bound_;
     double tol_ = 1e-14;
     bool return_states_ = false;
     core::Geometry geometry_;
@@ -157,7 +157,7 @@ FermiSurfaceResult run_fermi_surface(
     double mu,
     double min_feature_size,
     std::int64_t max_diagonalizations,
-    double margin,
+    EnergyBoundFunction energy_bound,
     double tol,
     bool return_states
 ) {
@@ -166,7 +166,7 @@ FermiSurfaceResult run_fermi_surface(
         mu,
         min_feature_size,
         max_diagonalizations,
-        margin,
+        std::move(energy_bound),
         tol,
         return_states
     ).run();

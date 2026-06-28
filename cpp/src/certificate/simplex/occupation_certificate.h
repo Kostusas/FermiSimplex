@@ -40,6 +40,18 @@ SimplexCertificate occupation_bounded_inconclusive(
     size_t nocc,
     const std::vector<VertexBlocks> &blocks,
     double tol,
+    double margin,
+    bool estimate_occupation_bounds
+);
+
+SimplexCertificate occupation_bounded_certificate(
+    SimplexCertificateStatus status,
+    double mu,
+    size_t ndof,
+    size_t nocc,
+    const std::vector<VertexBlocks> &blocks,
+    double tol,
+    double margin,
     bool estimate_occupation_bounds
 );
 

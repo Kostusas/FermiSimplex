@@ -10,6 +10,7 @@ from lineartetrahedron import (
     charge,
     density_matrix_components,
     fermi_surface,
+    tight_binding_hessian_bound,
     tight_binding_hamiltonian,
 )
 from lineartetrahedron.backend import _tb_to_tight_binding_model
@@ -129,6 +130,25 @@ def test_compiled_tight_binding_model_matches_python_fourier_evaluation():
     assert compiled_model.ndof == 2
     assert compiled_model.nterms == len(tb)
     assert np.allclose(compiled_model.evaluate_point(point), tb_k_matrix(tb, point))
+
+
+@requires_native
+def test_tight_binding_hessian_bound_matches_scalar_cosine_band():
+    bound = tight_binding_hessian_bound(_cosine_band(1))
+
+    assert bound(0.0) == pytest.approx(4.0 * np.pi**2)
+    assert bound(0.25) == pytest.approx(0.0, abs=1e-12)
+    assert bound(0.5) == pytest.approx(4.0 * np.pi**2)
+
+    with pytest.raises(TypeError, match="expected 1 coordinates"):
+        bound(0.0, 0.0)
+
+
+@requires_native
+def test_tight_binding_hessian_bound_is_publicly_exported():
+    import lineartetrahedron as lt
+
+    assert callable(lt.tight_binding_hessian_bound)
 
 
 @requires_native
@@ -375,35 +395,72 @@ def test_fermi_surface_inertia_certificate_certifies_constant_insulator():
 
 
 @requires_native
-def test_fermi_surface_margin_is_reported_and_can_block_certification():
+def test_fermi_surface_hessian_bound_is_reported_and_can_block_certification():
     safe = fermi_surface(
         tight_binding_hamiltonian(_constant_insulator(1)),
         mu=0.0,
         min_feature_size=1.0,
-        margin=0.5,
+        hessian_bound=0.5,
     )
     strict = fermi_surface(
         tight_binding_hamiltonian(_constant_insulator(1)),
         mu=0.0,
         min_feature_size=1.0,
-        margin=2.0,
+        hessian_bound=1.0e6,
     )
 
-    assert safe.parameters.margin == pytest.approx(0.5)
+    assert safe.parameters.hessian_bound == pytest.approx(0.5)
+    assert not safe.parameters.hessian_bound_is_callable
+    assert safe.parameters.anharmonicity_bound == pytest.approx(0.0)
     assert safe.converged
     assert safe.stats.feature_size_simplices == 0
-    assert strict.parameters.margin == pytest.approx(2.0)
+    assert strict.parameters.hessian_bound == pytest.approx(1.0e6)
     assert strict.stats.feature_size_simplices > 0
 
 
 @requires_native
-def test_fermi_surface_rejects_negative_margin():
-    with pytest.raises(ValueError, match="margin"):
+def test_fermi_surface_accepts_callable_hessian_bound():
+    calls = []
+
+    def hessian_bound(k0):
+        calls.append(k0)
+        return 1.0e6
+
+    surface = fermi_surface(
+        tight_binding_hamiltonian(_constant_insulator(1)),
+        mu=0.0,
+        min_feature_size=1.0,
+        hessian_bound=hessian_bound,
+    )
+
+    assert calls
+    assert surface.parameters.hessian_bound is None
+    assert surface.parameters.hessian_bound_is_callable
+    assert surface.stats.feature_size_simplices > 0
+
+
+@requires_native
+def test_fermi_surface_rejects_invalid_energy_bounds():
+    with pytest.raises(ValueError, match="hessian_bound"):
         fermi_surface(
             tight_binding_hamiltonian(_constant_insulator(1)),
             mu=0.0,
             min_feature_size=0.1,
-            margin=-1e-3,
+            hessian_bound=-1e-3,
+        )
+    with pytest.raises(ValueError, match="anharmonicity_bound"):
+        fermi_surface(
+            tight_binding_hamiltonian(_constant_insulator(1)),
+            mu=0.0,
+            min_feature_size=0.1,
+            anharmonicity_bound=float("nan"),
+        )
+    with pytest.raises(RuntimeError, match="hessian_bound callable"):
+        fermi_surface(
+            tight_binding_hamiltonian(_constant_insulator(1)),
+            mu=0.0,
+            min_feature_size=0.1,
+            hessian_bound=lambda k0: -1.0,
         )
 
 
@@ -445,12 +502,13 @@ def test_certify_simplex_reports_certified_gapped_spectra():
     eigenvalues = np.array([[-1.0, 1.0], [-1.0, 1.0]])
     eigenvectors = np.repeat(np.eye(2, dtype=complex)[None, :, :], 2, axis=0)
 
-    certificate = certify_simplex(eigenvalues, eigenvectors)
+    certificate = certify_simplex(eigenvalues, eigenvectors, margin=0.25)
 
     assert certificate.status == "certified_gapped"
     assert certificate.occupation_bounds.lower == 1
     assert certificate.occupation_bounds.upper == 1
     assert certificate.occupation_width == 0
+    assert certificate.energy_bound == pytest.approx(0.25)
     assert certificate.reusable_at(0.0)
 
 
@@ -459,12 +517,13 @@ def test_certify_simplex_reports_visible_gapless_spectra():
     eigenvalues = np.array([[0.0, 1.0], [-1.0, 1.0]])
     eigenvectors = np.repeat(np.eye(2, dtype=complex)[None, :, :], 2, axis=0)
 
-    certificate = certify_simplex(eigenvalues, eigenvectors)
+    certificate = certify_simplex(eigenvalues, eigenvectors, margin=0.125)
 
     assert certificate.status == "visible_gapless"
     assert certificate.occupation_bounds.lower == 0
-    assert certificate.occupation_bounds.upper == 2
-    assert not certificate.has_mu_interval
+    assert certificate.occupation_bounds.upper == 1
+    assert certificate.energy_bound == pytest.approx(0.125)
+    assert certificate.has_mu_interval
 
 
 @requires_native
@@ -639,7 +698,7 @@ def test_occupation_bounded_certificate_error_can_block_charge_convergence():
 @requires_native
 def test_uncertified_charge_integration_suppresses_certificate_error():
     mesh = _mesh(_winding_constant_gap_band(3))
-    options = AdaptiveOptions(target_error=1.75, max_refinements=0, preview_depth=1)
+    options = AdaptiveOptions(target_error=1.75, max_refinements=0, preview_depth=2)
 
     certified = charge(mesh, mu=0.0, options=options, refine=False)
     uncertified = charge(mesh, mu=0.0, options=options, refine=False, certify=False)
@@ -694,7 +753,17 @@ def test_inertia_certificate_does_not_add_error_for_visible_charge_cut():
 
     result = charge(mesh, mu=0.0, options=options, refine=False)
 
-    assert result.charge_error < options.target_error
+    assert result.charge_error == pytest.approx(0.0)
+
+
+@requires_native
+def test_visible_charge_cut_uses_hessian_energy_shell_error():
+    mesh = _mesh(_axis_cosine_band(1))
+    options = AdaptiveOptions(target_error=1.0, max_refinements=0, preview_depth=1)
+
+    result = charge(mesh, mu=0.0, options=options, refine=False, hessian_bound=1.0e6)
+
+    assert result.charge_error > 0.0
 
 
 @requires_native
@@ -705,6 +774,72 @@ def test_inertia_certificate_does_not_add_error_for_certified_gapped_simplex():
     result = charge(mesh, mu=0.0, options=options, refine=False)
 
     assert result.charge_error == pytest.approx(0.0)
+
+
+@requires_native
+def test_charge_hessian_bound_is_validated_and_can_increase_error():
+    mesh = _mesh(_constant_insulator(1))
+    options = AdaptiveOptions(target_error=3.0, max_refinements=0, preview_depth=1)
+
+    baseline = charge(mesh, mu=0.0, options=options, refine=False, hessian_bound=0.0)
+    strict = charge(mesh, mu=0.0, options=options, refine=False, hessian_bound=1.0e6)
+
+    assert baseline.charge_error == pytest.approx(0.0)
+    assert strict.charge_error >= baseline.charge_error
+    assert strict.charge_error > 0.0
+
+    with pytest.raises(ValueError, match="hessian_bound"):
+        charge(mesh, mu=0.0, options=options, refine=False, hessian_bound=-1e-3)
+    with pytest.raises(ValueError, match="hessian_bound"):
+        charge(mesh, mu=0.0, options=options, refine=False, hessian_bound=float("nan"))
+    with pytest.raises(ValueError, match="anharmonicity_bound"):
+        charge(mesh, mu=0.0, options=options, refine=False, anharmonicity_bound=-1e-3)
+    with pytest.raises(RuntimeError, match="hessian_bound callable"):
+        charge(mesh, mu=0.0, options=options, refine=False, hessian_bound=lambda k0: -1.0)
+
+
+@requires_native
+def test_charge_callable_hessian_and_anharmonicity_bounds_increase_error():
+    mesh = _mesh(_constant_insulator(1))
+    options = AdaptiveOptions(target_error=3.0, max_refinements=0, preview_depth=1)
+    calls = []
+
+    def hessian_bound(k0):
+        calls.append(k0)
+        return 1.0e6
+
+    callable_result = charge(mesh, mu=0.0, options=options, refine=False, hessian_bound=hessian_bound)
+    anharmonic_result = charge(
+        mesh,
+        mu=0.0,
+        options=options,
+        refine=False,
+        anharmonicity_bound=1.0e6,
+    )
+
+    assert calls
+    assert callable_result.charge_error > 0.0
+    assert anharmonic_result.charge_error > 0.0
+
+
+@requires_native
+def test_charge_accepts_native_tight_binding_hessian_bound_callable():
+    tb = {
+        (1,): np.array([[5.0e5]], dtype=complex),
+        (-1,): np.array([[5.0e5]], dtype=complex),
+    }
+    mesh = _mesh(tb)
+    options = AdaptiveOptions(target_error=2.0, max_refinements=0, preview_depth=1)
+
+    result = charge(
+        mesh,
+        mu=0.0,
+        options=options,
+        refine=False,
+        hessian_bound=tight_binding_hessian_bound(tb),
+    )
+
+    assert result.charge_error > 0.0
 
 
 @requires_native
@@ -795,7 +930,7 @@ def test_cached_density_initial_path_reuses_charge_vertices():
         mu=0.0,
         keys=keys,
         target_error=1.0,
-        options=AdaptiveOptions(target_error=1.0, max_refinements=0, preview_depth=2),
+        options=AdaptiveOptions(target_error=1.0, max_refinements=0, preview_depth=1),
     )
 
     assert info.n_evaluator_evals == 0

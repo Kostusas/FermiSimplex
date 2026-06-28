@@ -14,7 +14,8 @@ class ChargeCertificateCache {
 public:
     const simplex_certificate::SimplexCertificate *find(
         adaptivesimplex::core::SimplexId simplex_id,
-        double mu
+        double mu,
+        double energy_bound
     ) const;
     void insert(
         adaptivesimplex::core::SimplexId simplex_id,

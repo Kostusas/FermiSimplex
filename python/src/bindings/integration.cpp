@@ -1,5 +1,6 @@
 #include "arrays.h"
 #include "bindings.h"
+#include "energy_bound.h"
 #include "python_hamiltonian.h"
 
 #include "integration/charge.h"
@@ -72,9 +73,9 @@ struct ChargeStoppingError {
     state_type<IntegralValue> contribution(
         const adaptive::SimplexEstimate<IntegralValue> &estimate
     ) const {
-        auto correction_contribution = estimate.correction;
-        correction_contribution.certificate_error = estimate.preview.certificate_error;
-        return correction_contribution;
+        auto contribution = IntegralValue{};
+        contribution.certificate_error = estimate.preview.certificate_error;
+        return contribution;
     }
     template <class IntegralValue>
     void add(state_type<IntegralValue> &state, const state_type<IntegralValue> &value) const {
@@ -86,13 +87,13 @@ struct ChargeStoppingError {
     }
     template <class IntegralValue>
     double error(const state_type<IntegralValue> &correction_state) const {
-        return std::abs(correction_state.charge) + correction_state.certificate_error;
+        return correction_state.certificate_error;
     }
 };
 
 struct ChargeRefinementScore {
     template <class Context> double operator()(const Context &context) const {
-        return std::abs(context.correction.charge) + context.preview.certificate_error;
+        return context.preview.certificate_error;
     }
 };
 
@@ -110,11 +111,13 @@ public:
     ChargeIntegrand(
         IntegrationWorkspace &workspace,
         double mu,
+        EnergyBoundModel energy_bound,
         bool certify_preview,
         ChargeCertificateCache &certificate_cache
     ) : workspace_(workspace),
         cache_(workspace.cache()),
         mu_(mu),
+        energy_bound_(std::move(energy_bound)),
         certify_preview_(certify_preview),
         certificate_cache_(certificate_cache) {}
 
@@ -134,32 +137,34 @@ public:
     std::vector<adaptive::SimplexEstimate<integral_value_type>> estimate_simplices(
         core::Geometry &geometry,
         std::span<const core::SimplexId> simplex_ids,
-        std::uint32_t preview_depth
+        std::uint32_t /*preview_depth*/
     ) const {
         std::vector<adaptive::SimplexEstimate<integral_value_type>> estimates;
         estimates.reserve(simplex_ids.size());
         for (const auto simplex_id : simplex_ids) {
-            auto coarse = charge_on_simplex(
+            auto coarse = charge_on_simplex_with_energy_bound(
                 mu_,
                 workspace_,
                 geometry,
                 simplex_id,
                 cache_,
                 false,
-                nullptr
+                nullptr,
+                energy_bound_.on_simplex(geometry, simplex_id)
             );
 
             auto preview = integral_value_type{};
-            const auto preview_ids = geometry.preview_active(simplex_id, preview_depth);
+            const auto preview_ids = geometry.preview_active(simplex_id, 1);
             for (const auto preview_id : preview_ids) {
-                preview += charge_on_simplex(
+                preview += charge_on_simplex_with_energy_bound(
                     mu_,
                     workspace_,
                     geometry,
                     preview_id,
                     cache_,
                     certify_preview_,
-                    certify_preview_ ? &certificate_cache_ : nullptr
+                    certify_preview_ ? &certificate_cache_ : nullptr,
+                    energy_bound_.on_simplex(geometry, preview_id)
                 );
             }
 
@@ -186,6 +191,7 @@ private:
     IntegrationWorkspace &workspace_;
     cache_type &cache_;
     double mu_ = 0.0;
+    EnergyBoundModel energy_bound_;
     bool certify_preview_ = false;
     ChargeCertificateCache &certificate_cache_;
 };
@@ -209,17 +215,22 @@ public:
         double mu,
         const adaptive::Options &options,
         bool refine,
-        bool certify
+        bool certify,
+        nb::object hessian_bound,
+        double anharmonicity_bound
     ) {
+        auto charge_options = options;
+        charge_options.preview_depth = 1;
         auto integrand = ChargeIntegrand(
             workspace_,
             mu,
+            EnergyBoundModel(std::move(hessian_bound), anharmonicity_bound),
             refine ? true : certify,
             charge_certificate_cache_
         );
 
         if (refine) {
-            const auto raw = adaptive::run(workspace_.geometry(), integrand, options);
+            const auto raw = adaptive::run(workspace_.geometry(), integrand, charge_options);
             return ChargeIntegrateResult{
                 .charge = raw.integral.charge,
                 .charge_error = raw.stopping_error,
@@ -232,7 +243,7 @@ public:
             };
         }
 
-        const auto preview_depth = std::max<std::uint32_t>(options.preview_depth, 1);
+        const auto preview_depth = std::uint32_t{1};
         const auto active = workspace_.geometry().simplices().active_simplices();
         const auto active_simplices = std::vector<core::SimplexId>(active.begin(), active.end());
 
@@ -442,7 +453,9 @@ void bind_integration(nb::module_ &m) {
             "mu"_a,
             "options"_a,
             "refine"_a = true,
-            "certify"_a = true
+            "certify"_a = true,
+            "hessian_bound"_a = 0.0,
+            "anharmonicity_bound"_a = 0.0
         )
         .def(
             "integrate_density",

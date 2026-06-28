@@ -20,18 +20,29 @@ void test_charge_certificate_cache_respects_mu_range() {
     auto cert = certificate::SimplexCertificate{};
     cert.status = certificate::SimplexCertificateStatus::CertifiedGapped;
     cert.mu_interval = certificate::MuInterval{.lower = -0.2, .upper = 0.3};
+    cert.energy_bound = 0.0;
 
     cache.insert(7, cert);
     expect_eq(cache.size(), 1, "cache should store reusable certificates");
-    expect(cache.find(7, 0.0) != nullptr, "cache should hit inside the mu range");
-    expect(cache.find(7, 0.3) != nullptr, "cache should hit the upper mu endpoint");
-    expect(cache.find(7, 0.31) == nullptr, "cache should miss outside the mu range");
-    expect(cache.find(8, 0.0) == nullptr, "cache should miss different simplex ids");
+    expect(cache.find(7, 0.0, 0.0) != nullptr, "cache should hit inside the mu range");
+    expect(cache.find(7, 0.3, 0.0) != nullptr, "cache should hit the upper mu endpoint");
+    expect(cache.find(7, 0.31, 0.0) == nullptr, "cache should miss outside the mu range");
+    expect(cache.find(8, 0.0, 0.0) == nullptr, "cache should miss different simplex ids");
+    expect(
+        cache.find(7, 0.0, 1.0) == nullptr,
+        "cache should miss when requested energy bound is stricter than stored energy bound"
+    );
+
+    auto stricter_cert = cert;
+    stricter_cert.energy_bound = 2.0;
+    cache.insert(7, stricter_cert);
+    expect(cache.find(7, 0.0, 1.0) != nullptr, "cache should reuse stricter energy-bound records");
+    expect(cache.find(7, 0.0, 3.0) == nullptr, "cache should reject weaker energy-bound records");
 
     auto empty_range = cert;
     empty_range.mu_interval = certificate::MuInterval{};
     cache.insert(7, empty_range);
-    expect_eq(cache.size(), 1, "cache should ignore empty mu ranges");
+    expect_eq(cache.size(), 2, "cache should ignore empty mu ranges");
 
     cache.erase(7);
     expect_eq(cache.size(), 0, "cache erase should remove simplex certificates");
@@ -51,14 +62,15 @@ void test_charge_on_simplex_reuses_cached_certificate() {
         simplex_id,
         workspace.cache(),
         true,
-        &certificate_cache
+        &certificate_cache,
+        0.0
     );
     expect_eq(
         certificate_cache.size(),
         1,
         "first certified charge evaluation should cache one certificate"
     );
-    const auto *cached = certificate_cache.find(simplex_id, 0.0);
+    const auto *cached = certificate_cache.find(simplex_id, 0.0, 0.0);
     expect(cached != nullptr, "cached certificate should contain the original mu");
     expect(
         cached->mu_interval.upper > 0.0,
@@ -73,7 +85,8 @@ void test_charge_on_simplex_reuses_cached_certificate() {
         simplex_id,
         workspace.cache(),
         true,
-        &certificate_cache
+        &certificate_cache,
+        0.0
     );
     expect_eq(
         certificate_cache.size(),
@@ -121,6 +134,16 @@ void test_charge_path_uses_occupation_bounds() {
         0.0,
         1e-12,
         "visible/certified charge cases should not gain bound-based error"
+    );
+
+    const auto strict_hessian = visible_runtime.evaluate_charge(0.0, options, true, 1.0e6);
+    expect(
+        strict_hessian.charge_error >= visible_default.charge_error,
+        "larger Hessian bound should not reduce charge certificate error"
+    );
+    expect(
+        strict_hessian.charge_error > 0.0,
+        "large Hessian bound should make the certified fixture uncertain"
     );
 }
 

@@ -8,7 +8,12 @@ from typing import Any
 import numpy as np
 
 try:
-    from ._native import AdaptiveOptions, IntegrationRuntime, TightBindingModel
+    from ._native import (
+        AdaptiveOptions,
+        IntegrationRuntime,
+        TightBindingHessianBound,
+        TightBindingModel,
+    )
     from ._native import _fermi_surface_stats as _native_fermi_surface_stats
     from ._native import _reset_fermi_surface_stats
     from ._native import certify_simplex as _native_certify_simplex
@@ -20,6 +25,7 @@ except ImportError:  # pragma: no cover - exercised when extension is unavailabl
     AdaptiveOptions = None
     IntegrationRuntime = None
     TightBindingModel = None
+    TightBindingHessianBound = None
     _native_certify_simplex = None
     _native_fermi_surface_stats = None
     _reset_fermi_surface_stats = None
@@ -71,6 +77,7 @@ class SimplexCertificate:
     status: str
     occupation_bounds: OccupationBounds
     mu_interval: MuInterval
+    energy_bound: float
 
     @property
     def has_mu_interval(self) -> bool:
@@ -96,7 +103,9 @@ class FermiSurfaceStats:
 class FermiSurfaceParameters:
     mu: float
     min_feature_size: float
-    margin: float
+    hessian_bound: float | None
+    hessian_bound_is_callable: bool
+    anharmonicity_bound: float
     max_diagonalizations: int | None
     ndim: int
     ndof: int
@@ -154,6 +163,11 @@ def _validate_dense_tb(tb: _tb_type) -> None:
 
 def _tb_to_tight_binding_model(tb: _tb_type):
     _require_native_extension()
+    keys, matrices = _tb_arrays(tb)
+    return TightBindingModel(keys, matrices)
+
+
+def _tb_arrays(tb: _tb_type):
     _validate_dense_tb(tb)
     keys = np.asarray([tuple(key) for key in tb.keys()], dtype=np.int64, order="C")
     matrices = np.asarray(
@@ -161,7 +175,7 @@ def _tb_to_tight_binding_model(tb: _tb_type):
         dtype=np.complex128,
         order="C",
     )
-    return TightBindingModel(keys, matrices)
+    return keys, matrices
 
 
 def tight_binding_hamiltonian(tb: _tb_type):
@@ -197,6 +211,34 @@ def tight_binding_hamiltonian(tb: _tb_type):
             return result
 
     return TightBindingHamiltonian()
+
+
+def tight_binding_hessian_bound(tb: _tb_type):
+    _require_native_extension()
+    if TightBindingHessianBound is None:
+        raise RuntimeError("Tight-binding Hessian bounds require the compiled native extension")
+    keys, matrices = _tb_arrays(tb)
+    native = TightBindingHessianBound(keys, matrices)
+    ndim = int(native.ndim)
+
+    class TightBindingHessianBoundCallable:
+        __signature__ = inspect.Signature(
+            [
+                inspect.Parameter(
+                    f"k{axis}",
+                    inspect.Parameter.POSITIONAL_OR_KEYWORD,
+                )
+                for axis in range(ndim)
+            ]
+        )
+
+        def __call__(self, *coords: float) -> float:
+            if len(coords) != ndim:
+                raise TypeError(f"expected {ndim} coordinates, got {len(coords)}")
+            point = np.ascontiguousarray(np.asarray(coords, dtype=np.float64))
+            return float(native.evaluate_point(point))
+
+    return TightBindingHessianBoundCallable()
 
 
 def _callable_ndim(hamiltonian: Any) -> int:
@@ -308,6 +350,15 @@ def _adaptive_options(
         min_refinement_batch_size=operator.index(min_refinement_batch_size),
         max_refinement_batch_size=operator.index(max_refinement_batch_size),
     )
+
+
+def _normalize_hessian_bound(hessian_bound: Any):
+    if callable(hessian_bound):
+        return hessian_bound
+    hessian = float(hessian_bound)
+    if not np.isfinite(hessian) or hessian < 0.0:
+        raise ValueError("hessian_bound must be finite and non-negative")
+    return hessian
 
 
 def _normalize_keys(keys, ndim: int) -> tuple[tuple[int, ...], ...]:
@@ -435,12 +486,18 @@ def charge(
     options=None,
     refine: bool = True,
     certify: bool = True,
+    hessian_bound: Any = 0.0,
+    anharmonicity_bound: float = 0.0,
     max_refinements: int | None = None,
     preview_depth: int = 1,
     min_refinement_batch_size: int = 1,
     max_refinement_batch_size: int = 100,
 ):
     mesh = _require_mesh(mesh)
+    hessian = _normalize_hessian_bound(hessian_bound)
+    anharmonicity = float(anharmonicity_bound)
+    if not np.isfinite(anharmonicity) or anharmonicity < 0.0:
+        raise ValueError("anharmonicity_bound must be finite and non-negative")
     adaptive_options = _adaptive_options(
         target_error=target_error,
         options=options,
@@ -454,6 +511,8 @@ def charge(
         adaptive_options,
         bool(refine),
         bool(certify),
+        hessian,
+        anharmonicity,
     )
 
 
@@ -516,6 +575,7 @@ def _certificate_from_native(certificate) -> SimplexCertificate:
             lower=float(certificate.mu_interval.lower),
             upper=float(certificate.mu_interval.upper),
         ),
+        energy_bound=float(certificate.energy_bound),
     )
 
 
@@ -564,7 +624,9 @@ def _fermi_surface_from_native_result(
     stats: dict[str, Any],
     mu: float,
     min_feature_size: float,
-    margin: float,
+    hessian_bound: float | None,
+    hessian_bound_is_callable: bool,
+    anharmonicity_bound: float,
     max_diagonalizations: int,
     ndim: int,
     ndof: int,
@@ -584,7 +646,9 @@ def _fermi_surface_from_native_result(
         parameters=FermiSurfaceParameters(
             mu=float(mu),
             min_feature_size=float(min_feature_size),
-            margin=float(margin),
+            hessian_bound=None if hessian_bound is None else float(hessian_bound),
+            hessian_bound_is_callable=bool(hessian_bound_is_callable),
+            anharmonicity_bound=float(anharmonicity_bound),
             max_diagonalizations=None if max_diagonalizations < 0 else max_diagonalizations,
             ndim=int(ndim),
             ndof=int(ndof),
@@ -599,7 +663,8 @@ def fermi_surface(
     mu: float = 0.0,
     min_feature_size: float,
     max_diagonalizations: int | None = None,
-    margin: float | None = 0.0,
+    hessian_bound: Any = 0.0,
+    anharmonicity_bound: float = 0.0,
     return_states: bool = False,
 ) -> FermiSurface:
     _require_native_extension()
@@ -613,9 +678,12 @@ def fermi_surface(
     feature_size = float(min_feature_size)
     if not np.isfinite(feature_size) or feature_size <= 0.0:
         raise ValueError("min_feature_size must be positive")
-    certificate_margin = 0.0 if margin is None else float(margin)
-    if not np.isfinite(certificate_margin) or certificate_margin < 0.0:
-        raise ValueError("margin must be finite and non-negative")
+    hessian = _normalize_hessian_bound(hessian_bound)
+    hessian_is_callable = callable(hessian)
+    hessian_parameter = None if hessian_is_callable else float(hessian)
+    anharmonicity = float(anharmonicity_bound)
+    if not np.isfinite(anharmonicity) or anharmonicity < 0.0:
+        raise ValueError("anharmonicity_bound must be finite and non-negative")
     max_diag_native = _normalize_max_diagonalizations(max_diagonalizations)
     if not isinstance(return_states, bool):
         raise TypeError("return_states must be a bool")
@@ -631,7 +699,8 @@ def fermi_surface(
             float(mu),
             feature_size,
             max_diag_native,
-            certificate_margin,
+            hessian,
+            anharmonicity,
             hamiltonian._tol,
             return_states,
         )
@@ -645,7 +714,8 @@ def fermi_surface(
             float(mu),
             feature_size,
             max_diag_native,
-            certificate_margin,
+            hessian,
+            anharmonicity,
             _GEOM_TOL,
             return_states,
         )
@@ -657,7 +727,9 @@ def fermi_surface(
         stats=_native_fermi_surface_stats(),
         mu=float(mu),
         min_feature_size=feature_size,
-        margin=certificate_margin,
+        hessian_bound=hessian_parameter,
+        hessian_bound_is_callable=hessian_is_callable,
+        anharmonicity_bound=anharmonicity,
         max_diagonalizations=max_diag_native,
         ndim=ndim,
         ndof=ndof,

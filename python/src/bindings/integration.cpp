@@ -1,6 +1,5 @@
 #include "arrays.h"
 #include "bindings.h"
-#include "energy_bound.h"
 #include "python_hamiltonian.h"
 
 #include "integration/charge.h"
@@ -111,13 +110,11 @@ public:
     ChargeIntegrand(
         IntegrationWorkspace &workspace,
         double mu,
-        EnergyBoundModel energy_bound,
         bool certify_preview,
         ChargeCertificateCache &certificate_cache
     ) : workspace_(workspace),
         cache_(workspace.cache()),
         mu_(mu),
-        energy_bound_(std::move(energy_bound)),
         certify_preview_(certify_preview),
         certificate_cache_(certificate_cache) {}
 
@@ -156,8 +153,6 @@ public:
             auto preview = integral_value_type{};
             const auto preview_ids = geometry.preview_active(simplex_id, 1);
             for (const auto preview_id : preview_ids) {
-                const auto preview_energy_bound =
-                    certify_preview_ ? energy_bound_.on_simplex(geometry, preview_id) : 0.0;
                 preview += charge_on_simplex_with_energy_bound(
                     mu_,
                     workspace_,
@@ -166,7 +161,7 @@ public:
                     cache_,
                     certify_preview_,
                     certify_preview_ ? &certificate_cache_ : nullptr,
-                    preview_energy_bound
+                    0.0
                 );
             }
 
@@ -193,7 +188,6 @@ private:
     IntegrationWorkspace &workspace_;
     cache_type &cache_;
     double mu_ = 0.0;
-    EnergyBoundModel energy_bound_;
     bool certify_preview_ = false;
     ChargeCertificateCache &certificate_cache_;
 };
@@ -221,12 +215,13 @@ public:
         nb::object hessian_bound,
         double anharmonicity_bound
     ) {
+        (void)hessian_bound;
+        (void)anharmonicity_bound;
         auto charge_options = options;
         charge_options.preview_depth = 1;
         auto integrand = ChargeIntegrand(
             workspace_,
             mu,
-            EnergyBoundModel(std::move(hessian_bound), anharmonicity_bound),
             refine ? true : certify,
             charge_certificate_cache_
         );

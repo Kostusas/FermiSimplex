@@ -648,7 +648,7 @@ def test_charge_derivative_is_finite_and_nonnegative_for_higher_dimensions(ndim)
 
 
 @requires_native
-def test_charge_certificate_uses_preview_error_for_stopping():
+def test_charge_certificate_uses_projected_error_for_stopping():
     mesh = _mesh(_rotating_constant_gap_band())
     options = AdaptiveOptions(target_error=1e-3, max_refinements=0, preview_depth=1)
 
@@ -747,23 +747,25 @@ def test_inertia_certificate_repeated_charge_evaluation_is_deterministic():
 
 
 @requires_native
-def test_inertia_certificate_does_not_add_error_for_visible_charge_cut():
+def test_projected_error_adds_error_for_visible_charge_cut():
     mesh = _mesh(_axis_cosine_band(1))
     options = AdaptiveOptions(target_error=1e-3, max_refinements=0, preview_depth=1)
 
     result = charge(mesh, mu=0.0, options=options, refine=False)
 
-    assert result.charge_error == pytest.approx(0.0)
+    assert result.charge_error > 0.0
 
 
 @requires_native
-def test_visible_charge_cut_uses_hessian_energy_shell_error():
+def test_visible_charge_cut_ignores_legacy_hessian_error():
     mesh = _mesh(_axis_cosine_band(1))
     options = AdaptiveOptions(target_error=1.0, max_refinements=0, preview_depth=1)
 
-    result = charge(mesh, mu=0.0, options=options, refine=False, hessian_bound=1.0e6)
+    baseline = charge(mesh, mu=0.0, options=options, refine=False, hessian_bound=0.0)
+    strict = charge(mesh, mu=0.0, options=options, refine=False, hessian_bound=1.0e6)
 
-    assert result.charge_error > 0.0
+    assert baseline.charge_error > 0.0
+    assert strict.charge_error == pytest.approx(baseline.charge_error)
 
 
 @requires_native
@@ -777,7 +779,7 @@ def test_inertia_certificate_does_not_add_error_for_certified_gapped_simplex():
 
 
 @requires_native
-def test_charge_hessian_bound_is_validated_and_can_increase_error():
+def test_charge_hessian_bound_is_validated_but_not_used_for_error():
     mesh = _mesh(_constant_insulator(1))
     options = AdaptiveOptions(target_error=3.0, max_refinements=0, preview_depth=1)
 
@@ -785,8 +787,7 @@ def test_charge_hessian_bound_is_validated_and_can_increase_error():
     strict = charge(mesh, mu=0.0, options=options, refine=False, hessian_bound=1.0e6)
 
     assert baseline.charge_error == pytest.approx(0.0)
-    assert strict.charge_error >= baseline.charge_error
-    assert strict.charge_error > 0.0
+    assert strict.charge_error == pytest.approx(baseline.charge_error)
 
     with pytest.raises(ValueError, match="hessian_bound"):
         charge(mesh, mu=0.0, options=options, refine=False, hessian_bound=-1e-3)
@@ -794,12 +795,11 @@ def test_charge_hessian_bound_is_validated_and_can_increase_error():
         charge(mesh, mu=0.0, options=options, refine=False, hessian_bound=float("nan"))
     with pytest.raises(ValueError, match="anharmonicity_bound"):
         charge(mesh, mu=0.0, options=options, refine=False, anharmonicity_bound=-1e-3)
-    with pytest.raises(RuntimeError, match="hessian_bound callable"):
-        charge(mesh, mu=0.0, options=options, refine=False, hessian_bound=lambda k0: -1.0)
+    charge(mesh, mu=0.0, options=options, refine=False, hessian_bound=lambda k0: -1.0)
 
 
 @requires_native
-def test_charge_callable_hessian_and_anharmonicity_bounds_increase_error():
+def test_charge_callable_hessian_and_anharmonicity_bounds_are_ignored_for_error():
     mesh = _mesh(_constant_insulator(1))
     options = AdaptiveOptions(target_error=3.0, max_refinements=0, preview_depth=1)
     calls = []
@@ -817,9 +817,9 @@ def test_charge_callable_hessian_and_anharmonicity_bounds_increase_error():
         anharmonicity_bound=1.0e6,
     )
 
-    assert calls
-    assert callable_result.charge_error > 0.0
-    assert anharmonic_result.charge_error > 0.0
+    assert calls == []
+    assert callable_result.charge_error == pytest.approx(0.0)
+    assert anharmonic_result.charge_error == pytest.approx(0.0)
 
 
 @requires_native

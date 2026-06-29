@@ -120,6 +120,7 @@ set(
   src/integration/charge_certificate_cache.cpp
   src/integration/charge_runtime.cpp
   src/integration/density.cpp
+  src/integration/projected_error.cpp
   src/integration/runtime.cpp
   src/integration/workspace.cpp
   src/core/linear_algebra.cpp

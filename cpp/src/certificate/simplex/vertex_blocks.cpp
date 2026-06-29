@@ -50,6 +50,32 @@ std::vector<Complex> scale_overlap_columns(
     return result;
 }
 
+std::vector<Complex> sector_overlap(
+    std::span<const Complex> anchor_vectors,
+    size_t ndof,
+    size_t column_offset,
+    size_t size,
+    std::span<const Complex> target_vectors
+) {
+    std::vector<Complex> result(size * ndof, Complex{0.0, 0.0});
+    gemm(
+        'C',
+        'N',
+        size,
+        ndof,
+        ndof,
+        Complex{1.0, 0.0},
+        anchor_vectors.data() + column_offset * ndof,
+        ndof,
+        target_vectors.data(),
+        ndof,
+        Complex{0.0, 0.0},
+        result.data(),
+        size
+    );
+    return result;
+}
+
 std::vector<Complex> submatrix_copy(
     std::span<const Complex> matrix,
     size_t rows,
@@ -82,7 +108,66 @@ void hermitize_square(std::vector<Complex> &matrix, size_t size) {
     }
 }
 
+std::vector<Complex> diagonal_sector_block(
+    std::span<const double> eigenvalues,
+    size_t offset,
+    size_t size,
+    double mu
+) {
+    std::vector<Complex> result(size * size, Complex{0.0, 0.0});
+    for (size_t index = 0; index < size; ++index) {
+        result[column_major_index(index, index, size)] =
+            Complex{signed_eigenvalue(eigenvalues, offset + index, mu), 0.0};
+    }
+    return result;
+}
+
+std::vector<Complex> transformed_sector_block(
+    std::span<const Complex> overlap,
+    size_t size,
+    std::span<const double> target_eigenvalues,
+    double mu
+) {
+    const auto scaled_overlap =
+        scale_overlap_columns(overlap.data(), size, size, target_eigenvalues.size(), target_eigenvalues, mu);
+    std::vector<Complex> result(size * size, Complex{0.0, 0.0});
+    gemm(
+        'N',
+        'C',
+        size,
+        size,
+        target_eigenvalues.size(),
+        Complex{1.0, 0.0},
+        scaled_overlap.data(),
+        size,
+        overlap.data(),
+        size,
+        Complex{0.0, 0.0},
+        result.data(),
+        size
+    );
+    hermitize_square(result, size);
+    return result;
+}
+
 }  // namespace
+
+VertexBlocks build_anchor_vertex_blocks(
+    size_t ndof,
+    size_t nocc,
+    std::span<const double> anchor_eigenvalues,
+    double mu,
+    bool include_coupling
+) {
+    const auto nunocc = ndof - nocc;
+    VertexBlocks blocks;
+    blocks.occupied_block = diagonal_sector_block(anchor_eigenvalues, 0, nocc, mu);
+    blocks.unoccupied_block = diagonal_sector_block(anchor_eigenvalues, nocc, nunocc, mu);
+    if (include_coupling) {
+        blocks.coupling_block.assign(nunocc * nocc, Complex{0.0, 0.0});
+    }
+    return blocks;
+}
 
 VertexBlocks build_vertex_blocks(
     std::span<const Complex> anchor_vectors,
@@ -141,6 +226,26 @@ VertexBlocks build_vertex_blocks(
     );
     hermitize_square(blocks.unoccupied_block, nunocc);
     hermitize_square(blocks.occupied_block, nocc);
+    return blocks;
+}
+
+VertexBlocks build_vertex_occupation_blocks(
+    std::span<const Complex> anchor_vectors,
+    size_t ndof,
+    size_t nocc,
+    std::span<const double> target_eigenvalues,
+    std::span<const Complex> target_eigenvectors,
+    double mu
+) {
+    const auto nunocc = ndof - nocc;
+    VertexBlocks blocks;
+    const auto occupied_overlap =
+        sector_overlap(anchor_vectors, ndof, 0, nocc, target_eigenvectors);
+    const auto unoccupied_overlap =
+        sector_overlap(anchor_vectors, ndof, nocc, nunocc, target_eigenvectors);
+    blocks.occupied_block = transformed_sector_block(occupied_overlap, nocc, target_eigenvalues, mu);
+    blocks.unoccupied_block =
+        transformed_sector_block(unoccupied_overlap, nunocc, target_eigenvalues, mu);
     return blocks;
 }
 

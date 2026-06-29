@@ -37,6 +37,9 @@ public:
     adaptivesimplex::core::VertexCache<VertexSpectra> &cache() noexcept { return cache_; }
 
     VertexSpectra evaluate_vertex(std::span<const double> reduced_point) const;
+    std::vector<std::complex<double>> evaluate_hamiltonian(
+        std::span<const double> reduced_point
+    ) const;
 
 private:
     std::shared_ptr<const HamiltonianModel> model_;

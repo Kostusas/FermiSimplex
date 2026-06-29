@@ -9,6 +9,8 @@
 
 #include <exception>
 #include <iostream>
+#include <memory>
+#include <utility>
 
 namespace {
 
@@ -117,7 +119,7 @@ void test_charge_path_uses_occupation_bounds() {
         bounded_result.charge_error,
         2.0,
         1e-12,
-        "charge path should use the certified [0,2] occupation-width error"
+        "inconclusive charge error should use the certified [0,2] occupation-width error"
     );
 
     auto visible_runtime = lineartetrahedron::IntegrationRuntime(
@@ -137,13 +139,42 @@ void test_charge_path_uses_occupation_bounds() {
     );
 
     const auto strict_hessian = visible_runtime.evaluate_charge(0.0, options, true, 1.0e6);
-    expect(
-        strict_hessian.charge_error >= visible_default.charge_error,
-        "larger Hessian bound should not reduce charge certificate error"
+    expect_near(
+        strict_hessian.charge_error,
+        visible_default.charge_error,
+        1e-12,
+        "Hessian input should not contribute charge certificate error"
     );
+}
+
+void test_projected_error_detects_nonlinear_visible_cut() {
+    std::vector<std::int64_t> keys{1, -1};
+    std::vector<Complex> matrices{Complex{0.5, 0.0}, Complex{0.5, 0.0}};
+    auto runtime = lineartetrahedron::IntegrationRuntime(
+        std::make_shared<lineartetrahedron::TightBindingModel>(
+            1,
+            1,
+            std::move(keys),
+            std::move(matrices)
+        ),
+        {0},
+        {},
+        {},
+        {},
+        kTol
+    );
+    const auto options = adaptivesimplex::adaptive::Options{
+        .target_error = 1.0,
+        .max_refinements = 0,
+        .preview_depth = 1,
+        .min_refinement_batch_size = 1,
+        .max_refinement_batch_size = 100,
+    };
+
+    const auto result = runtime.evaluate_charge(0.0, options);
     expect(
-        strict_hessian.charge_error > 0.0,
-        "large Hessian bound should make the certified fixture uncertain"
+        result.charge_error > 0.0,
+        "projected residual shell should add error for nonlinear visible cuts"
     );
 }
 
@@ -154,6 +185,7 @@ int main() {
         test_charge_certificate_cache_respects_mu_range();
         test_charge_on_simplex_reuses_cached_certificate();
         test_charge_path_uses_occupation_bounds();
+        test_projected_error_detects_nonlinear_visible_cut();
     } catch (const std::exception &exc) {
         std::cerr << exc.what() << "\n";
         return 1;

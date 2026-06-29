@@ -23,4 +23,21 @@ VertexBlocks build_vertex_blocks(
     double mu
 );
 
+VertexBlocks build_anchor_vertex_blocks(
+    size_t ndof,
+    size_t nocc,
+    std::span<const double> anchor_eigenvalues,
+    double mu,
+    bool include_coupling
+);
+
+VertexBlocks build_vertex_occupation_blocks(
+    std::span<const Complex> anchor_vectors,
+    size_t ndof,
+    size_t nocc,
+    std::span<const double> target_eigenvalues,
+    std::span<const Complex> target_eigenvectors,
+    double mu
+);
+
 }  // namespace lineartetrahedron::simplex_certificate::detail

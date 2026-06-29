@@ -41,4 +41,10 @@ VertexSpectra IntegrationWorkspace::evaluate_vertex(std::span<const double> redu
     return evaluator_.evaluate_reduced_point(reduced_point);
 }
 
+std::vector<std::complex<double>> IntegrationWorkspace::evaluate_hamiltonian(
+    std::span<const double> reduced_point
+) const {
+    return model_->evaluate_reduced_point_raw(reduced_point.data());
+}
+
 }  // namespace lineartetrahedron

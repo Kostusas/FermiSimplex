@@ -21,7 +21,18 @@ SimplexBlocks build_simplex_blocks(
     std::span<const std::span<const Complex>> eigenvectors,
     std::span<const Complex> anchor_vectors,
     size_t ndof,
-    size_t nocc
+    size_t nocc,
+    size_t anchor_vertex_index
+);
+
+std::vector<VertexBlocks> build_simplex_occupation_blocks(
+    double mu,
+    std::span<const std::span<const double>> eigenvalues,
+    std::span<const std::span<const Complex>> eigenvectors,
+    std::span<const Complex> anchor_vectors,
+    size_t ndof,
+    size_t nocc,
+    size_t anchor_vertex_index
 );
 
 std::vector<Complex> perturbative_rotation(

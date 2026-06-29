@@ -118,21 +118,22 @@ SimplexCertificate certify_simplex(
     const auto nocc = anchor_selection.nocc;
     const auto ndof = anchor_selection.ndof;
     const auto nunocc = ndof - nocc;
-    const auto blocks = build_simplex_blocks(
-        mu,
-        eigenvalues,
-        eigenvectors,
-        anchor_eigenvectors,
-        ndof,
-        nocc
-    );
     if (vertex_classification == VertexSpectraClassification::VisibleGapless) {
+        const auto blocks = build_simplex_occupation_blocks(
+            mu,
+            eigenvalues,
+            eigenvectors,
+            anchor_eigenvectors,
+            ndof,
+            nocc,
+            anchor_selection.vertex_index
+        );
         auto result = occupation_bounded_certificate(
             SimplexCertificateStatus::VisibleGapless,
             mu,
             ndof,
             nocc,
-            blocks.vertices,
+            blocks,
             tol,
             margin,
             estimate_occupation_bounds
@@ -140,6 +141,16 @@ SimplexCertificate certify_simplex(
         result.energy_bound = margin;
         return result;
     }
+
+    const auto blocks = build_simplex_blocks(
+        mu,
+        eigenvalues,
+        eigenvectors,
+        anchor_eigenvectors,
+        ndof,
+        nocc,
+        anchor_selection.vertex_index
+    );
 
     const auto rotation = perturbative_rotation(
         std::span<const Complex>(blocks.average_coupling.data(), blocks.average_coupling.size()),

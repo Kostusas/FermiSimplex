@@ -150,12 +150,14 @@ public:
                 cache_,
                 false,
                 nullptr,
-                energy_bound_.on_simplex(geometry, simplex_id)
+                0.0
             );
 
             auto preview = integral_value_type{};
             const auto preview_ids = geometry.preview_active(simplex_id, 1);
             for (const auto preview_id : preview_ids) {
+                const auto preview_energy_bound =
+                    certify_preview_ ? energy_bound_.on_simplex(geometry, preview_id) : 0.0;
                 preview += charge_on_simplex_with_energy_bound(
                     mu_,
                     workspace_,
@@ -164,7 +166,7 @@ public:
                     cache_,
                     certify_preview_,
                     certify_preview_ ? &certificate_cache_ : nullptr,
-                    energy_bound_.on_simplex(geometry, preview_id)
+                    preview_energy_bound
                 );
             }
 
@@ -235,6 +237,12 @@ public:
                 .charge = raw.integral.charge,
                 .charge_error = raw.stopping_error,
                 .dcharge_dmu = raw.integral.derivative,
+                .visible_cut_error = raw.integral.visible_cut_error,
+                .visible_cut_inconclusive_style_error =
+                    raw.integral.visible_cut_inconclusive_style_error,
+                .visible_cut_count = raw.integral.visible_cut_count,
+                .inconclusive_error = raw.integral.inconclusive_error,
+                .inconclusive_count = raw.integral.inconclusive_count,
                 .work = raw.evaluations,
                 .refinements = raw.refinements,
                 .n_active_simplices = n_active_simplices(),
@@ -271,6 +279,12 @@ public:
             .charge = value.charge,
             .charge_error = charge_error,
             .dcharge_dmu = value.derivative,
+            .visible_cut_error = value.visible_cut_error,
+            .visible_cut_inconclusive_style_error =
+                value.visible_cut_inconclusive_style_error,
+            .visible_cut_count = value.visible_cut_count,
+            .inconclusive_error = value.inconclusive_error,
+            .inconclusive_count = value.inconclusive_count,
             .work = evaluations,
             .refinements = 0,
             .n_active_simplices = n_active_simplices(),
@@ -345,6 +359,11 @@ void bind_integration(nb::module_ &m) {
         .def_prop_ro("charge", [](const ChargeIntegrateResult &self) { return self.charge; })
         .def_prop_ro("charge_error", [](const ChargeIntegrateResult &self) { return self.charge_error; })
         .def_prop_ro("dcharge_dmu", [](const ChargeIntegrateResult &self) { return self.dcharge_dmu; })
+        .def_prop_ro("visible_cut_error", [](const ChargeIntegrateResult &self) { return self.visible_cut_error; })
+        .def_prop_ro("visible_cut_inconclusive_style_error", [](const ChargeIntegrateResult &self) { return self.visible_cut_inconclusive_style_error; })
+        .def_prop_ro("visible_cut_count", [](const ChargeIntegrateResult &self) { return self.visible_cut_count; })
+        .def_prop_ro("inconclusive_error", [](const ChargeIntegrateResult &self) { return self.inconclusive_error; })
+        .def_prop_ro("inconclusive_count", [](const ChargeIntegrateResult &self) { return self.inconclusive_count; })
         .def_prop_ro("work", [](const ChargeIntegrateResult &self) { return self.work; })
         .def_prop_ro("refinements", [](const ChargeIntegrateResult &self) { return self.refinements; })
         .def_prop_ro("n_active_simplices", [](const ChargeIntegrateResult &self) { return self.n_active_simplices; })

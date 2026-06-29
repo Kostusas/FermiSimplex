@@ -221,6 +221,8 @@ ChargeValue charge_on_simplex_with_energy_bound(
             result.certificate_error =
                 static_cast<double>(simplex_certificate::occupation_width(certificate)) *
                 simplex.volume;
+            result.inconclusive_error = result.certificate_error;
+            result.inconclusive_count = 1;
         } else if (
             certificate.status == simplex_certificate::SimplexCertificateStatus::VisibleGapless
         ) {
@@ -232,6 +234,11 @@ ChargeValue charge_on_simplex_with_energy_bound(
                 certificate,
                 workspace.tol()
             );
+            result.visible_cut_error = result.certificate_error;
+            result.visible_cut_inconclusive_style_error =
+                static_cast<double>(simplex_certificate::occupation_width(certificate)) *
+                simplex.volume;
+            result.visible_cut_count = 1;
         }
     }
 

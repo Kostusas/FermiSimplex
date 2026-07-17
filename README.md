@@ -16,6 +16,15 @@ Coordinates passed to the Hamiltonian are normalized. In 2D, `kx=0` and
 for a tight-binding term with lattice vector `R` is
 `exp(-2j * pi * dot(k, R))`.
 
+Charge integration estimates `Inconclusive` simplex errors from projected
+nonlinear residuals by default. Pass
+`inconclusive_error_mode="conservative"` to `charge` to recover the full
+occupation-width estimate used previously:
+
+```python
+result = charge(mesh, mu=0.0, inconclusive_error_mode="conservative")
+```
+
 ## Install
 
 Recommended: add the Git branch as a Pixi source package. Pixi will build the

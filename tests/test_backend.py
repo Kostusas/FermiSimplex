@@ -672,11 +672,29 @@ def test_preview_certified_charge_integrates_without_refinement():
 
 
 @requires_native
-def test_occupation_bounded_certificate_error_can_be_within_charge_tolerance():
+def test_projected_inconclusive_error_is_default():
+    mesh = _mesh(_winding_constant_gap_band(3))
+    options = AdaptiveOptions(target_error=1e-3, max_refinements=0, preview_depth=1)
+
+    result = charge(mesh, mu=0.0, options=options, refine=False)
+
+    assert result.charge == pytest.approx(1.0)
+    assert result.charge_error == pytest.approx(0.0)
+    assert result.converged
+
+
+@requires_native
+def test_conservative_inconclusive_error_can_be_within_charge_tolerance():
     mesh = _mesh(_winding_constant_gap_band(3))
     options = AdaptiveOptions(target_error=2.1, max_refinements=0, preview_depth=1)
 
-    result = charge(mesh, mu=0.0, options=options, refine=False)
+    result = charge(
+        mesh,
+        mu=0.0,
+        options=options,
+        refine=False,
+        inconclusive_error_mode="conservative",
+    )
 
     assert result.charge == pytest.approx(1.0)
     assert result.charge_error == pytest.approx(2.0)
@@ -684,11 +702,17 @@ def test_occupation_bounded_certificate_error_can_be_within_charge_tolerance():
 
 
 @requires_native
-def test_occupation_bounded_certificate_error_can_block_charge_convergence():
+def test_conservative_inconclusive_error_can_block_charge_convergence():
     mesh = _mesh(_winding_constant_gap_band(3))
     options = AdaptiveOptions(target_error=1.75, max_refinements=0, preview_depth=1)
 
-    result = charge(mesh, mu=0.0, options=options, refine=False)
+    result = charge(
+        mesh,
+        mu=0.0,
+        options=options,
+        refine=False,
+        inconclusive_error_mode="conservative",
+    )
 
     assert result.charge == pytest.approx(1.0)
     assert result.charge_error == pytest.approx(2.0)
@@ -700,8 +724,21 @@ def test_uncertified_charge_integration_suppresses_certificate_error():
     mesh = _mesh(_winding_constant_gap_band(3))
     options = AdaptiveOptions(target_error=1.75, max_refinements=0, preview_depth=2)
 
-    certified = charge(mesh, mu=0.0, options=options, refine=False)
-    uncertified = charge(mesh, mu=0.0, options=options, refine=False, certify=False)
+    certified = charge(
+        mesh,
+        mu=0.0,
+        options=options,
+        refine=False,
+        inconclusive_error_mode="conservative",
+    )
+    uncertified = charge(
+        mesh,
+        mu=0.0,
+        options=options,
+        refine=False,
+        certify=False,
+        inconclusive_error_mode="conservative",
+    )
 
     assert certified.charge == pytest.approx(uncertified.charge)
     assert certified.charge_error == pytest.approx(2.0)
@@ -729,7 +766,7 @@ def test_integrate_charge_remains_certified():
     options = AdaptiveOptions(target_error=0.75, max_refinements=0, preview_depth=1)
 
     with pytest.raises(RuntimeError, match="did not converge"):
-        charge(mesh, mu=0.0, options=options)
+        charge(mesh, mu=0.0, options=options, inconclusive_error_mode="conservative")
 
 
 @requires_native
@@ -747,13 +784,14 @@ def test_inertia_certificate_repeated_charge_evaluation_is_deterministic():
 
 
 @requires_native
-def test_projected_error_adds_error_for_visible_charge_cut():
+def test_projected_error_uses_asymmetric_residual_directions():
     mesh = _mesh(_axis_cosine_band(1))
     options = AdaptiveOptions(target_error=1e-3, max_refinements=0, preview_depth=1)
 
     result = charge(mesh, mu=0.0, options=options, refine=False)
 
-    assert result.charge_error > 0.0
+    assert result.visible_cut_count > 0
+    assert result.charge_error == pytest.approx(0.0)
 
 
 @requires_native
@@ -761,8 +799,8 @@ def test_visible_charge_cut_ignores_legacy_hessian_error():
     mesh = _mesh(_axis_cosine_band(1))
     options = AdaptiveOptions(target_error=1.0, max_refinements=0, preview_depth=1)
 
-    baseline = charge(mesh, mu=0.0, options=options, refine=False, hessian_bound=0.0)
-    strict = charge(mesh, mu=0.0, options=options, refine=False, hessian_bound=1.0e6)
+    baseline = charge(mesh, mu=0.2, options=options, refine=False, hessian_bound=0.0)
+    strict = charge(mesh, mu=0.2, options=options, refine=False, hessian_bound=1.0e6)
 
     assert baseline.charge_error > 0.0
     assert strict.charge_error == pytest.approx(baseline.charge_error)
@@ -796,6 +834,17 @@ def test_charge_hessian_bound_is_validated_but_not_used_for_error():
     with pytest.raises(ValueError, match="anharmonicity_bound"):
         charge(mesh, mu=0.0, options=options, refine=False, anharmonicity_bound=-1e-3)
     charge(mesh, mu=0.0, options=options, refine=False, hessian_bound=lambda k0: -1.0)
+
+
+@requires_native
+def test_charge_rejects_unknown_inconclusive_error_mode():
+    mesh = _mesh(_constant_insulator(1))
+    options = AdaptiveOptions(target_error=1e-3, max_refinements=0, preview_depth=1)
+
+    with pytest.raises(ValueError, match="inconclusive_error_mode"):
+        charge(mesh, options=options, refine=False, inconclusive_error_mode="fast")
+    with pytest.raises(TypeError, match="inconclusive_error_mode"):
+        charge(mesh, options=options, refine=False, inconclusive_error_mode=True)
 
 
 @requires_native
@@ -833,7 +882,7 @@ def test_charge_accepts_native_tight_binding_hessian_bound_callable():
 
     result = charge(
         mesh,
-        mu=0.0,
+        mu=1.0e5,
         options=options,
         refine=False,
         hessian_bound=tight_binding_hessian_bound(tb),

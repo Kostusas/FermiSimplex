@@ -81,6 +81,7 @@ public:
         double mu,
         double hessian_bound,
         double anharmonicity_bound,
+        InconclusiveChargeErrorMode inconclusive_error_mode,
         bool certify_preview,
         ChargeCertificateCache &certificate_cache
     ) : workspace_(workspace),
@@ -88,6 +89,7 @@ public:
         mu_(mu),
         hessian_bound_(hessian_bound),
         anharmonicity_bound_(anharmonicity_bound),
+        inconclusive_error_mode_(inconclusive_error_mode),
         certify_preview_(certify_preview),
         certificate_cache_(certificate_cache) {}
 
@@ -121,7 +123,8 @@ public:
                 false,
                 nullptr,
                 hessian_bound_,
-                anharmonicity_bound_
+                anharmonicity_bound_,
+                inconclusive_error_mode_
             );
 
             auto preview = integral_value_type{};
@@ -136,7 +139,8 @@ public:
                     certify_preview_,
                     certify_preview_ ? &certificate_cache_ : nullptr,
                     hessian_bound_,
-                    anharmonicity_bound_
+                    anharmonicity_bound_,
+                    inconclusive_error_mode_
                 );
             }
 
@@ -165,6 +169,8 @@ private:
     double mu_ = 0.0;
     double hessian_bound_ = 0.0;
     double anharmonicity_bound_ = 0.0;
+    InconclusiveChargeErrorMode inconclusive_error_mode_ =
+        InconclusiveChargeErrorMode::Projected;
     bool certify_preview_ = false;
     ChargeCertificateCache &certificate_cache_;
 };
@@ -174,6 +180,7 @@ ChargeIntegrand make_charge_integrand(
     double mu,
     double hessian_bound,
     double anharmonicity_bound,
+    InconclusiveChargeErrorMode inconclusive_error_mode,
     bool certify_preview,
     ChargeCertificateCache &certificate_cache
 ) {
@@ -182,6 +189,7 @@ ChargeIntegrand make_charge_integrand(
         mu,
         hessian_bound,
         anharmonicity_bound,
+        inconclusive_error_mode,
         certify_preview,
         certificate_cache
     );
@@ -193,7 +201,8 @@ ChargeIntegrateResult IntegrationRuntime::integrate_charge(
     double mu,
     const adaptive::Options &options,
     double hessian_bound,
-    double anharmonicity_bound
+    double anharmonicity_bound,
+    InconclusiveChargeErrorMode inconclusive_error_mode
 ) {
     validate_energy_bound_inputs(hessian_bound, anharmonicity_bound);
     auto charge_options = options;
@@ -203,6 +212,7 @@ ChargeIntegrateResult IntegrationRuntime::integrate_charge(
         mu,
         hessian_bound,
         anharmonicity_bound,
+        inconclusive_error_mode,
         true,
         charge_certificate_cache_
     );
@@ -224,7 +234,8 @@ ChargeIntegrateResult IntegrationRuntime::evaluate_charge(
     const adaptive::Options &options,
     bool certify,
     double hessian_bound,
-    double anharmonicity_bound
+    double anharmonicity_bound,
+    InconclusiveChargeErrorMode inconclusive_error_mode
 ) {
     validate_energy_bound_inputs(hessian_bound, anharmonicity_bound);
     auto integrand = make_charge_integrand(
@@ -232,6 +243,7 @@ ChargeIntegrateResult IntegrationRuntime::evaluate_charge(
         mu,
         hessian_bound,
         anharmonicity_bound,
+        inconclusive_error_mode,
         certify,
         charge_certificate_cache_
     );

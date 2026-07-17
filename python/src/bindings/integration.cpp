@@ -110,11 +110,13 @@ public:
     ChargeIntegrand(
         IntegrationWorkspace &workspace,
         double mu,
+        InconclusiveChargeErrorMode inconclusive_error_mode,
         bool certify_preview,
         ChargeCertificateCache &certificate_cache
     ) : workspace_(workspace),
         cache_(workspace.cache()),
         mu_(mu),
+        inconclusive_error_mode_(inconclusive_error_mode),
         certify_preview_(certify_preview),
         certificate_cache_(certificate_cache) {}
 
@@ -147,7 +149,8 @@ public:
                 cache_,
                 false,
                 nullptr,
-                0.0
+                0.0,
+                inconclusive_error_mode_
             );
 
             auto preview = integral_value_type{};
@@ -161,7 +164,8 @@ public:
                     cache_,
                     certify_preview_,
                     certify_preview_ ? &certificate_cache_ : nullptr,
-                    0.0
+                    0.0,
+                    inconclusive_error_mode_
                 );
             }
 
@@ -188,6 +192,8 @@ private:
     IntegrationWorkspace &workspace_;
     cache_type &cache_;
     double mu_ = 0.0;
+    InconclusiveChargeErrorMode inconclusive_error_mode_ =
+        InconclusiveChargeErrorMode::Projected;
     bool certify_preview_ = false;
     ChargeCertificateCache &certificate_cache_;
 };
@@ -213,7 +219,8 @@ public:
         bool refine,
         bool certify,
         nb::object hessian_bound,
-        double anharmonicity_bound
+        double anharmonicity_bound,
+        InconclusiveChargeErrorMode inconclusive_error_mode
     ) {
         (void)hessian_bound;
         (void)anharmonicity_bound;
@@ -222,6 +229,7 @@ public:
         auto integrand = ChargeIntegrand(
             workspace_,
             mu,
+            inconclusive_error_mode,
             refine ? true : certify,
             charge_certificate_cache_
         );
@@ -350,6 +358,10 @@ private:
 void bind_integration(nb::module_ &m) {
     using namespace nb::literals;
 
+    nb::enum_<InconclusiveChargeErrorMode>(m, "InconclusiveChargeErrorMode")
+        .value("Projected", InconclusiveChargeErrorMode::Projected)
+        .value("Conservative", InconclusiveChargeErrorMode::Conservative);
+
     nb::class_<ChargeIntegrateResult>(m, "ChargeIntegrateResult")
         .def_prop_ro("charge", [](const ChargeIntegrateResult &self) { return self.charge; })
         .def_prop_ro("charge_error", [](const ChargeIntegrateResult &self) { return self.charge_error; })
@@ -469,7 +481,8 @@ void bind_integration(nb::module_ &m) {
             "refine"_a = true,
             "certify"_a = true,
             "hessian_bound"_a = 0.0,
-            "anharmonicity_bound"_a = 0.0
+            "anharmonicity_bound"_a = 0.0,
+            "inconclusive_error_mode"_a = InconclusiveChargeErrorMode::Projected
         )
         .def(
             "integrate_density",

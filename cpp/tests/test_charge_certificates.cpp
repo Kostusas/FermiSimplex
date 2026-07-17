@@ -117,9 +117,23 @@ void test_charge_path_uses_occupation_bounds() {
     const auto bounded_result = bounded_runtime.evaluate_charge(0.0, options);
     expect_near(
         bounded_result.charge_error,
+        0.0,
+        1e-12,
+        "inconclusive charge error should use the projected residual estimate by default"
+    );
+    const auto conservative_result = bounded_runtime.evaluate_charge(
+        0.0,
+        options,
+        true,
+        0.0,
+        0.0,
+        lineartetrahedron::InconclusiveChargeErrorMode::Conservative
+    );
+    expect_near(
+        conservative_result.charge_error,
         2.0,
         1e-12,
-        "inconclusive charge error should use the certified [0,2] occupation-width error"
+        "conservative mode should use the certified [0,2] occupation-width error"
     );
 
     auto visible_runtime = lineartetrahedron::IntegrationRuntime(
@@ -171,10 +185,43 @@ void test_projected_error_detects_nonlinear_visible_cut() {
         .max_refinement_batch_size = 100,
     };
 
-    const auto result = runtime.evaluate_charge(0.0, options);
+    const auto result = runtime.evaluate_charge(0.2, options);
     expect(
         result.charge_error > 0.0,
         "projected residual shell should add error for nonlinear visible cuts"
+    );
+}
+
+void test_projected_error_uses_asymmetric_residual_directions() {
+    std::vector<std::int64_t> keys{1, -1};
+    std::vector<Complex> matrices{Complex{0.5, 0.0}, Complex{0.5, 0.0}};
+    auto runtime = lineartetrahedron::IntegrationRuntime(
+        std::make_shared<lineartetrahedron::TightBindingModel>(
+            1,
+            1,
+            std::move(keys),
+            std::move(matrices)
+        ),
+        {0},
+        {},
+        {},
+        {},
+        kTol
+    );
+    const auto options = adaptivesimplex::adaptive::Options{
+        .target_error = 1.0,
+        .max_refinements = 0,
+        .preview_depth = 1,
+        .min_refinement_batch_size = 1,
+        .max_refinement_batch_size = 100,
+    };
+
+    const auto result = runtime.evaluate_charge(0.0, options);
+    expect_near(
+        result.charge_error,
+        0.0,
+        1e-12,
+        "positive actual-minus-linear residuals must tighten the lower occupation bound"
     );
 }
 
@@ -186,6 +233,7 @@ int main() {
         test_charge_on_simplex_reuses_cached_certificate();
         test_charge_path_uses_occupation_bounds();
         test_projected_error_detects_nonlinear_visible_cut();
+        test_projected_error_uses_asymmetric_residual_directions();
     } catch (const std::exception &exc) {
         std::cerr << exc.what() << "\n";
         return 1;

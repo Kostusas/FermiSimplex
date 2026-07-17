@@ -36,14 +36,18 @@ public:
         double mu,
         const adaptivesimplex::adaptive::Options &options,
         double hessian_bound = 0.0,
-        double anharmonicity_bound = 0.0
+        double anharmonicity_bound = 0.0,
+        InconclusiveChargeErrorMode inconclusive_error_mode =
+            InconclusiveChargeErrorMode::Projected
     );
     ChargeIntegrateResult evaluate_charge(
         double mu,
         const adaptivesimplex::adaptive::Options &options,
         bool certify = true,
         double hessian_bound = 0.0,
-        double anharmonicity_bound = 0.0
+        double anharmonicity_bound = 0.0,
+        InconclusiveChargeErrorMode inconclusive_error_mode =
+            InconclusiveChargeErrorMode::Projected
     );
     DensityIntegrateResult integrate_density(
         double mu,

@@ -116,8 +116,12 @@ double projected_ambiguous_certificate_error(
         certificate.occupation_bounds.upper
     );
     auto result = 0.0;
-    const auto lower_mu = mu - estimate.rho_down;
-    const auto upper_mu = mu + estimate.rho_up;
+    // The residual is H_actual - H_linear. Its positive extreme can raise an
+    // actual energy above its linear estimate, so it reduces the occupation
+    // that is guaranteed. Its negative extreme can lower an actual energy, so
+    // it increases the occupation that is possible.
+    const auto lower_mu = mu - estimate.rho_up;
+    const auto upper_mu = mu + estimate.rho_down;
     for (size_t band = certificate.occupation_bounds.lower;
          band < certificate.occupation_bounds.upper;
          ++band) {
@@ -141,7 +145,8 @@ ChargeValue charge_on_simplex(
     bool certify,
     ChargeCertificateCache *certificate_cache,
     double hessian_bound,
-    double anharmonicity_bound
+    double anharmonicity_bound,
+    InconclusiveChargeErrorMode inconclusive_error_mode
 ) {
     validate_legacy_energy_bound_inputs(hessian_bound, anharmonicity_bound);
     return charge_on_simplex_with_energy_bound(
@@ -152,7 +157,8 @@ ChargeValue charge_on_simplex(
         cache,
         certify,
         certificate_cache,
-        0.0
+        0.0,
+        inconclusive_error_mode
     );
 }
 
@@ -164,7 +170,8 @@ ChargeValue charge_on_simplex_with_energy_bound(
     const core::VertexCache<VertexSpectra> &cache,
     bool certify,
     ChargeCertificateCache *certificate_cache,
-    double energy_bound
+    double energy_bound,
+    InconclusiveChargeErrorMode inconclusive_error_mode
 ) {
     if (energy_bound < 0.0 || !std::isfinite(energy_bound)) {
         throw std::runtime_error(
@@ -197,9 +204,21 @@ ChargeValue charge_on_simplex_with_energy_bound(
             }
         }
         if (certificate.status == simplex_certificate::SimplexCertificateStatus::Inconclusive) {
-            result.certificate_error =
+            const auto conservative_error =
                 static_cast<double>(simplex_certificate::occupation_width(certificate)) *
                 simplex.volume;
+            result.certificate_error =
+                inconclusive_error_mode == InconclusiveChargeErrorMode::Conservative
+                ? conservative_error
+                : projected_ambiguous_certificate_error(
+                      mu,
+                      geometry,
+                      simplex_id,
+                      cache,
+                      workspace,
+                      certificate,
+                      workspace.tol()
+                  );
             result.inconclusive_error = result.certificate_error;
             result.inconclusive_count = 1;
         } else if (

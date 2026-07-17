@@ -10,6 +10,7 @@ import numpy as np
 try:
     from ._native import (
         AdaptiveOptions,
+        InconclusiveChargeErrorMode,
         IntegrationRuntime,
         TightBindingHessianBound,
         TightBindingModel,
@@ -23,6 +24,7 @@ try:
     NATIVE_AVAILABLE = True
 except ImportError:  # pragma: no cover - exercised when extension is unavailable
     AdaptiveOptions = None
+    InconclusiveChargeErrorMode = None
     IntegrationRuntime = None
     TightBindingModel = None
     TightBindingHessianBound = None
@@ -488,6 +490,7 @@ def charge(
     certify: bool = True,
     hessian_bound: Any = 0.0,
     anharmonicity_bound: float = 0.0,
+    inconclusive_error_mode: str = "projected",
     max_refinements: int | None = None,
     preview_depth: int = 1,
     min_refinement_batch_size: int = 1,
@@ -498,6 +501,18 @@ def charge(
     anharmonicity = float(anharmonicity_bound)
     if not np.isfinite(anharmonicity) or anharmonicity < 0.0:
         raise ValueError("anharmonicity_bound must be finite and non-negative")
+    if not isinstance(inconclusive_error_mode, str):
+        raise TypeError("inconclusive_error_mode must be a string")
+    normalized_error_mode = inconclusive_error_mode.lower()
+    if normalized_error_mode not in {"projected", "conservative"}:
+        raise ValueError(
+            "inconclusive_error_mode must be 'projected' or 'conservative'"
+        )
+    native_error_mode = (
+        InconclusiveChargeErrorMode.Projected
+        if normalized_error_mode == "projected"
+        else InconclusiveChargeErrorMode.Conservative
+    )
     adaptive_options = _adaptive_options(
         target_error=target_error,
         options=options,
@@ -513,6 +528,7 @@ def charge(
         bool(certify),
         hessian,
         anharmonicity,
+        native_error_mode,
     )
 
 

@@ -19,7 +19,9 @@ ChargeValue charge_on_simplex(
     bool certify = true,
     ChargeCertificateCache *certificate_cache = nullptr,
     double hessian_bound = 0.0,
-    double anharmonicity_bound = 0.0
+    double anharmonicity_bound = 0.0,
+    InconclusiveChargeErrorMode inconclusive_error_mode =
+        InconclusiveChargeErrorMode::Projected
 );
 
 ChargeValue charge_on_simplex_with_energy_bound(
@@ -30,7 +32,9 @@ ChargeValue charge_on_simplex_with_energy_bound(
     const adaptivesimplex::core::VertexCache<VertexSpectra> &cache,
     bool certify,
     ChargeCertificateCache *certificate_cache,
-    double energy_bound
+    double energy_bound,
+    InconclusiveChargeErrorMode inconclusive_error_mode =
+        InconclusiveChargeErrorMode::Projected
 );
 
 }  // namespace lineartetrahedron

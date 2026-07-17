@@ -8,6 +8,11 @@ namespace lineartetrahedron {
 
 constexpr double kPi = 3.141592653589793238462643383279502884;
 
+enum class InconclusiveChargeErrorMode {
+    Projected,
+    Conservative,
+};
+
 struct ChargeValue {
     double charge = 0.0;
     double derivative = 0.0;

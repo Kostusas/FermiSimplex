@@ -8,16 +8,24 @@ build-backend = "scikit_build_core.build"
 [project]
 name = "lineartetrahedron"
 version = "0.1.0"
-description = "Zero-temperature linear tetrahedron backend for MeanFi"
+description = "Adaptive spectral calculations with simplex occupation certification"
 readme = "README.md"
 requires-python = ">=3.11"
 dependencies = [
     "numpy>=2.0",
 ]
 
+[project.optional-dependencies]
+examples = [
+    "matplotlib>=3.8",
+]
+
 [tool.scikit-build]
-wheel.packages = ["lineartetrahedron"]
+wheel.packages = ["python/lineartetrahedron"]
 cmake.source-dir = "."
+
+[tool.scikit-build.cmake.define]
+LINEARTETRAHEDRON_BUILD_TESTING = "OFF"
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]

@@ -11,7 +11,7 @@
 #include <utility>
 #include <vector>
 
-namespace lineartetrahedron::certification::detail {
+namespace fermisimplex::certification::detail {
 namespace {
 
 OccupationBounds unconstrained_occupation(size_t ndof) {
@@ -192,4 +192,4 @@ SimplexCertificate make_unresolved_certificate(
     return result;
 }
 
-}  // namespace lineartetrahedron::certification::detail
+}  // namespace fermisimplex::certification::detail

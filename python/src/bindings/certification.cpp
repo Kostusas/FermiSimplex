@@ -1,7 +1,7 @@
 #include "arrays.h"
 #include "bindings.h"
 
-#include <lineartetrahedron/certification.h>
+#include <fermisimplex/certification.h>
 
 #include <nanobind/stl/optional.h>
 
@@ -11,7 +11,7 @@
 #include <stdexcept>
 #include <vector>
 
-namespace lineartetrahedron::bindings {
+namespace fermisimplex::bindings {
 namespace cert = certification;
 
 namespace {
@@ -140,4 +140,4 @@ void bind_certification(nb::module_ &module) {
     );
 }
 
-}  // namespace lineartetrahedron::bindings
+}  // namespace fermisimplex::bindings

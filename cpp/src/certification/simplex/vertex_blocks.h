@@ -6,7 +6,7 @@
 #include <span>
 #include <vector>
 
-namespace lineartetrahedron::certification::detail {
+namespace fermisimplex::certification::detail {
 
 struct VertexBlocks {
     std::vector<Complex> unoccupied_block;
@@ -30,4 +30,4 @@ VertexBlocks build_anchor_vertex_blocks(
     double mu
 );
 
-}  // namespace lineartetrahedron::certification::detail
+}  // namespace fermisimplex::certification::detail

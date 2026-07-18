@@ -7,7 +7,7 @@
 #include <span>
 #include <vector>
 
-namespace lineartetrahedron::certification::detail {
+namespace fermisimplex::certification::detail {
 
 struct SimplexBlocks {
     std::vector<VertexBlocks> vertices;
@@ -30,4 +30,4 @@ std::vector<Complex> perturbative_rotation(
     std::span<const double> occupied_gaps
 );
 
-}  // namespace lineartetrahedron::certification::detail
+}  // namespace fermisimplex::certification::detail

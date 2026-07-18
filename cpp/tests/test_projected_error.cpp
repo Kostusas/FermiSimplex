@@ -2,7 +2,7 @@
 #include "integration/projected_error.h"
 #include "test_helpers.h"
 
-#include <lineartetrahedron/integration.h>
+#include <fermisimplex/integration.h>
 
 #include <exception>
 #include <iostream>
@@ -12,8 +12,8 @@
 
 namespace {
 
-using namespace lineartetrahedron;
-using namespace lineartetrahedron::test;
+using namespace fermisimplex;
+using namespace fermisimplex::test;
 namespace core = adaptivesimplex::core;
 
 class QuadraticModel final : public HamiltonianModel {

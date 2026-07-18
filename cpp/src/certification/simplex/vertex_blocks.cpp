@@ -4,7 +4,7 @@
 
 #include <algorithm>
 
-namespace lineartetrahedron::certification::detail {
+namespace fermisimplex::certification::detail {
 namespace {
 
 std::vector<Complex> full_overlap(
@@ -172,4 +172,4 @@ VertexBlocks build_vertex_blocks(
     return blocks;
 }
 
-}  // namespace lineartetrahedron::certification::detail
+}  // namespace fermisimplex::certification::detail

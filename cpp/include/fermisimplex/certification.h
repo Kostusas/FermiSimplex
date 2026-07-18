@@ -5,7 +5,7 @@
 #include <optional>
 #include <span>
 
-namespace lineartetrahedron::certification {
+namespace fermisimplex::certification {
 
 enum class SimplexCertificateStatus {
     CertifiedGapped,
@@ -58,4 +58,4 @@ SimplexCertificate certify_simplex(
     double tolerance = kDefaultTolerance
 );
 
-}  // namespace lineartetrahedron::certification
+}  // namespace fermisimplex::certification

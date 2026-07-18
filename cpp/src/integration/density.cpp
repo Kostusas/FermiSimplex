@@ -11,7 +11,7 @@
 #include <utility>
 #include <vector>
 
-namespace lineartetrahedron::integration_detail {
+namespace fermisimplex::integration_detail {
 namespace core = adaptivesimplex::core;
 namespace cut = adaptivesimplex::cut;
 
@@ -147,4 +147,4 @@ DensityMatrixRule::Value DensityMatrixRule::on_simplex(
     return result;
 }
 
-}  // namespace lineartetrahedron::integration_detail
+}  // namespace fermisimplex::integration_detail

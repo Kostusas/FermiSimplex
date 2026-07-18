@@ -21,7 +21,7 @@ from examples.quick_start import (
     CURVATURE_BOUND as SCHWARZ_P_CURVATURE_BOUND,
     hamiltonian as schwarz_p_hamiltonian,
 )
-from lineartetrahedron import Hamiltonian, SpectralMesh
+from fermisimplex import Hamiltonian, SpectralMesh
 
 
 ASSETS = ROOT / "docs" / "assets"

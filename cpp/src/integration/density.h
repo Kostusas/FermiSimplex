@@ -1,6 +1,6 @@
 #pragma once
 
-#include <lineartetrahedron/spectral_mesh.h>
+#include <fermisimplex/spectral_mesh.h>
 
 #include <adaptivesimplex/adaptive/dense_value.h>
 #include <adaptivesimplex/core/geometry.h>
@@ -10,7 +10,7 @@
 #include <cstdint>
 #include <vector>
 
-namespace lineartetrahedron::integration_detail {
+namespace fermisimplex::integration_detail {
 
 class DensityMatrixRule {
 public:
@@ -41,4 +41,4 @@ private:
     std::vector<std::int64_t> lattice_vectors_;
 };
 
-}  // namespace lineartetrahedron::integration_detail
+}  // namespace fermisimplex::integration_detail

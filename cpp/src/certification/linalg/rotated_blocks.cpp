@@ -2,7 +2,7 @@
 
 #include "linalg/blas_lapack.h"
 
-namespace lineartetrahedron::certification::detail {
+namespace fermisimplex::certification::detail {
 namespace {
 
 void add_lower_triangle(
@@ -133,4 +133,4 @@ void subtract_frame_margin(
     }
 }
 
-}  // namespace lineartetrahedron::certification::detail
+}  // namespace fermisimplex::certification::detail

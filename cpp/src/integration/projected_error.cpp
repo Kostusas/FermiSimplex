@@ -9,7 +9,7 @@
 #include <stdexcept>
 #include <vector>
 
-namespace lineartetrahedron {
+namespace fermisimplex {
 namespace core = adaptivesimplex::core;
 
 namespace {
@@ -279,4 +279,4 @@ ProjectedResidualEstimate estimate_projected_residual(
     return estimate;
 }
 
-}  // namespace lineartetrahedron
+}  // namespace fermisimplex

@@ -2,14 +2,14 @@ cmake_minimum_required(VERSION 3.18...3.30)
 
 if(CMAKE_SOURCE_DIR STREQUAL CMAKE_CURRENT_SOURCE_DIR)
   project(
-    lineartetrahedron_python
+    fermisimplex_python
     VERSION 0.1.0
     LANGUAGES CXX
   )
 endif()
 
-if(NOT TARGET lineartetrahedron::core)
-  find_package(lineartetrahedron CONFIG REQUIRED)
+if(NOT TARGET fermisimplex::core)
+  find_package(fermisimplex CONFIG REQUIRED)
 endif()
 
 find_package(Python COMPONENTS Interpreter Development.Module REQUIRED)
@@ -27,6 +27,6 @@ nanobind_add_module(
 )
 target_compile_features(_native PRIVATE cxx_std_20)
 target_include_directories(_native PRIVATE "${CMAKE_CURRENT_SOURCE_DIR}/src/bindings")
-target_link_libraries(_native PRIVATE lineartetrahedron::core)
+target_link_libraries(_native PRIVATE fermisimplex::core)
 
-install(TARGETS _native LIBRARY DESTINATION lineartetrahedron)
+install(TARGETS _native LIBRARY DESTINATION fermisimplex)

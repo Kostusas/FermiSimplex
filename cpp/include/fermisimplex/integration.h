@@ -1,6 +1,6 @@
 #pragma once
 
-#include <lineartetrahedron/spectral_mesh.h>
+#include <fermisimplex/spectral_mesh.h>
 
 #include <adaptivesimplex/adaptive/types.h>
 
@@ -9,7 +9,7 @@
 #include <cstdint>
 #include <vector>
 
-namespace lineartetrahedron {
+namespace fermisimplex {
 
 struct IntegrationStats {
     // Eigensystems newly added to the shared cache by this operation.
@@ -65,4 +65,4 @@ DensityMatrixResult integrate_density_matrix(
     const adaptivesimplex::adaptive::Options &options
 );
 
-}  // namespace lineartetrahedron
+}  // namespace fermisimplex

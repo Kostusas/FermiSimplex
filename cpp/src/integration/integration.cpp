@@ -1,4 +1,4 @@
-#include <lineartetrahedron/integration.h>
+#include <fermisimplex/integration.h>
 
 #include "integration/charge.h"
 #include "integration/density.h"
@@ -15,7 +15,7 @@
 #include <utility>
 #include <vector>
 
-namespace lineartetrahedron {
+namespace fermisimplex {
 namespace adaptive = adaptivesimplex::adaptive;
 namespace core = adaptivesimplex::core;
 using integration_detail::ChargeContribution;
@@ -311,4 +311,4 @@ DensityMatrixResult integrate_density_matrix(
     return density_result(mesh, raw, rule);
 }
 
-}  // namespace lineartetrahedron
+}  // namespace fermisimplex

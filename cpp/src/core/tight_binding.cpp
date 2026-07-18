@@ -1,4 +1,4 @@
-#include <lineartetrahedron/hamiltonian.h>
+#include <fermisimplex/hamiltonian.h>
 
 #include <algorithm>
 #include <cmath>
@@ -8,7 +8,7 @@
 #include <stdexcept>
 #include <utility>
 
-namespace lineartetrahedron {
+namespace fermisimplex {
 namespace {
 
 using Matrix = std::vector<std::complex<double>>;
@@ -208,4 +208,4 @@ std::vector<std::complex<double>> TightBindingModel::evaluate(
     return h;
 }
 
-}  // namespace lineartetrahedron
+}  // namespace fermisimplex

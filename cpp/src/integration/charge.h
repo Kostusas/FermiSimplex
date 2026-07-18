@@ -1,12 +1,12 @@
 #pragma once
 
-#include <lineartetrahedron/integration.h>
+#include <fermisimplex/integration.h>
 
 #include <adaptivesimplex/core/geometry.h>
 
 #include <cstdint>
 
-namespace lineartetrahedron::integration_detail {
+namespace fermisimplex::integration_detail {
 
 struct ChargeContribution {
     double value = 0.0;
@@ -28,4 +28,4 @@ ChargeContribution charge_on_simplex(
     double curvature_bound
 );
 
-}  // namespace lineartetrahedron::integration_detail
+}  // namespace fermisimplex::integration_detail

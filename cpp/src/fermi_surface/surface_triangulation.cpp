@@ -2,7 +2,7 @@
 
 #include <cstddef>
 
-namespace lineartetrahedron {
+namespace fermisimplex {
 namespace {
 
 void append_shuffle_cells(
@@ -69,4 +69,4 @@ std::vector<std::int64_t> product_simplex_triangulation_cells(
     return cells;
 }
 
-}  // namespace lineartetrahedron
+}  // namespace fermisimplex

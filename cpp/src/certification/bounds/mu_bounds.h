@@ -6,7 +6,7 @@
 #include <span>
 #include <vector>
 
-namespace lineartetrahedron::certification::detail {
+namespace fermisimplex::certification::detail {
 
 Complex hermitian_entry(
     const std::vector<Complex> &matrix,
@@ -35,4 +35,4 @@ double occupation_block_mu_radius(
     double tol
 );
 
-}  // namespace lineartetrahedron::certification::detail
+}  // namespace fermisimplex::certification::detail

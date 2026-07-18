@@ -5,7 +5,7 @@
 #include <span>
 #include <vector>
 
-namespace lineartetrahedron::certification::detail {
+namespace fermisimplex::certification::detail {
 
 using Complex = std::complex<double>;
 
@@ -32,4 +32,4 @@ inline std::vector<Complex> adjoint_rectangular_copy(
     return result;
 }
 
-}  // namespace lineartetrahedron::certification::detail
+}  // namespace fermisimplex::certification::detail

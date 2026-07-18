@@ -1,6 +1,6 @@
 # Mathematics
 
-LinearTetrahedron combines two ideas:
+fermisimplex combines two ideas:
 
 1. certify how many states are occupied throughout a simplex;
 2. integrate the piecewise-linear bands and refine where their error appears
@@ -15,7 +15,7 @@ certificate.
 Let
 
 $$
-S=\operatorname{conv}\{k_0,\ldots,k_d\}
+S=\mathrm{conv}\{k_0,\ldots,k_d\}
 $$
 
 be a simplex with barycentric coordinates $\lambda_i(k)$, volume $|S|$, and
@@ -30,7 +30,7 @@ $$
 At chemical potential $\mu$, the exact local occupation is
 
 $$
-N(k;\mu)=\operatorname{Tr}\Theta\!\left(\mu I-H(k)\right).
+N(k; \mu)=\mathrm{Tr}\left[\Theta\left(\mu I-H(k)\right)\right].
 $$
 
 All coordinates used by the package are reduced coordinates in $[0,1]^d$.
@@ -194,7 +194,7 @@ $$
 Only the occupation bounds are reusable over this interval; the status can
 change within it.
 
-## Linear-tetrahedron charge
+## Piecewise-linear simplex charge
 
 The zero-temperature filling is
 
@@ -202,7 +202,7 @@ $$
 Q(\mu)=\int_{\mathrm{BZ}}N(k;\mu)\,dk.
 $$
 
-For each sorted band index $n$, LinearTetrahedron interpolates the vertex
+For each sorted band index $n$, fermisimplex interpolates the vertex
 energies,
 
 $$
@@ -213,7 +213,7 @@ and computes
 
 $$
 \widetilde Q_S(\mu)=
-\sum_n \operatorname{vol}
+\sum_n \mathrm{vol}
 \{k\in S:\widetilde E_n(k)\leq\mu\}.
 $$
 

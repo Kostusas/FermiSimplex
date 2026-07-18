@@ -1,13 +1,13 @@
-#include <lineartetrahedron/fermi_surface.h>
+#include <fermisimplex/fermi_surface.h>
 
-#include <lineartetrahedron/spectral_mesh.h>
+#include <fermisimplex/spectral_mesh.h>
 
 #include "fermi_surface/adaptive_refinement.h"
 
 #include <cmath>
 #include <stdexcept>
 
-namespace lineartetrahedron {
+namespace fermisimplex {
 
 FermiSurfaceResult fermi_surface(
     SpectralMesh &mesh,
@@ -40,4 +40,4 @@ FermiSurfaceResult fermi_surface(
     );
 }
 
-}  // namespace lineartetrahedron
+}  // namespace fermisimplex

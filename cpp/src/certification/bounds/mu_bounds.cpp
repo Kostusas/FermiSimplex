@@ -9,7 +9,7 @@
 #include <span>
 #include <vector>
 
-namespace lineartetrahedron::certification::detail {
+namespace fermisimplex::certification::detail {
 
 Complex hermitian_entry(
     const std::vector<Complex> &matrix,
@@ -105,4 +105,4 @@ std::vector<double> frame_gram_row_bounds(
     return result;
 }
 
-}  // namespace lineartetrahedron::certification::detail
+}  // namespace fermisimplex::certification::detail

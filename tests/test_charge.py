@@ -3,7 +3,7 @@ from __future__ import annotations
 import numpy as np
 import pytest
 
-from lineartetrahedron import (
+from fermisimplex import (
     AdaptiveOptions,
     Hamiltonian,
     SpectralMesh,

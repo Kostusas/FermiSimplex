@@ -6,7 +6,7 @@
 #include <cmath>
 #include <limits>
 
-namespace lineartetrahedron::certification::detail {
+namespace fermisimplex::certification::detail {
 VertexSpectraAnalysis analyze_vertex_spectra(
     double mu,
     std::span<const std::span<const double>> eigenvalues,
@@ -75,4 +75,4 @@ AnchorSplit split_anchor_spectrum(
     return split;
 }
 
-}  // namespace lineartetrahedron::certification::detail
+}  // namespace fermisimplex::certification::detail

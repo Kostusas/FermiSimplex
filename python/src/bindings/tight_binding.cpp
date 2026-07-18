@@ -1,7 +1,7 @@
 #include "arrays.h"
 #include "bindings.h"
 
-#include <lineartetrahedron/hamiltonian.h>
+#include <fermisimplex/hamiltonian.h>
 
 #include <nanobind/stl/shared_ptr.h>
 
@@ -13,7 +13,7 @@
 #include <utility>
 #include <vector>
 
-namespace lineartetrahedron::bindings {
+namespace fermisimplex::bindings {
 namespace {
 
 std::vector<HoppingTerm> copy_hoppings(
@@ -94,4 +94,4 @@ void bind_tight_binding(nb::module_ &module) {
         .def("evaluate", &evaluate, "point"_a);
 }
 
-}  // namespace lineartetrahedron::bindings
+}  // namespace fermisimplex::bindings

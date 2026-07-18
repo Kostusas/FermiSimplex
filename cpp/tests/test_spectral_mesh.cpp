@@ -12,8 +12,8 @@
 
 namespace {
 
-using namespace lineartetrahedron;
-using namespace lineartetrahedron::test;
+using namespace fermisimplex;
+using namespace fermisimplex::test;
 
 class FixedMatrixModel final : public HamiltonianModel {
 public:

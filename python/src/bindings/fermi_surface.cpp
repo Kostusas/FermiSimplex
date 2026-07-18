@@ -1,12 +1,12 @@
 #include "arrays.h"
 #include "bindings.h"
 
-#include <lineartetrahedron/fermi_surface.h>
+#include <fermisimplex/fermi_surface.h>
 
 #include <cstdint>
 #include <vector>
 
-namespace lineartetrahedron::bindings {
+namespace fermisimplex::bindings {
 
 void bind_fermi_surface(nb::module_ &module) {
     nb::class_<FermiSurfaceStats>(module, "FermiSurfaceStats")
@@ -62,4 +62,4 @@ void bind_fermi_surface(nb::module_ &module) {
         );
 }
 
-}  // namespace lineartetrahedron::bindings
+}  // namespace fermisimplex::bindings

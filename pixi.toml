@@ -4,7 +4,7 @@ platforms = ["osx-arm64", "linux-64", "osx-64", "win-64"]
 preview = ["pixi-build"]
 
 [package]
-name = "lineartetrahedron"
+name = "fermisimplex"
 version = "0.1.0"
 
 [package.build]
@@ -51,7 +51,7 @@ cxx-compiler = ">=1.11"
 install-editable = { cmd = "python -m pip install -v --no-build-isolation -e . --config-settings=cmake.args=-DFETCHCONTENT_SOURCE_DIR_ADAPTIVESIMPLEX=$PIXI_PROJECT_ROOT/build/cpp-tests/_deps/adaptivesimplex-src", depends-on = ["configure-cpp-tests"] }
 smoke-test = { cmd = "python examples/quick_start.py", depends-on = ["install-editable"] }
 build-package = "pixi build --output-dir dist"
-configure-cpp-tests = "cmake -S . -B build/cpp-tests -G Ninja -DLINEARTETRAHEDRON_BUILD_PYTHON=OFF -DLINEARTETRAHEDRON_INSTALL_CPP=ON"
+configure-cpp-tests = "cmake -S . -B build/cpp-tests -G Ninja -DFERMISIMPLEX_BUILD_PYTHON=OFF -DFERMISIMPLEX_INSTALL_CPP=ON"
 build-cpp-tests = { cmd = "cmake --build build/cpp-tests", depends-on = ["configure-cpp-tests"] }
 test-cpp = { cmd = "ctest --test-dir build/cpp-tests --output-on-failure", depends-on = ["build-cpp-tests"] }
 test-python = { cmd = "pytest", depends-on = ["install-editable"] }

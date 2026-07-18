@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import numpy as np
 
-from lineartetrahedron import Hamiltonian, SpectralMesh
+from fermisimplex import Hamiltonian, SpectralMesh
 
 
 CURVATURE_BOUND = (2.0 * np.pi) ** 2

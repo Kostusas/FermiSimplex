@@ -3,7 +3,7 @@ from __future__ import annotations
 import numpy as np
 import pytest
 
-from lineartetrahedron import AdaptiveOptions, SpectralMesh, TightBinding
+from fermisimplex import AdaptiveOptions, SpectralMesh, TightBinding
 
 from .helpers import constant_insulator, dense_reference, dimerized_chain
 

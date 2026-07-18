@@ -1,6 +1,6 @@
 #pragma once
 
-#include <lineartetrahedron/hamiltonian.h>
+#include <fermisimplex/hamiltonian.h>
 
 #include <adaptivesimplex/core/geometry.h>
 #include <adaptivesimplex/core/vertex_cache.h>
@@ -12,7 +12,7 @@
 #include <span>
 #include <vector>
 
-namespace lineartetrahedron {
+namespace fermisimplex {
 
 struct Eigensystem {
     std::vector<double> eigenvalues;
@@ -72,4 +72,4 @@ private:
     double tolerance_ = 1e-14;
 };
 
-}  // namespace lineartetrahedron
+}  // namespace fermisimplex

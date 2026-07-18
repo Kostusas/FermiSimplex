@@ -1,6 +1,6 @@
 #include "certification/simplex/simplex_blocks.h"
 
-namespace lineartetrahedron::certification::detail {
+namespace fermisimplex::certification::detail {
 
 SimplexBlocks build_simplex_blocks(
     double mu,
@@ -60,4 +60,4 @@ std::vector<Complex> perturbative_rotation(
     return rotation;
 }
 
-}  // namespace lineartetrahedron::certification::detail
+}  // namespace fermisimplex::certification::detail

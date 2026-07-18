@@ -6,7 +6,7 @@
 #include <span>
 #include <vector>
 
-namespace lineartetrahedron {
+namespace fermisimplex {
 
 using LatticeVector = std::vector<std::int64_t>;
 
@@ -46,4 +46,4 @@ private:
     std::vector<HoppingTerm> hoppings_;
 };
 
-}  // namespace lineartetrahedron
+}  // namespace fermisimplex

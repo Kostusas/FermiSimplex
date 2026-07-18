@@ -1,10 +1,10 @@
 #pragma once
 
-#include <lineartetrahedron/fermi_surface.h>
+#include <fermisimplex/fermi_surface.h>
 
 #include <cstdint>
 
-namespace lineartetrahedron::fermi_surface_detail {
+namespace fermisimplex::fermi_surface_detail {
 
 FermiSurfaceResult run_fermi_surface(
     SpectralMesh &mesh,
@@ -14,4 +14,4 @@ FermiSurfaceResult run_fermi_surface(
     double curvature_bound
 );
 
-}  // namespace lineartetrahedron::fermi_surface_detail
+}  // namespace fermisimplex::fermi_surface_detail

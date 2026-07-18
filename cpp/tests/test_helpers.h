@@ -2,9 +2,9 @@
 
 #include "certification/linalg/matrix.h"
 
-#include <lineartetrahedron/certification.h>
-#include <lineartetrahedron/hamiltonian.h>
-#include <lineartetrahedron/spectral_mesh.h>
+#include <fermisimplex/certification.h>
+#include <fermisimplex/hamiltonian.h>
+#include <fermisimplex/spectral_mesh.h>
 
 #include <adaptivesimplex/core/geometry.h>
 #include <adaptivesimplex/core/vertex_cache.h>
@@ -21,7 +21,7 @@
 #include <utility>
 #include <vector>
 
-namespace lineartetrahedron::test {
+namespace fermisimplex::test {
 
 using Complex = std::complex<double>;
 namespace cert_detail = certification::detail;
@@ -189,4 +189,4 @@ inline void fill_vertex_cache(
     }
 }
 
-}  // namespace lineartetrahedron::test
+}  // namespace fermisimplex::test

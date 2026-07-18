@@ -6,7 +6,7 @@ import sys
 import numpy as np
 import pytest
 
-from lineartetrahedron import AdaptiveOptions, Hamiltonian, SpectralMesh, TightBinding
+from fermisimplex import AdaptiveOptions, Hamiltonian, SpectralMesh, TightBinding
 
 from .helpers import constant_insulator, qiwuzhang, tb_k_matrix
 
@@ -64,7 +64,7 @@ def test_callable_spectral_mesh_does_not_leak_at_interpreter_shutdown():
     script = """
 import numpy as np
 
-from lineartetrahedron import Hamiltonian, SpectralMesh
+from fermisimplex import Hamiltonian, SpectralMesh
 
 model = Hamiltonian(lambda k: np.array([[k]], dtype=complex))
 mesh = SpectralMesh(model)

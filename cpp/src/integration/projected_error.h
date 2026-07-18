@@ -1,10 +1,10 @@
 #pragma once
 
-#include <lineartetrahedron/spectral_mesh.h>
+#include <fermisimplex/spectral_mesh.h>
 
 #include <cstddef>
 
-namespace lineartetrahedron {
+namespace fermisimplex {
 
 struct ProjectedResidualEstimate {
     // These are sampled estimates, not certified bounds over the simplex.
@@ -21,4 +21,4 @@ ProjectedResidualEstimate estimate_projected_residual(
     size_t upper_band
 );
 
-}  // namespace lineartetrahedron
+}  // namespace fermisimplex

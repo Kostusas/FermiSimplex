@@ -6,7 +6,7 @@ requires = [
 build-backend = "scikit_build_core.build"
 
 [project]
-name = "lineartetrahedron"
+name = "fermisimplex"
 version = "0.1.0"
 description = "Adaptive spectral calculations with simplex occupation certification"
 readme = "README.md"
@@ -21,11 +21,11 @@ examples = [
 ]
 
 [tool.scikit-build]
-wheel.packages = ["python/lineartetrahedron"]
+wheel.packages = ["python/fermisimplex"]
 cmake.source-dir = "."
 
 [tool.scikit-build.cmake.define]
-LINEARTETRAHEDRON_BUILD_TESTING = "OFF"
+FERMISIMPLEX_BUILD_TESTING = "OFF"
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]

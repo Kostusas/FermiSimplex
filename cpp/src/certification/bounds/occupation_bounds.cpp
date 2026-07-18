@@ -9,7 +9,7 @@
 #include <stdexcept>
 #include <utility>
 
-namespace lineartetrahedron::certification::detail {
+namespace fermisimplex::certification::detail {
 namespace {
 
 void require_block_shape(
@@ -161,4 +161,4 @@ size_t estimate_ordered_subset_rank(
     ).rank;
 }
 
-}  // namespace lineartetrahedron::certification::detail
+}  // namespace fermisimplex::certification::detail

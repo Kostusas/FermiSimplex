@@ -1,11 +1,11 @@
 #pragma once
 
-#include <lineartetrahedron/spectral_mesh.h>
+#include <fermisimplex/spectral_mesh.h>
 
 #include <cstdint>
 #include <vector>
 
-namespace lineartetrahedron::fermi_surface_detail {
+namespace fermisimplex::fermi_surface_detail {
 
 namespace core = adaptivesimplex::core;
 
@@ -24,4 +24,4 @@ SimplexClassification classify_frontier(
     double curvature_bound
 );
 
-}  // namespace lineartetrahedron::fermi_surface_detail
+}  // namespace fermisimplex::fermi_surface_detail

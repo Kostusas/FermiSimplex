@@ -1,13 +1,13 @@
 #pragma once
 
-#include <lineartetrahedron/fermi_surface.h>
-#include <lineartetrahedron/spectral_mesh.h>
+#include <fermisimplex/fermi_surface.h>
+#include <fermisimplex/spectral_mesh.h>
 
 #include <adaptivesimplex/core/types.h>
 
 #include <span>
 
-namespace lineartetrahedron::fermi_surface_detail {
+namespace fermisimplex::fermi_surface_detail {
 
 namespace core = adaptivesimplex::core;
 
@@ -18,4 +18,4 @@ void extract_terminal_surface(
     FermiSurfaceResult &result
 );
 
-}  // namespace lineartetrahedron::fermi_surface_detail
+}  // namespace fermisimplex::fermi_surface_detail

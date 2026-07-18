@@ -17,7 +17,7 @@
 namespace {
 
 using Complex = std::complex<double>;
-namespace detail = lineartetrahedron::certification::detail;
+namespace detail = fermisimplex::certification::detail;
 
 constexpr double kTol = 1e-12;
 using Clock = std::chrono::steady_clock;

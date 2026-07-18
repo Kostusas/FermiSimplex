@@ -4,7 +4,7 @@
 #include <cstdint>
 #include <vector>
 
-namespace lineartetrahedron {
+namespace fermisimplex {
 
 class SpectralMesh;
 
@@ -37,4 +37,4 @@ FermiSurfaceResult fermi_surface(
     double curvature_bound = 0.0
 );
 
-}  // namespace lineartetrahedron
+}  // namespace fermisimplex

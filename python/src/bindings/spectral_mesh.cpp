@@ -1,10 +1,10 @@
 #include "arrays.h"
 #include "bindings.h"
 
-#include <lineartetrahedron/fermi_surface.h>
-#include <lineartetrahedron/hamiltonian.h>
-#include <lineartetrahedron/integration.h>
-#include <lineartetrahedron/spectral_mesh.h>
+#include <fermisimplex/fermi_surface.h>
+#include <fermisimplex/hamiltonian.h>
+#include <fermisimplex/integration.h>
+#include <fermisimplex/spectral_mesh.h>
 
 #include <nanobind/stl/optional.h>
 #include <nanobind/stl/shared_ptr.h>
@@ -20,7 +20,7 @@
 #include <utility>
 #include <vector>
 
-namespace lineartetrahedron::bindings {
+namespace fermisimplex::bindings {
 namespace adaptive = adaptivesimplex::adaptive;
 
 namespace {
@@ -190,7 +190,7 @@ void bind_spectral_mesh(nb::module_ &module) {
                double mu,
                const adaptive::Options &options,
                double curvature_bound) {
-                return lineartetrahedron::integrate_charge(
+                return fermisimplex::integrate_charge(
                     mesh,
                     mu,
                     options,
@@ -209,7 +209,7 @@ void bind_spectral_mesh(nb::module_ &module) {
                double target_error,
                std::uint32_t preview_depth,
                double curvature_bound) {
-                return lineartetrahedron::estimate_charge_on_current_mesh(
+                return fermisimplex::estimate_charge_on_current_mesh(
                     mesh,
                     mu,
                     target_error,
@@ -229,7 +229,7 @@ void bind_spectral_mesh(nb::module_ &module) {
                double mu,
                LatticeVectorArray lattice_vectors,
                const adaptive::Options &options) {
-                return lineartetrahedron::integrate_density_matrix(
+                return fermisimplex::integrate_density_matrix(
                     mesh,
                     mu,
                     copy_lattice_vectors(lattice_vectors),
@@ -248,7 +248,7 @@ void bind_spectral_mesh(nb::module_ &module) {
                double min_feature_size,
                std::optional<std::int64_t> max_evaluations,
                double curvature_bound) {
-                return lineartetrahedron::fermi_surface(
+                return fermisimplex::fermi_surface(
                     mesh,
                     mu,
                     min_feature_size,
@@ -264,4 +264,4 @@ void bind_spectral_mesh(nb::module_ &module) {
         );
 }
 
-}  // namespace lineartetrahedron::bindings
+}  // namespace fermisimplex::bindings

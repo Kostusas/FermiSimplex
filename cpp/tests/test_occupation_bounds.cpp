@@ -11,8 +11,8 @@
 
 namespace {
 
-using namespace lineartetrahedron::test;
-namespace detail = lineartetrahedron::certification::detail;
+using namespace fermisimplex::test;
+namespace detail = fermisimplex::certification::detail;
 
 std::pair<size_t, size_t> winding_bounds(int winding, std::initializer_list<double> points) {
     std::vector<std::vector<Complex>> plus_blocks;

@@ -1,6 +1,6 @@
 #include "fermi_surface/adaptive_refinement.h"
 
-#include <lineartetrahedron/spectral_mesh.h>
+#include <fermisimplex/spectral_mesh.h>
 #include "fermi_surface/simplex_classification.h"
 #include "fermi_surface/surface_extraction.h"
 
@@ -9,7 +9,7 @@
 #include <utility>
 #include <vector>
 
-namespace lineartetrahedron::fermi_surface_detail {
+namespace fermisimplex::fermi_surface_detail {
 namespace core = adaptivesimplex::core;
 namespace {
 
@@ -166,4 +166,4 @@ FermiSurfaceResult run_fermi_surface(
     ).run();
 }
 
-}  // namespace lineartetrahedron::fermi_surface_detail
+}  // namespace fermisimplex::fermi_surface_detail

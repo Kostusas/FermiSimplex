@@ -1,7 +1,7 @@
 #include "arrays.h"
 #include "bindings.h"
 
-#include <lineartetrahedron/integration.h>
+#include <fermisimplex/integration.h>
 
 #include <adaptivesimplex/adaptive/types.h>
 
@@ -9,7 +9,7 @@
 #include <cstdint>
 #include <new>
 
-namespace lineartetrahedron::bindings {
+namespace fermisimplex::bindings {
 namespace adaptive = adaptivesimplex::adaptive;
 
 namespace {
@@ -125,4 +125,4 @@ void bind_integration_types(nb::module_ &module) {
         );
 }
 
-}  // namespace lineartetrahedron::bindings
+}  // namespace fermisimplex::bindings

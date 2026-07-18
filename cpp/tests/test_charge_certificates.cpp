@@ -1,7 +1,7 @@
 #include "integration/charge.h"
 #include "test_helpers.h"
 
-#include <lineartetrahedron/integration.h>
+#include <fermisimplex/integration.h>
 
 #include <adaptivesimplex/adaptive/types.h>
 
@@ -14,8 +14,8 @@
 
 namespace {
 
-using namespace lineartetrahedron;
-using namespace lineartetrahedron::test;
+using namespace fermisimplex;
+using namespace fermisimplex::test;
 namespace adaptive = adaptivesimplex::adaptive;
 
 class AffineXModel final : public HamiltonianModel {

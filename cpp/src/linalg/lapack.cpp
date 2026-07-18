@@ -6,16 +6,16 @@
 #include <stdexcept>
 #include <string>
 
-#ifndef LINEARTETRAHEDRON_LAPACK_ZHEEVD
-#define LINEARTETRAHEDRON_LAPACK_ZHEEVD zheevd_
+#ifndef FERMISIMPLEX_LAPACK_ZHEEVD
+#define FERMISIMPLEX_LAPACK_ZHEEVD zheevd_
 #endif
 
-#ifndef LINEARTETRAHEDRON_LAPACK_ZPOTRF
-#define LINEARTETRAHEDRON_LAPACK_ZPOTRF zpotrf_
+#ifndef FERMISIMPLEX_LAPACK_ZPOTRF
+#define FERMISIMPLEX_LAPACK_ZPOTRF zpotrf_
 #endif
 
 extern "C" {
-void LINEARTETRAHEDRON_LAPACK_ZHEEVD(
+void FERMISIMPLEX_LAPACK_ZHEEVD(
     const char *jobz,
     const char *uplo,
     const int *n,
@@ -31,7 +31,7 @@ void LINEARTETRAHEDRON_LAPACK_ZHEEVD(
     int *info
 );
 
-void LINEARTETRAHEDRON_LAPACK_ZPOTRF(
+void FERMISIMPLEX_LAPACK_ZPOTRF(
     const char *uplo,
     const int *n,
     std::complex<double> *a,
@@ -40,7 +40,7 @@ void LINEARTETRAHEDRON_LAPACK_ZPOTRF(
 );
 }
 
-namespace lineartetrahedron::linalg {
+namespace fermisimplex::linalg {
 namespace {
 
 std::string error_prefix(const char *context) {
@@ -75,7 +75,7 @@ int cholesky_factor_lower(Complex *matrix, size_t size) {
     const auto n = lapack_dimension(size);
     const auto lda = std::max(1, n);
     auto info = 0;
-    LINEARTETRAHEDRON_LAPACK_ZPOTRF(&lower_triangle, &n, matrix, &lda, &info);
+    FERMISIMPLEX_LAPACK_ZPOTRF(&lower_triangle, &n, matrix, &lda, &info);
     if (info < 0) {
         throw std::runtime_error(
             "Cholesky factorization: zpotrf received an invalid argument (info=" +
@@ -113,7 +113,7 @@ void diagonalize_hermitian_in_place(
     auto rwork_query = 0.0;
     auto iwork_query = 0;
     auto info = 0;
-    LINEARTETRAHEDRON_LAPACK_ZHEEVD(
+    FERMISIMPLEX_LAPACK_ZHEEVD(
         &jobz,
         &lower_triangle,
         &n,
@@ -140,7 +140,7 @@ void diagonalize_hermitian_in_place(
     std::vector<Complex> work(static_cast<size_t>(lwork));
     std::vector<double> rwork(static_cast<size_t>(lrwork));
     std::vector<int> iwork(static_cast<size_t>(liwork));
-    LINEARTETRAHEDRON_LAPACK_ZHEEVD(
+    FERMISIMPLEX_LAPACK_ZHEEVD(
         &jobz,
         &lower_triangle,
         &n,
@@ -160,4 +160,4 @@ void diagonalize_hermitian_in_place(
     }
 }
 
-}  // namespace lineartetrahedron::linalg
+}  // namespace fermisimplex::linalg

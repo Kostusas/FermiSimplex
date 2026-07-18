@@ -9,7 +9,7 @@ from pathlib import Path
 
 import numpy as np
 
-from lineartetrahedron import SpectralMesh, TightBinding
+from fermisimplex import SpectralMesh, TightBinding
 
 
 LOW_HARMONICS = (

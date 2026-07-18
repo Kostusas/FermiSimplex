@@ -6,7 +6,7 @@
 #include <cmath>
 #include <cstddef>
 
-namespace lineartetrahedron {
+namespace fermisimplex {
 
 namespace core = adaptivesimplex::core;
 
@@ -44,4 +44,4 @@ inline double symmetric_linearization_error_bound(
     return 0.5 * curvature_bound * diameter * diameter;
 }
 
-}  // namespace lineartetrahedron
+}  // namespace fermisimplex

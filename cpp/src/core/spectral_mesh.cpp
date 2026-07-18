@@ -1,4 +1,4 @@
-#include <lineartetrahedron/spectral_mesh.h>
+#include <fermisimplex/spectral_mesh.h>
 
 #include "core/simplex_geometry.h"
 #include "linalg/blas_lapack.h"
@@ -12,7 +12,7 @@
 #include <stdexcept>
 #include <utility>
 
-namespace lineartetrahedron {
+namespace fermisimplex {
 namespace core = adaptivesimplex::core;
 namespace {
 
@@ -131,4 +131,4 @@ double SpectralMesh::linearization_error_bound(
     );
 }
 
-}  // namespace lineartetrahedron
+}  // namespace fermisimplex

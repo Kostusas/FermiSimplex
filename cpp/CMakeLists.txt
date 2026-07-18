@@ -1,32 +1,32 @@
 cmake_minimum_required(VERSION 3.28...3.30)
 
-set(LINEARTETRAHEDRON_CPP_TOP_LEVEL OFF)
+set(FERMISIMPLEX_CPP_TOP_LEVEL OFF)
 if(CMAKE_SOURCE_DIR STREQUAL CMAKE_CURRENT_SOURCE_DIR)
   project(
-    lineartetrahedron
+    fermisimplex
     VERSION 0.1.0
     LANGUAGES CXX
   )
-  set(LINEARTETRAHEDRON_CPP_TOP_LEVEL ON)
+  set(FERMISIMPLEX_CPP_TOP_LEVEL ON)
 endif()
 
 include(GNUInstallDirs)
 include(CMakePackageConfigHelpers)
 
 option(
-  LINEARTETRAHEDRON_BUILD_TESTING
-  "Build the lineartetrahedron C++ tests"
-  "${LINEARTETRAHEDRON_CPP_TOP_LEVEL}"
+  FERMISIMPLEX_BUILD_TESTING
+  "Build the fermisimplex C++ tests"
+  "${FERMISIMPLEX_CPP_TOP_LEVEL}"
 )
 option(
-  LINEARTETRAHEDRON_BUILD_BENCHMARKS
-  "Build the lineartetrahedron C++ benchmarks"
+  FERMISIMPLEX_BUILD_BENCHMARKS
+  "Build the fermisimplex C++ benchmarks"
   OFF
 )
 option(
-  LINEARTETRAHEDRON_INSTALL_CPP
-  "Install the lineartetrahedron C++ library and package metadata"
-  "${LINEARTETRAHEDRON_CPP_TOP_LEVEL}"
+  FERMISIMPLEX_INSTALL_CPP
+  "Install the fermisimplex C++ library and package metadata"
+  "${FERMISIMPLEX_CPP_TOP_LEVEL}"
 )
 
 find_package(LAPACK REQUIRED)
@@ -40,77 +40,77 @@ if(NOT TARGET adaptivesimplex::adaptive)
   set(ADAPTIVESIMPLEX_BUILD_BENCHMARKS OFF)
   set(ADAPTIVESIMPLEX_BUILD_DOC_TOOLS OFF)
   set(ADAPTIVESIMPLEX_ENABLE_OPENMP OFF)
-  set(_ltt_adaptivesimplex_fetch_options)
-  if(NOT LINEARTETRAHEDRON_INSTALL_CPP)
-    list(APPEND _ltt_adaptivesimplex_fetch_options EXCLUDE_FROM_ALL)
+  set(_fs_adaptivesimplex_fetch_options)
+  if(NOT FERMISIMPLEX_INSTALL_CPP)
+    list(APPEND _fs_adaptivesimplex_fetch_options EXCLUDE_FROM_ALL)
   endif()
   FetchContent_Declare(
     adaptivesimplex
     GIT_REPOSITORY https://gitlab.kwant-project.org/qt/adaptivesimplex.git
     GIT_TAG d1e898190300f051e344f549d68534c059fd486b
-    ${_ltt_adaptivesimplex_fetch_options}
+    ${_fs_adaptivesimplex_fetch_options}
   )
   FetchContent_MakeAvailable(adaptivesimplex)
 endif()
 
 include(CheckCXXSourceCompiles)
 
-set(_ltt_check_required_libraries "${CMAKE_REQUIRED_LIBRARIES}")
-set(_ltt_check_required_link_options "${CMAKE_REQUIRED_LINK_OPTIONS}")
+set(_fs_check_required_libraries "${CMAKE_REQUIRED_LIBRARIES}")
+set(_fs_check_required_link_options "${CMAKE_REQUIRED_LINK_OPTIONS}")
 set(CMAKE_REQUIRED_LIBRARIES LAPACK::LAPACK)
 set(CMAKE_REQUIRED_LINK_OPTIONS)
 
-function(_lineartetrahedron_find_fortran_symbol output check_name)
-  foreach(_ltt_symbol IN LISTS ARGN)
-    string(MAKE_C_IDENTIFIER "${_ltt_symbol}" _ltt_symbol_id)
-    set(_ltt_check "LINEARTETRAHEDRON_HAS_${check_name}_${_ltt_symbol_id}")
+function(_fermisimplex_find_fortran_symbol output check_name)
+  foreach(_fs_symbol IN LISTS ARGN)
+    string(MAKE_C_IDENTIFIER "${_fs_symbol}" _fs_symbol_id)
+    set(_fs_check "FERMISIMPLEX_HAS_${check_name}_${_fs_symbol_id}")
     check_cxx_source_compiles(
-      "extern \"C\" void ${_ltt_symbol}(); int main() { auto fn = &${_ltt_symbol}; return fn == nullptr; }"
-      "${_ltt_check}"
+      "extern \"C\" void ${_fs_symbol}(); int main() { auto fn = &${_fs_symbol}; return fn == nullptr; }"
+      "${_fs_check}"
     )
-    if(${_ltt_check})
-      set(${output} "${_ltt_symbol}" PARENT_SCOPE)
+    if(${_fs_check})
+      set(${output} "${_fs_symbol}" PARENT_SCOPE)
       return()
     endif()
   endforeach()
 endfunction()
 
-_lineartetrahedron_find_fortran_symbol(
-  LINEARTETRAHEDRON_LAPACK_ZHEEVD_SYMBOL LAPACK_ZHEEVD zheevd_ zheevd ZHEEVD
+_fermisimplex_find_fortran_symbol(
+  FERMISIMPLEX_LAPACK_ZHEEVD_SYMBOL LAPACK_ZHEEVD zheevd_ zheevd ZHEEVD
 )
-_lineartetrahedron_find_fortran_symbol(
-  LINEARTETRAHEDRON_LAPACK_ZPOTRF_SYMBOL LAPACK_ZPOTRF zpotrf_ zpotrf ZPOTRF
+_fermisimplex_find_fortran_symbol(
+  FERMISIMPLEX_LAPACK_ZPOTRF_SYMBOL LAPACK_ZPOTRF zpotrf_ zpotrf ZPOTRF
 )
-_lineartetrahedron_find_fortran_symbol(
-  LINEARTETRAHEDRON_BLAS_ZGEMM_SYMBOL BLAS_ZGEMM zgemm_ zgemm ZGEMM
+_fermisimplex_find_fortran_symbol(
+  FERMISIMPLEX_BLAS_ZGEMM_SYMBOL BLAS_ZGEMM zgemm_ zgemm ZGEMM
 )
-_lineartetrahedron_find_fortran_symbol(
-  LINEARTETRAHEDRON_BLAS_ZHER2K_SYMBOL BLAS_ZHER2K zher2k_ zher2k ZHER2K
+_fermisimplex_find_fortran_symbol(
+  FERMISIMPLEX_BLAS_ZHER2K_SYMBOL BLAS_ZHER2K zher2k_ zher2k ZHER2K
 )
-_lineartetrahedron_find_fortran_symbol(
-  LINEARTETRAHEDRON_BLAS_ZHEMM_SYMBOL BLAS_ZHEMM zhemm_ zhemm ZHEMM
+_fermisimplex_find_fortran_symbol(
+  FERMISIMPLEX_BLAS_ZHEMM_SYMBOL BLAS_ZHEMM zhemm_ zhemm ZHEMM
 )
-set(CMAKE_REQUIRED_LIBRARIES "${_ltt_check_required_libraries}")
-set(CMAKE_REQUIRED_LINK_OPTIONS "${_ltt_check_required_link_options}")
+set(CMAKE_REQUIRED_LIBRARIES "${_fs_check_required_libraries}")
+set(CMAKE_REQUIRED_LINK_OPTIONS "${_fs_check_required_link_options}")
 
-if(NOT LINEARTETRAHEDRON_LAPACK_ZHEEVD_SYMBOL)
+if(NOT FERMISIMPLEX_LAPACK_ZHEEVD_SYMBOL)
   message(FATAL_ERROR "Could not find a callable LAPACK zheevd symbol")
 endif()
-if(NOT LINEARTETRAHEDRON_LAPACK_ZPOTRF_SYMBOL)
+if(NOT FERMISIMPLEX_LAPACK_ZPOTRF_SYMBOL)
   message(FATAL_ERROR "Could not find a callable LAPACK zpotrf symbol")
 endif()
-if(NOT LINEARTETRAHEDRON_BLAS_ZGEMM_SYMBOL)
+if(NOT FERMISIMPLEX_BLAS_ZGEMM_SYMBOL)
   message(FATAL_ERROR "Could not find a callable BLAS zgemm symbol")
 endif()
-if(NOT LINEARTETRAHEDRON_BLAS_ZHER2K_SYMBOL)
+if(NOT FERMISIMPLEX_BLAS_ZHER2K_SYMBOL)
   message(FATAL_ERROR "Could not find a callable BLAS zher2k symbol")
 endif()
-if(NOT LINEARTETRAHEDRON_BLAS_ZHEMM_SYMBOL)
+if(NOT FERMISIMPLEX_BLAS_ZHEMM_SYMBOL)
   message(FATAL_ERROR "Could not find a callable BLAS zhemm symbol")
 endif()
 
 set(
-  _lineartetrahedron_core_sources
+  _fermisimplex_core_sources
   src/core/spectral_mesh.cpp
   src/core/tight_binding.cpp
   src/linalg/blas.cpp
@@ -135,11 +135,11 @@ set(
   src/fermi_surface/surface_triangulation.cpp
 )
 
-add_library(lineartetrahedron_core STATIC ${_lineartetrahedron_core_sources})
-add_library(lineartetrahedron::core ALIAS lineartetrahedron_core)
-target_compile_features(lineartetrahedron_core PUBLIC cxx_std_20)
+add_library(fermisimplex_core STATIC ${_fermisimplex_core_sources})
+add_library(fermisimplex::core ALIAS fermisimplex_core)
+target_compile_features(fermisimplex_core PUBLIC cxx_std_20)
 target_include_directories(
-  lineartetrahedron_core
+  fermisimplex_core
   PUBLIC
     "$<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}/include>"
     "$<INSTALL_INTERFACE:${CMAKE_INSTALL_INCLUDEDIR}>"
@@ -147,12 +147,12 @@ target_include_directories(
     "${CMAKE_CURRENT_SOURCE_DIR}/src"
 )
 set_target_properties(
-  lineartetrahedron_core PROPERTIES
+  fermisimplex_core PROPERTIES
   EXPORT_NAME core
   POSITION_INDEPENDENT_CODE ON
 )
 target_link_libraries(
-  lineartetrahedron_core
+  fermisimplex_core
   PUBLIC
     adaptivesimplex::adaptive
   PRIVATE
@@ -160,19 +160,19 @@ target_link_libraries(
     LAPACK::LAPACK
 )
 target_compile_definitions(
-  lineartetrahedron_core PRIVATE
-  LINEARTETRAHEDRON_LAPACK_ZHEEVD=${LINEARTETRAHEDRON_LAPACK_ZHEEVD_SYMBOL}
-  LINEARTETRAHEDRON_LAPACK_ZPOTRF=${LINEARTETRAHEDRON_LAPACK_ZPOTRF_SYMBOL}
-  LINEARTETRAHEDRON_BLAS_ZGEMM=${LINEARTETRAHEDRON_BLAS_ZGEMM_SYMBOL}
-  LINEARTETRAHEDRON_BLAS_ZHER2K=${LINEARTETRAHEDRON_BLAS_ZHER2K_SYMBOL}
-  LINEARTETRAHEDRON_BLAS_ZHEMM=${LINEARTETRAHEDRON_BLAS_ZHEMM_SYMBOL}
+  fermisimplex_core PRIVATE
+  FERMISIMPLEX_LAPACK_ZHEEVD=${FERMISIMPLEX_LAPACK_ZHEEVD_SYMBOL}
+  FERMISIMPLEX_LAPACK_ZPOTRF=${FERMISIMPLEX_LAPACK_ZPOTRF_SYMBOL}
+  FERMISIMPLEX_BLAS_ZGEMM=${FERMISIMPLEX_BLAS_ZGEMM_SYMBOL}
+  FERMISIMPLEX_BLAS_ZHER2K=${FERMISIMPLEX_BLAS_ZHER2K_SYMBOL}
+  FERMISIMPLEX_BLAS_ZHEMM=${FERMISIMPLEX_BLAS_ZHEMM_SYMBOL}
 )
 
-if(LINEARTETRAHEDRON_BUILD_TESTING)
+if(FERMISIMPLEX_BUILD_TESTING)
   enable_testing()
 
-  set(_ltt_cpp_test_targets)
-  foreach(_ltt_test IN ITEMS
+  set(_fs_cpp_test_targets)
+  foreach(_fs_test IN ITEMS
     occupation_bounds
     certificate_validation
     simplex_certificate
@@ -180,29 +180,29 @@ if(LINEARTETRAHEDRON_BUILD_TESTING)
     projected_error
     charge_certificates
   )
-    set(_ltt_test_target "lineartetrahedron_${_ltt_test}_tests")
+    set(_fs_test_target "fermisimplex_${_fs_test}_tests")
     add_executable(
-      ${_ltt_test_target}
-      "tests/test_${_ltt_test}.cpp"
+      ${_fs_test_target}
+      "tests/test_${_fs_test}.cpp"
     )
-    target_compile_features(${_ltt_test_target} PRIVATE cxx_std_20)
+    target_compile_features(${_fs_test_target} PRIVATE cxx_std_20)
     target_include_directories(
-      ${_ltt_test_target} PRIVATE
+      ${_fs_test_target} PRIVATE
       "${CMAKE_CURRENT_SOURCE_DIR}/src"
       "${CMAKE_CURRENT_SOURCE_DIR}/tests"
     )
-    target_link_libraries(${_ltt_test_target} PRIVATE lineartetrahedron::core)
+    target_link_libraries(${_fs_test_target} PRIVATE fermisimplex::core)
     add_test(
-      NAME ${_ltt_test_target}
-      COMMAND $<TARGET_FILE:${_ltt_test_target}>
+      NAME ${_fs_test_target}
+      COMMAND $<TARGET_FILE:${_fs_test_target}>
     )
-    list(APPEND _ltt_cpp_test_targets ${_ltt_test_target})
+    list(APPEND _fs_cpp_test_targets ${_fs_test_target})
   endforeach()
-  add_custom_target(lineartetrahedron_cpp_tests DEPENDS ${_ltt_cpp_test_targets})
+  add_custom_target(fermisimplex_cpp_tests DEPENDS ${_fs_cpp_test_targets})
 
-  if(LINEARTETRAHEDRON_INSTALL_CPP)
+  if(FERMISIMPLEX_INSTALL_CPP)
     add_test(
-      NAME lineartetrahedron_installed_package_consumer
+      NAME fermisimplex_installed_package_consumer
       COMMAND
         "${CMAKE_COMMAND}"
         "-DPACKAGE_BUILD_DIR=${CMAKE_BINARY_DIR}"
@@ -221,32 +221,32 @@ if(LINEARTETRAHEDRON_BUILD_TESTING)
         -P "${CMAKE_CURRENT_SOURCE_DIR}/tests/package_consumer/verify.cmake"
     )
     set_tests_properties(
-      lineartetrahedron_installed_package_consumer PROPERTIES
+      fermisimplex_installed_package_consumer PROPERTIES
       LABELS package
     )
   endif()
 endif()
 
-if(LINEARTETRAHEDRON_BUILD_BENCHMARKS)
+if(FERMISIMPLEX_BUILD_BENCHMARKS)
   add_executable(
-    lineartetrahedron_occupation_bounds_benchmark
+    fermisimplex_occupation_bounds_benchmark
     tools/benchmark_occupation_bounds.cpp
   )
-  target_compile_features(lineartetrahedron_occupation_bounds_benchmark PRIVATE cxx_std_20)
+  target_compile_features(fermisimplex_occupation_bounds_benchmark PRIVATE cxx_std_20)
   target_include_directories(
-    lineartetrahedron_occupation_bounds_benchmark PRIVATE
+    fermisimplex_occupation_bounds_benchmark PRIVATE
     "${CMAKE_CURRENT_SOURCE_DIR}/src"
   )
   target_link_libraries(
-    lineartetrahedron_occupation_bounds_benchmark PRIVATE
-    lineartetrahedron::core
+    fermisimplex_occupation_bounds_benchmark PRIVATE
+    fermisimplex::core
   )
 endif()
 
-if(LINEARTETRAHEDRON_INSTALL_CPP)
+if(FERMISIMPLEX_INSTALL_CPP)
   install(
-    TARGETS lineartetrahedron_core
-    EXPORT lineartetrahedron-targets
+    TARGETS fermisimplex_core
+    EXPORT fermisimplex-targets
     ARCHIVE DESTINATION "${CMAKE_INSTALL_LIBDIR}"
     LIBRARY DESTINATION "${CMAKE_INSTALL_LIBDIR}"
     RUNTIME DESTINATION "${CMAKE_INSTALL_BINDIR}"
@@ -256,26 +256,26 @@ if(LINEARTETRAHEDRON_INSTALL_CPP)
     DESTINATION "${CMAKE_INSTALL_INCLUDEDIR}"
   )
   install(
-    EXPORT lineartetrahedron-targets
-    NAMESPACE lineartetrahedron::
-    FILE lineartetrahedron-targets.cmake
-    DESTINATION "${CMAKE_INSTALL_LIBDIR}/cmake/lineartetrahedron"
+    EXPORT fermisimplex-targets
+    NAMESPACE fermisimplex::
+    FILE fermisimplex-targets.cmake
+    DESTINATION "${CMAKE_INSTALL_LIBDIR}/cmake/fermisimplex"
   )
 
   configure_package_config_file(
-    cmake/lineartetrahedron-config.cmake.in
-    "${CMAKE_CURRENT_BINARY_DIR}/lineartetrahedron-config.cmake"
-    INSTALL_DESTINATION "${CMAKE_INSTALL_LIBDIR}/cmake/lineartetrahedron"
+    cmake/fermisimplex-config.cmake.in
+    "${CMAKE_CURRENT_BINARY_DIR}/fermisimplex-config.cmake"
+    INSTALL_DESTINATION "${CMAKE_INSTALL_LIBDIR}/cmake/fermisimplex"
   )
   write_basic_package_version_file(
-    "${CMAKE_CURRENT_BINARY_DIR}/lineartetrahedron-config-version.cmake"
+    "${CMAKE_CURRENT_BINARY_DIR}/fermisimplex-config-version.cmake"
     VERSION "${PROJECT_VERSION}"
     COMPATIBILITY SameMinorVersion
   )
   install(
     FILES
-      "${CMAKE_CURRENT_BINARY_DIR}/lineartetrahedron-config.cmake"
-      "${CMAKE_CURRENT_BINARY_DIR}/lineartetrahedron-config-version.cmake"
-    DESTINATION "${CMAKE_INSTALL_LIBDIR}/cmake/lineartetrahedron"
+      "${CMAKE_CURRENT_BINARY_DIR}/fermisimplex-config.cmake"
+      "${CMAKE_CURRENT_BINARY_DIR}/fermisimplex-config-version.cmake"
+    DESTINATION "${CMAKE_INSTALL_LIBDIR}/cmake/fermisimplex"
   )
 endif()

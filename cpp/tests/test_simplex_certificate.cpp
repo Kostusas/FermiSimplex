@@ -1,7 +1,7 @@
 #include "certification/mesh_certificate.h"
 #include "test_helpers.h"
 
-#include <lineartetrahedron/certification.h>
+#include <fermisimplex/certification.h>
 
 #include <adaptivesimplex/core/root_mesh.h>
 
@@ -12,15 +12,15 @@
 
 namespace {
 
-using namespace lineartetrahedron::test;
-namespace certificate = lineartetrahedron::certification;
+using namespace fermisimplex::test;
+namespace certificate = fermisimplex::certification;
 
-std::vector<lineartetrahedron::Eigensystem> simplex_spectra(
+std::vector<fermisimplex::Eigensystem> simplex_spectra(
     const adaptivesimplex::core::Geometry &geometry,
     adaptivesimplex::core::SimplexId simplex_id,
-    const adaptivesimplex::core::VertexCache<lineartetrahedron::Eigensystem> &cache
+    const adaptivesimplex::core::VertexCache<fermisimplex::Eigensystem> &cache
 ) {
-    std::vector<lineartetrahedron::Eigensystem> result;
+    std::vector<fermisimplex::Eigensystem> result;
     const auto &simplex = geometry.simplices().simplex(simplex_id);
     result.reserve(simplex.vertex_ids.size());
     for (const auto vertex_id : simplex.vertex_ids) {
@@ -36,7 +36,7 @@ void test_certified_simplex_reports_mu_bounds() {
         "default certificate should have an empty mu range"
     );
 
-    auto mesh = lineartetrahedron::SpectralMesh(winding_model(1), kTol, 4);
+    auto mesh = fermisimplex::SpectralMesh(winding_model(1), kTol, 4);
     const auto &geometry = mesh.geometry();
     const auto simplex_id = first_active_simplex(geometry);
     auto &cache = mesh.eigensystems();
@@ -94,7 +94,7 @@ void test_certified_simplex_reports_mu_bounds() {
 }
 
 void test_mesh_linearization_error_bound_matches_direct_error() {
-    auto mesh = lineartetrahedron::SpectralMesh(winding_model(1), kTol, 4);
+    auto mesh = fermisimplex::SpectralMesh(winding_model(1), kTol, 4);
     const auto &geometry = mesh.geometry();
     const auto simplex_id = first_active_simplex(geometry);
     auto &cache = mesh.eigensystems();
@@ -128,7 +128,7 @@ void test_mesh_linearization_error_bound_matches_direct_error() {
 }
 
 void test_large_linearization_error_bound_blocks_certification() {
-    auto mesh = lineartetrahedron::SpectralMesh(winding_model(1), kTol, 4);
+    auto mesh = fermisimplex::SpectralMesh(winding_model(1), kTol, 4);
     const auto &geometry = mesh.geometry();
     const auto simplex_id = first_active_simplex(geometry);
     auto &cache = mesh.eigensystems();
@@ -148,7 +148,7 @@ void test_large_linearization_error_bound_blocks_certification() {
 }
 
 void test_occupation_bound_certificate_reports_mu_bounds() {
-    auto mesh = lineartetrahedron::SpectralMesh(winding_model(2), kTol, 2);
+    auto mesh = fermisimplex::SpectralMesh(winding_model(2), kTol, 2);
     const auto &geometry = mesh.geometry();
     const auto simplex_id = first_active_simplex(geometry);
     auto &cache = mesh.eigensystems();
@@ -179,7 +179,7 @@ void test_occupation_bound_certificate_reports_mu_bounds() {
 }
 
 void test_visible_gapless_reports_conservative_bounds() {
-    auto mesh = lineartetrahedron::SpectralMesh(winding_model(1), kTol, 1);
+    auto mesh = fermisimplex::SpectralMesh(winding_model(1), kTol, 1);
     const auto &geometry = mesh.geometry();
     const auto simplex_id = first_active_simplex(geometry);
     auto &cache = mesh.eigensystems();
@@ -201,7 +201,7 @@ void test_visible_gapless_reports_conservative_bounds() {
 }
 
 void test_visible_gapless_estimates_occupation_bounds() {
-    const auto spectra = std::vector<lineartetrahedron::Eigensystem>{
+    const auto spectra = std::vector<fermisimplex::Eigensystem>{
         diagonal_spectra({-2.0, -1.0, 1.0}),
         diagonal_spectra({-2.0, 0.0, 1.0}),
         diagonal_spectra({-2.0, -0.5, 1.0}),
@@ -217,7 +217,7 @@ void test_visible_gapless_estimates_occupation_bounds() {
 }
 
 void test_visible_occupation_mismatch_estimates_occupation_bounds() {
-    const auto spectra = std::vector<lineartetrahedron::Eigensystem>{
+    const auto spectra = std::vector<fermisimplex::Eigensystem>{
         diagonal_spectra({-2.0, -1.0, 1.0}),
         diagonal_spectra({-2.0, 0.5, 1.0}),
         diagonal_spectra({-2.0, -0.5, 1.0}),
@@ -233,7 +233,7 @@ void test_visible_occupation_mismatch_estimates_occupation_bounds() {
 }
 
 void test_identical_visible_gapless_spectra_have_useful_bounds() {
-    const auto spectra = std::vector<lineartetrahedron::Eigensystem>{
+    const auto spectra = std::vector<fermisimplex::Eigensystem>{
         diagonal_spectra({-2.0, 0.0, 1.0}),
         diagonal_spectra({-2.0, 0.0, 1.0}),
         diagonal_spectra({-2.0, 0.0, 1.0}),
@@ -262,7 +262,7 @@ void test_asymmetric_mu_interval_uses_the_correct_radii() {
 void test_exact_occupation_bounds_promote_an_inconclusive_gap_proof() {
     constexpr auto sine = 0.005;
     const auto cosine = std::sqrt(1.0 - sine * sine);
-    const auto spectra = std::vector<lineartetrahedron::Eigensystem>{
+    const auto spectra = std::vector<fermisimplex::Eigensystem>{
         diagonal_spectra({-2.0, 2.0}),
         {
             .eigenvalues = {-1.0, 10000.0},

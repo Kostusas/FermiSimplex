@@ -2,7 +2,7 @@
 
 #include <nanobind/nanobind.h>
 
-namespace lineartetrahedron::bindings {
+namespace fermisimplex::bindings {
 
 namespace nb = nanobind;
 
@@ -12,4 +12,4 @@ void bind_integration_types(nb::module_ &m);
 void bind_spectral_mesh(nb::module_ &m);
 void bind_fermi_surface(nb::module_ &m);
 
-}  // namespace lineartetrahedron::bindings
+}  // namespace fermisimplex::bindings

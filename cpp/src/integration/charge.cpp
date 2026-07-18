@@ -10,7 +10,7 @@
 #include <span>
 #include <vector>
 
-namespace lineartetrahedron::integration_detail {
+namespace fermisimplex::integration_detail {
 namespace cert = certification;
 namespace core = adaptivesimplex::core;
 namespace cut = adaptivesimplex::cut;
@@ -258,4 +258,4 @@ ChargeContribution charge_on_simplex(
     return result;
 }
 
-}  // namespace lineartetrahedron::integration_detail
+}  // namespace fermisimplex::integration_detail

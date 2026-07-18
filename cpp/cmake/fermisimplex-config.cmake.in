@@ -4,6 +4,6 @@ include(CMakeFindDependencyMacro)
 find_dependency(adaptivesimplex CONFIG)
 find_dependency(LAPACK)
 
-include("${CMAKE_CURRENT_LIST_DIR}/lineartetrahedron-targets.cmake")
+include("${CMAKE_CURRENT_LIST_DIR}/fermisimplex-targets.cmake")
 
-check_required_components(lineartetrahedron)
+check_required_components(fermisimplex)

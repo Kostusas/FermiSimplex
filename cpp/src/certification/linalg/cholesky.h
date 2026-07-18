@@ -5,7 +5,7 @@
 #include <cstddef>
 #include <vector>
 
-namespace lineartetrahedron::certification::detail {
+namespace fermisimplex::certification::detail {
 
 struct PositiveDefiniteResult {
     bool passed = false;
@@ -20,4 +20,4 @@ PositiveDefiniteResult positive_definite(
     double margin = 0.0
 );
 
-}  // namespace lineartetrahedron::certification::detail
+}  // namespace fermisimplex::certification::detail

@@ -1,7 +1,7 @@
 #include "certification/bounds/occupation_bounds.h"
 #include "test_helpers.h"
 
-#include <lineartetrahedron/certification.h>
+#include <fermisimplex/certification.h>
 
 #include <exception>
 #include <iostream>
@@ -12,9 +12,9 @@
 
 namespace {
 
-using namespace lineartetrahedron::test;
-namespace certificate = lineartetrahedron::certification;
-namespace detail = lineartetrahedron::certification::detail;
+using namespace fermisimplex::test;
+namespace certificate = fermisimplex::certification;
+namespace detail = fermisimplex::certification::detail;
 
 void test_zero_width_mu_bounds_are_valid_only_at_the_endpoint() {
     const auto estimate = detail::estimate_ordered_subset_rank_with_mu_radius(
@@ -71,7 +71,7 @@ void test_empty_simplex_spectra_throws() {
 void test_invalid_linearization_error_bound_throws() {
     auto rejected_error = false;
     try {
-        const auto spectra = std::vector<lineartetrahedron::Eigensystem>{
+        const auto spectra = std::vector<fermisimplex::Eigensystem>{
             diagonal_spectra({-1.0, 1.0}),
         };
         (void)certify_direct(spectra, 0.0, -1.0);
@@ -82,7 +82,7 @@ void test_invalid_linearization_error_bound_throws() {
 }
 
 void test_nonfinite_parameters_and_invalid_eigenvalues_throw() {
-    const auto valid = std::vector<lineartetrahedron::Eigensystem>{
+    const auto valid = std::vector<fermisimplex::Eigensystem>{
         diagonal_spectra({-1.0, 1.0}),
     };
 

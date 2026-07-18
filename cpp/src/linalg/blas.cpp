@@ -3,20 +3,20 @@
 #include <limits>
 #include <stdexcept>
 
-#ifndef LINEARTETRAHEDRON_BLAS_ZGEMM
-#define LINEARTETRAHEDRON_BLAS_ZGEMM zgemm_
+#ifndef FERMISIMPLEX_BLAS_ZGEMM
+#define FERMISIMPLEX_BLAS_ZGEMM zgemm_
 #endif
 
-#ifndef LINEARTETRAHEDRON_BLAS_ZHER2K
-#define LINEARTETRAHEDRON_BLAS_ZHER2K zher2k_
+#ifndef FERMISIMPLEX_BLAS_ZHER2K
+#define FERMISIMPLEX_BLAS_ZHER2K zher2k_
 #endif
 
-#ifndef LINEARTETRAHEDRON_BLAS_ZHEMM
-#define LINEARTETRAHEDRON_BLAS_ZHEMM zhemm_
+#ifndef FERMISIMPLEX_BLAS_ZHEMM
+#define FERMISIMPLEX_BLAS_ZHEMM zhemm_
 #endif
 
 extern "C" {
-void LINEARTETRAHEDRON_BLAS_ZGEMM(
+void FERMISIMPLEX_BLAS_ZGEMM(
     const char *transa,
     const char *transb,
     const int *m,
@@ -32,7 +32,7 @@ void LINEARTETRAHEDRON_BLAS_ZGEMM(
     const int *ldc
 );
 
-void LINEARTETRAHEDRON_BLAS_ZHER2K(
+void FERMISIMPLEX_BLAS_ZHER2K(
     const char *uplo,
     const char *trans,
     const int *n,
@@ -47,7 +47,7 @@ void LINEARTETRAHEDRON_BLAS_ZHER2K(
     const int *ldc
 );
 
-void LINEARTETRAHEDRON_BLAS_ZHEMM(
+void FERMISIMPLEX_BLAS_ZHEMM(
     const char *side,
     const char *uplo,
     const int *m,
@@ -63,7 +63,7 @@ void LINEARTETRAHEDRON_BLAS_ZHEMM(
 );
 }
 
-namespace lineartetrahedron::linalg {
+namespace fermisimplex::linalg {
 namespace {
 
 int blas_dimension(size_t value) {
@@ -118,7 +118,7 @@ void matrix_multiply(
     const auto lda = blas_dimension(left_leading_dimension);
     const auto ldb = blas_dimension(right_leading_dimension);
     const auto ldc = blas_dimension(result_leading_dimension);
-    LINEARTETRAHEDRON_BLAS_ZGEMM(
+    FERMISIMPLEX_BLAS_ZGEMM(
         &left_operation,
         &right_operation,
         &m,
@@ -158,7 +158,7 @@ void hermitian_rank_2k_update(
     const auto lda = blas_dimension(left_leading_dimension);
     const auto ldb = blas_dimension(right_leading_dimension);
     const auto ldc = blas_dimension(result_leading_dimension);
-    LINEARTETRAHEDRON_BLAS_ZHER2K(
+    FERMISIMPLEX_BLAS_ZHER2K(
         &lower_triangle,
         &operation,
         &n,
@@ -197,7 +197,7 @@ void hermitian_matrix_multiply(
     const auto lda = blas_dimension(hermitian_leading_dimension);
     const auto ldb = blas_dimension(other_leading_dimension);
     const auto ldc = blas_dimension(result_leading_dimension);
-    LINEARTETRAHEDRON_BLAS_ZHEMM(
+    FERMISIMPLEX_BLAS_ZHEMM(
         &side,
         &lower_triangle,
         &m,
@@ -213,4 +213,4 @@ void hermitian_matrix_multiply(
     );
 }
 
-}  // namespace lineartetrahedron::linalg
+}  // namespace fermisimplex::linalg

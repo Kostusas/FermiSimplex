@@ -4,7 +4,7 @@
 #include <span>
 #include <vector>
 
-namespace lineartetrahedron::certification::detail {
+namespace fermisimplex::certification::detail {
 
 enum class VertexSpectraClassification {
     NeedsCertificate,
@@ -39,4 +39,4 @@ AnchorSplit split_anchor_spectrum(
     size_t nocc
 );
 
-}  // namespace lineartetrahedron::certification::detail
+}  // namespace fermisimplex::certification::detail

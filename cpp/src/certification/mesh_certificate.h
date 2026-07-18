@@ -1,9 +1,9 @@
 #pragma once
 
-#include <lineartetrahedron/certification.h>
-#include <lineartetrahedron/spectral_mesh.h>
+#include <fermisimplex/certification.h>
+#include <fermisimplex/spectral_mesh.h>
 
-namespace lineartetrahedron::certification {
+namespace fermisimplex::certification {
 
 namespace core = adaptivesimplex::core;
 
@@ -15,4 +15,4 @@ SimplexCertificate certify_mesh_simplex(
     double tolerance = kDefaultTolerance
 );
 
-}  // namespace lineartetrahedron::certification
+}  // namespace fermisimplex::certification

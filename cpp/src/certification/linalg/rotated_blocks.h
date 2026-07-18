@@ -6,7 +6,7 @@
 #include <span>
 #include <vector>
 
-namespace lineartetrahedron::certification::detail {
+namespace fermisimplex::certification::detail {
 
 std::vector<Complex> rotated_block(
     std::span<const Complex> base_block,
@@ -28,4 +28,4 @@ void subtract_frame_margin(
     double margin
 );
 
-}  // namespace lineartetrahedron::certification::detail
+}  // namespace fermisimplex::certification::detail

@@ -1,4 +1,4 @@
-#include <lineartetrahedron/lineartetrahedron.h>
+#include <fermisimplex/fermisimplex.h>
 
 #include <array>
 #include <complex>
@@ -10,7 +10,7 @@
 
 namespace {
 
-class ConstantModel final : public lineartetrahedron::HamiltonianModel {
+class ConstantModel final : public fermisimplex::HamiltonianModel {
 public:
     std::size_t ndim() const noexcept override { return 1; }
     std::size_t ndof() const noexcept override { return 1; }
@@ -26,7 +26,7 @@ public:
 
 int main() {
     auto model = std::make_shared<ConstantModel>();
-    lineartetrahedron::SpectralMesh mesh(std::move(model), 1e-14, 0);
+    fermisimplex::SpectralMesh mesh(std::move(model), 1e-14, 0);
 
     const std::array<double, 1> point{0.25};
     const auto eigensystem = mesh.spectrum(point);

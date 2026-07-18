@@ -5,7 +5,7 @@
 #include <cstddef>
 #include <vector>
 
-namespace lineartetrahedron::certification::detail {
+namespace fermisimplex::certification::detail {
 
 struct OccupationRankEstimate {
     size_t rank = 0;
@@ -26,4 +26,4 @@ OccupationRankEstimate estimate_ordered_subset_rank_with_mu_radius(
     double tolerance
 );
 
-}  // namespace lineartetrahedron::certification::detail
+}  // namespace fermisimplex::certification::detail

@@ -10,7 +10,7 @@
 #include <tuple>
 #include <vector>
 
-namespace lineartetrahedron::fermi_surface_detail {
+namespace fermisimplex::fermi_surface_detail {
 namespace {
 
 using PointKey = std::tuple<size_t, core::VertexId, core::VertexId>;
@@ -263,4 +263,4 @@ void extract_terminal_surface(
     builder.finish();
 }
 
-}  // namespace lineartetrahedron::fermi_surface_detail
+}  // namespace fermisimplex::fermi_surface_detail

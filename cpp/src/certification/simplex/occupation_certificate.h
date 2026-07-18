@@ -2,13 +2,13 @@
 
 #include "certification/simplex/vertex_blocks.h"
 
-#include <lineartetrahedron/certification.h>
+#include <fermisimplex/certification.h>
 
 #include <cstddef>
 #include <span>
 #include <vector>
 
-namespace lineartetrahedron::certification::detail {
+namespace fermisimplex::certification::detail {
 
 struct OccupationSectorCheck {
     bool passed = false;
@@ -39,4 +39,4 @@ SimplexCertificate make_unresolved_certificate(
     double tolerance
 );
 
-}  // namespace lineartetrahedron::certification::detail
+}  // namespace fermisimplex::certification::detail

@@ -3,7 +3,7 @@ from __future__ import annotations
 import numpy as np
 import pytest
 
-from lineartetrahedron import CertificateStatus, certify_simplex
+from fermisimplex import CertificateStatus, certify_simplex
 
 from .helpers import tb_k_matrix, winding_constant_gap_band
 

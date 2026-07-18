@@ -4,7 +4,7 @@
 
 #include <algorithm>
 
-namespace lineartetrahedron::certification::detail {
+namespace fermisimplex::certification::detail {
 namespace {
 
 constexpr double kBlockMargin = 1e-10;
@@ -40,4 +40,4 @@ PositiveDefiniteResult positive_definite(
     };
 }
 
-}  // namespace lineartetrahedron::certification::detail
+}  // namespace fermisimplex::certification::detail

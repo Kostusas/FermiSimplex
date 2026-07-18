@@ -4,7 +4,7 @@ import numpy as np
 from matplotlib import pyplot as plt
 from matplotlib.collections import LineCollection
 
-from lineartetrahedron import Hamiltonian, SpectralMesh
+from fermisimplex import Hamiltonian, SpectralMesh
 
 
 CURVATURE_BOUND = 2.08 * (2.0 * np.pi) ** 2

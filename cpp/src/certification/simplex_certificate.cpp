@@ -12,7 +12,7 @@
 #include <stdexcept>
 #include <vector>
 
-namespace lineartetrahedron::certification {
+namespace fermisimplex::certification {
 namespace core = adaptivesimplex::core;
 namespace {
 
@@ -267,4 +267,4 @@ SimplexCertificate certify_mesh_simplex(
     );
 }
 
-}  // namespace lineartetrahedron::certification
+}  // namespace fermisimplex::certification

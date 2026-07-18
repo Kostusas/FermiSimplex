@@ -10,7 +10,7 @@
 #include <utility>
 #include <vector>
 
-namespace lineartetrahedron::bindings {
+namespace fermisimplex::bindings {
 
 namespace nb = nanobind;
 
@@ -49,4 +49,4 @@ inline std::vector<std::vector<std::int64_t>> copy_lattice_vectors(
     return result;
 }
 
-}  // namespace lineartetrahedron::bindings
+}  // namespace fermisimplex::bindings

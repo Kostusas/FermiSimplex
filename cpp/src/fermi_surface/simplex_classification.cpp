@@ -3,7 +3,7 @@
 #include "certification/mesh_certificate.h"
 #include "core/simplex_geometry.h"
 
-namespace lineartetrahedron::fermi_surface_detail {
+namespace fermisimplex::fermi_surface_detail {
 namespace {
 
 void append_visible(
@@ -60,4 +60,4 @@ SimplexClassification classify_frontier(
     return result;
 }
 
-}  // namespace lineartetrahedron::fermi_surface_detail
+}  // namespace fermisimplex::fermi_surface_detail

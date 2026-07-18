@@ -1,13 +1,13 @@
-# LinearTetrahedron
+# fermisimplex
 
 **Adaptive, occupation-certified spectral calculations on simplex meshes.**
 
-LinearTetrahedron finds Fermi surfaces and computes zero-temperature charge and
+fermisimplex finds Fermi surfaces and computes zero-temperature charge and
 density matrices without paying for a dense momentum grid. Its central object
 is the local occupation
 
 $$
-N(k;\mu)=\operatorname{Tr}\Theta\!\left(\mu I-H(k)\right),
+N(k; \mu) = \mathrm{Tr}\left[\Theta\left(\mu I - H(k)\right)\right],
 $$
 
 and its central question is simple: *can the occupation be proved constant on
@@ -39,7 +39,7 @@ The model below produces the three-dimensional surface shown above:
 ```python
 import numpy as np
 
-from lineartetrahedron import Hamiltonian, SpectralMesh
+from fermisimplex import Hamiltonian, SpectralMesh
 
 
 def hamiltonian(kx, ky, kz):
@@ -70,7 +70,7 @@ Both model types are evaluated with separate coordinates: `model(kx, ky, ...)`.
 The same `SpectralMesh` can drive the other observables:
 
 ```python
-from lineartetrahedron import AdaptiveOptions
+from fermisimplex import AdaptiveOptions
 
 options = AdaptiveOptions(target_error=1e-2, max_refinements=10_000)
 
@@ -100,30 +100,35 @@ $$
 use `TightBinding({R: H_R, ...})`. Opposite hoppings are checked for
 $H_{-R}=H_R^\dagger$.
 
-## What is certified?
+## What does the certificate prove?
 
-For a simplex of diameter $D$, a supplied curvature bound $M$ gives the
-Hamiltonian interpolation bound
+The certificate is a local proof that the number of occupied states cannot
+change anywhere inside a simplex. fermisimplex starts from the eigensystems at
+the simplex vertices and searches for complementary trial subspaces on which
+$H(k)-\mu I$ is strictly negative or strictly positive. A user-supplied
+curvature bound limits how far the Hamiltonian inside the simplex can depart
+from its vertex-linear interpolation. When the vertex margins dominate that
+allowed departure, the sign separation—and therefore the occupation—holds
+throughout the simplex without sampling its interior.
 
-$$
-\epsilon=\frac12 M D^2.
-$$
+A successful proof means that no Fermi surface crosses the simplex. If only
+part of the spectrum can be separated, the same argument still gives rigorous
+lower and upper bounds on the occupation. If the proof is inconclusive,
+fermisimplex makes no claim that the simplex is gapless; it refines the simplex
+and tries again.
 
-Every charge and Fermi-surface simplex is passed through the certificate.
-Omitting `curvature_bound`, passing `None`, and passing `0.0` are equivalent:
-all assert zero curvature; none disables certification.
+The charge and Fermi-surface routines apply this test to every simplex.
+Remaining occupation uncertainty is accumulated in
+`charge.certified_error_bound`. For surfaces, `surface.coverage_certified` says
+that occupation classification succeeded down to `min_feature_size`; it does
+not certify topology or geometric distance from the exact surface. Density
+matrices currently use adaptive error estimates rather than a certificate.
 
-- `charge.certified_error_bound` is rigorous if the supplied $M$ is valid.
-- `charge.stopping_error` is the projected/adaptive estimate used to decide
-  refinement; it is not a certificate.
-- `surface.coverage_certified` concerns occupation classification down to the
-  requested feature size, not topology or geometric/Hausdorff error.
-- density-matrix `stopping_error` is an adaptive quadrature estimate; density
-  matrices are not currently certified.
-
-The derivation—including the rotated-subspace certificate, partial occupation
-bounds, asymmetric residual pairing, cut-simplex charge formula, and preview
-error—is in [the mathematics guide](docs/mathematics.md).
+The guarantee assumes that `curvature_bound` is valid. Omitting it, passing
+`None`, or passing `0.0` asserts zero curvature; none of these choices disables
+certification. The interpolation bound, proof, charge bound, and distinction
+between certified and adaptive stopping errors are developed in the
+[mathematics guide](docs/mathematics.md).
 
 ## API at a glance
 

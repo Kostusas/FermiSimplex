@@ -4,11 +4,11 @@
 #include <cstdint>
 #include <vector>
 
-namespace lineartetrahedron {
+namespace fermisimplex {
 
 std::vector<std::int64_t> product_simplex_triangulation_cells(
     size_t negative_count,
     size_t positive_count
 );
 
-}  // namespace lineartetrahedron
+}  // namespace fermisimplex

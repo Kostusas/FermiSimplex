@@ -4,7 +4,7 @@
 #include <cstddef>
 #include <vector>
 
-namespace lineartetrahedron::linalg {
+namespace fermisimplex::linalg {
 
 using Complex = std::complex<double>;
 
@@ -62,4 +62,4 @@ void diagonalize_hermitian_in_place(
     const char *context
 );
 
-}  // namespace lineartetrahedron::linalg
+}  // namespace fermisimplex::linalg

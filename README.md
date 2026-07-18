@@ -102,33 +102,25 @@ $H_{-R}=H_R^\dagger$.
 
 ## What does the certificate prove?
 
-The certificate is a local proof that the number of occupied states cannot
-change anywhere inside a simplex. FermiSimplex starts from the eigensystems at
-the simplex vertices and searches for complementary trial subspaces on which
-$H(k)-\mu I$ is strictly negative or strictly positive. A user-supplied
-curvature bound limits how far the Hamiltonian inside the simplex can depart
-from its vertex-linear interpolation. When the vertex margins dominate that
-allowed departure, the sign separation—and therefore the occupation—holds
-throughout the simplex without sampling its interior.
+At each simplex, FermiSimplex asks: **can the occupation change between the
+sampled vertices?** It combines their eigensystems with `curvature_bound`,
+which limits how much the Hamiltonian can bend in between. If occupied and
+unoccupied trial subspaces remain on opposite sides of $\mu$, the occupation
+is fixed everywhere—without sampling the interior.
 
-A successful proof means that no Fermi surface crosses the simplex. If only
-part of the spectrum can be separated, the same argument still gives rigorous
-lower and upper bounds on the occupation. If the proof is inconclusive,
-FermiSimplex makes no claim that the simplex is gapless; it refines the simplex
-and tries again.
+- **Certified:** no Fermi surface crosses the simplex.
+- **Partially certified:** rigorous lower and upper occupation bounds remain.
+- **Inconclusive:** this is not a gapless verdict; FermiSimplex refines and
+  tries again.
 
-The charge and Fermi-surface routines apply this test to every simplex.
-Remaining occupation uncertainty is accumulated in
-`charge.certified_error_bound`. For surfaces, `surface.coverage_certified` says
-that occupation classification succeeded down to `min_feature_size`; it does
-not certify topology or geometric distance from the exact surface. Density
-matrices currently use adaptive error estimates rather than a certificate.
+Every charge and Fermi-surface simplex is checked. The remaining uncertainty
+becomes `charge.certified_error_bound`; `surface.coverage_certified` concerns
+classification down to `min_feature_size`, not topology or geometric accuracy.
+Density matrices currently use adaptive estimates instead.
 
-The guarantee assumes that `curvature_bound` is valid. Omitting it, passing
-`None`, or passing `0.0` asserts zero curvature; none of these choices disables
-certification. The interpolation bound, proof, charge bound, and distinction
-between certified and adaptive stopping errors are developed in the
-[mathematics guide](docs/mathematics.md).
+The guarantee assumes a valid `curvature_bound`. Omitting it, `None`, and
+`0.0` all assert zero curvature; none disables certification. See the
+[mathematics guide](docs/mathematics.md) for the proof and error bounds.
 
 ## API at a glance
 

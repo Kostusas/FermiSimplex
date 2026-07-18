@@ -1,53 +1,26 @@
-#include "certificate/bounds/occupation_bounds.h"
-#include "certificate/simplex_certificate.h"
-#include "core/vertex_spectra.h"
+#include "certification/mesh_certificate.h"
 #include "test_helpers.h"
+
+#include <lineartetrahedron/certification.h>
 
 #include <adaptivesimplex/core/root_mesh.h>
 
-#include <algorithm>
 #include <cmath>
 #include <exception>
 #include <iostream>
-#include <span>
-#include <stdexcept>
 #include <vector>
 
 namespace {
 
 using namespace lineartetrahedron::test;
-namespace certificate = lineartetrahedron::simplex_certificate;
-namespace detail = lineartetrahedron::simplex_certificate::detail;
+namespace certificate = lineartetrahedron::certification;
 
-double simplex_diameter_squared(
-    const adaptivesimplex::core::Geometry &geometry,
-    adaptivesimplex::core::SimplexId simplex_id
-) {
-    const auto &simplex = geometry.simplices().simplex(simplex_id);
-    auto max_squared = 0.0;
-    for (size_t left = 0; left < simplex.vertex_ids.size(); ++left) {
-        const auto left_point =
-            geometry.vertices().dyadic_vertex(simplex.vertex_ids[left]).to_point();
-        for (size_t right = left + 1; right < simplex.vertex_ids.size(); ++right) {
-            const auto right_point =
-                geometry.vertices().dyadic_vertex(simplex.vertex_ids[right]).to_point();
-            auto squared = 0.0;
-            for (size_t axis = 0; axis < geometry.ndim(); ++axis) {
-                const auto delta = left_point[axis] - right_point[axis];
-                squared += delta * delta;
-            }
-            max_squared = std::max(max_squared, squared);
-        }
-    }
-    return max_squared;
-}
-
-std::vector<lineartetrahedron::VertexSpectra> simplex_spectra(
+std::vector<lineartetrahedron::Eigensystem> simplex_spectra(
     const adaptivesimplex::core::Geometry &geometry,
     adaptivesimplex::core::SimplexId simplex_id,
-    const adaptivesimplex::core::VertexCache<lineartetrahedron::VertexSpectra> &cache
+    const adaptivesimplex::core::VertexCache<lineartetrahedron::Eigensystem> &cache
 ) {
-    std::vector<lineartetrahedron::VertexSpectra> result;
+    std::vector<lineartetrahedron::Eigensystem> result;
     const auto &simplex = geometry.simplices().simplex(simplex_id);
     result.reserve(simplex.vertex_ids.size());
     for (const auto vertex_id : simplex.vertex_ids) {
@@ -56,71 +29,27 @@ std::vector<lineartetrahedron::VertexSpectra> simplex_spectra(
     return result;
 }
 
-certificate::SimplexCertificate certify_direct(
-    const std::vector<lineartetrahedron::VertexSpectra> &spectra,
-    double mu = 0.0,
-    double margin = 0.0,
-    double tol = certificate::kDefaultTolerance,
-    bool estimate_occupation_bounds = false
-) {
-    std::vector<std::span<const double>> eigenvalues;
-    std::vector<std::span<const Complex>> eigenvectors;
-    eigenvalues.reserve(spectra.size());
-    eigenvectors.reserve(spectra.size());
-    for (const auto &entry : spectra) {
-        eigenvalues.push_back(
-            std::span<const double>(entry.eigenvalues.data(), entry.eigenvalues.size())
-        );
-        eigenvectors.push_back(
-            std::span<const Complex>(entry.eigenvectors.data(), entry.eigenvectors.size())
-        );
-    }
-    return certificate::certify_simplex(
-        std::span<const std::span<const double>>(eigenvalues.data(), eigenvalues.size()),
-        std::span<const std::span<const Complex>>(eigenvectors.data(), eigenvectors.size()),
-        mu,
-        margin,
-        tol,
-        estimate_occupation_bounds
-    );
-}
-
-lineartetrahedron::VertexSpectra diagonal_spectra(std::initializer_list<double> eigenvalues) {
-    const auto values = std::vector<double>(eigenvalues);
-    std::vector<Complex> eigenvectors(values.size() * values.size(), Complex{0.0, 0.0});
-    for (size_t index = 0; index < values.size(); ++index) {
-        eigenvectors[detail::column_major_index(index, index, values.size())] = Complex{1.0, 0.0};
-    }
-    return lineartetrahedron::VertexSpectra{
-        .eigenvalues = values,
-        .eigenvectors = eigenvectors,
-    };
-}
-
 void test_certified_simplex_reports_mu_bounds() {
     auto default_certificate = certificate::SimplexCertificate{};
     expect(
-        !certificate::has_mu_interval(default_certificate),
+        !default_certificate.mu_interval.has_value(),
         "default certificate should have an empty mu range"
     );
 
-    auto geometry = adaptivesimplex::core::root_geometry(1, 4);
+    auto mesh = lineartetrahedron::SpectralMesh(winding_model(1), kTol, 4);
+    const auto &geometry = mesh.geometry();
     const auto simplex_id = first_active_simplex(geometry);
-    auto evaluator = lineartetrahedron::VertexSpectraEvaluator(winding_model(1));
-    auto cache = adaptivesimplex::core::VertexCache<lineartetrahedron::VertexSpectra>{};
-    fill_vertex_cache(geometry, simplex_id, evaluator, cache);
+    auto &cache = mesh.eigensystems();
+    fill_vertex_cache(geometry, simplex_id, mesh, cache);
 
     const auto spectra = simplex_spectra(geometry, simplex_id, cache);
     const auto default_result = certify_direct(spectra);
     const auto result = certificate::certify_mesh_simplex(
-        geometry,
+        mesh,
         simplex_id,
-        cache,
         0.0,
         0.0,
-        0.0,
-        kTol,
-        true
+        kTol
     );
     expect(
         default_result.status == certificate::SimplexCertificateStatus::CertifiedGapped,
@@ -132,10 +61,13 @@ void test_certified_simplex_reports_mu_bounds() {
     );
     expect_eq(result.occupation_bounds.lower, 1, "certified lower occupation bound");
     expect_eq(result.occupation_bounds.upper, 1, "certified upper occupation bound");
-    expect_near(result.energy_bound, 0.0, 1e-15, "zero Hessian bound should report zero energy bound");
-    expect(certificate::reusable_at(result, 0.0), "certified mu range should contain mu");
     expect(
-        result.mu_interval.lower < result.mu_interval.upper,
+        certificate::occupation_bounds_valid_at(result, 0.0),
+        "certified occupation-bound range should contain mu"
+    );
+    expect(
+        result.mu_interval.has_value() &&
+            result.mu_interval->lower < result.mu_interval->upper,
         "constant-gap winding certificate should have a non-empty reusable mu range"
     );
 
@@ -143,8 +75,7 @@ void test_certified_simplex_reports_mu_bounds() {
         spectra,
         0.0,
         0.0,
-        kTol,
-        true
+        kTol
     );
     expect(
         direct_result.status == result.status,
@@ -162,74 +93,73 @@ void test_certified_simplex_reports_mu_bounds() {
     );
 }
 
-void test_mesh_hessian_bound_matches_direct_margin() {
-    auto geometry = adaptivesimplex::core::root_geometry(1, 4);
+void test_mesh_linearization_error_bound_matches_direct_error() {
+    auto mesh = lineartetrahedron::SpectralMesh(winding_model(1), kTol, 4);
+    const auto &geometry = mesh.geometry();
     const auto simplex_id = first_active_simplex(geometry);
-    auto evaluator = lineartetrahedron::VertexSpectraEvaluator(winding_model(1));
-    auto cache = adaptivesimplex::core::VertexCache<lineartetrahedron::VertexSpectra>{};
-    fill_vertex_cache(geometry, simplex_id, evaluator, cache);
+    auto &cache = mesh.eigensystems();
+    fill_vertex_cache(geometry, simplex_id, mesh, cache);
 
-    const auto hessian_bound = 0.5;
-    const auto margin = 0.5 * hessian_bound * simplex_diameter_squared(geometry, simplex_id);
+    const auto linearization_error_bound = 0.25;
     const auto spectra = simplex_spectra(geometry, simplex_id, cache);
-    const auto direct = certify_direct(spectra, 0.0, margin, kTol, true);
-    const auto mesh = certificate::certify_mesh_simplex(
-        geometry,
+    const auto direct = certify_direct(spectra, 0.0, linearization_error_bound, kTol);
+    const auto mesh_certificate = certificate::certify_mesh_simplex(
+        mesh,
         simplex_id,
-        cache,
         0.0,
-        hessian_bound,
-        0.0,
-        kTol,
-        true
+        linearization_error_bound,
+        kTol
     );
 
-    expect(direct.status == mesh.status, "mesh Hessian bound should match direct energy margin");
-    expect_eq(direct.occupation_bounds.lower, mesh.occupation_bounds.lower, "Hessian lower bound");
-    expect_eq(direct.occupation_bounds.upper, mesh.occupation_bounds.upper, "Hessian upper bound");
-    expect_near(direct.energy_bound, margin, 1e-15, "direct margin should be reported");
-    expect_near(mesh.energy_bound, margin, 1e-15, "mesh Hessian energy bound");
+    expect(
+        direct.status == mesh_certificate.status,
+        "mesh and direct linearization errors should match"
+    );
+    expect_eq(
+        direct.occupation_bounds.lower,
+        mesh_certificate.occupation_bounds.lower,
+        "direct lower bound"
+    );
+    expect_eq(
+        direct.occupation_bounds.upper,
+        mesh_certificate.occupation_bounds.upper,
+        "direct upper bound"
+    );
 }
 
-void test_large_mesh_hessian_bound_blocks_certification() {
-    auto geometry = adaptivesimplex::core::root_geometry(1, 4);
+void test_large_linearization_error_bound_blocks_certification() {
+    auto mesh = lineartetrahedron::SpectralMesh(winding_model(1), kTol, 4);
+    const auto &geometry = mesh.geometry();
     const auto simplex_id = first_active_simplex(geometry);
-    auto evaluator = lineartetrahedron::VertexSpectraEvaluator(winding_model(1));
-    auto cache = adaptivesimplex::core::VertexCache<lineartetrahedron::VertexSpectra>{};
-    fill_vertex_cache(geometry, simplex_id, evaluator, cache);
+    auto &cache = mesh.eigensystems();
+    fill_vertex_cache(geometry, simplex_id, mesh, cache);
 
     const auto result = certificate::certify_mesh_simplex(
-        geometry,
+        mesh,
         simplex_id,
-        cache,
         0.0,
         1.0e6,
-        0.0,
-        kTol,
-        true
+        kTol
     );
     expect(
         result.status != certificate::SimplexCertificateStatus::CertifiedGapped,
-        "large Hessian bound should block a small-gap mesh certificate"
+        "large linearization error should block a small-gap mesh certificate"
     );
 }
 
 void test_occupation_bound_certificate_reports_mu_bounds() {
-    auto geometry = adaptivesimplex::core::root_geometry(1, 2);
+    auto mesh = lineartetrahedron::SpectralMesh(winding_model(2), kTol, 2);
+    const auto &geometry = mesh.geometry();
     const auto simplex_id = first_active_simplex(geometry);
-    auto evaluator = lineartetrahedron::VertexSpectraEvaluator(winding_model(2));
-    auto cache = adaptivesimplex::core::VertexCache<lineartetrahedron::VertexSpectra>{};
-    fill_vertex_cache(geometry, simplex_id, evaluator, cache);
+    auto &cache = mesh.eigensystems();
+    fill_vertex_cache(geometry, simplex_id, mesh, cache);
 
     const auto result = certificate::certify_mesh_simplex(
-        geometry,
+        mesh,
         simplex_id,
-        cache,
         0.0,
         0.0,
-        0.0,
-        kTol,
-        true
+        kTol
     );
     expect(
         result.status == certificate::SimplexCertificateStatus::Inconclusive,
@@ -237,29 +167,30 @@ void test_occupation_bound_certificate_reports_mu_bounds() {
     );
     expect_eq(result.occupation_bounds.lower, 0, "inconclusive lower occupation bound");
     expect_eq(result.occupation_bounds.upper, 2, "inconclusive upper occupation bound");
-    expect(certificate::reusable_at(result, 0.0), "occupation-bound mu range should contain mu");
     expect(
-        result.mu_interval.lower < result.mu_interval.upper,
+        certificate::occupation_bounds_valid_at(result, 0.0),
+        "occupation-bound mu range should contain mu"
+    );
+    expect(
+        result.mu_interval.has_value() &&
+            result.mu_interval->lower < result.mu_interval->upper,
         "occupation-bound certificate should report a non-empty mu range"
     );
 }
 
 void test_visible_gapless_reports_conservative_bounds() {
-    auto geometry = adaptivesimplex::core::root_geometry(1, 1);
+    auto mesh = lineartetrahedron::SpectralMesh(winding_model(1), kTol, 1);
+    const auto &geometry = mesh.geometry();
     const auto simplex_id = first_active_simplex(geometry);
-    auto evaluator = lineartetrahedron::VertexSpectraEvaluator(winding_model(1));
-    auto cache = adaptivesimplex::core::VertexCache<lineartetrahedron::VertexSpectra>{};
-    fill_vertex_cache(geometry, simplex_id, evaluator, cache);
+    auto &cache = mesh.eigensystems();
+    fill_vertex_cache(geometry, simplex_id, mesh, cache);
 
     const auto result = certificate::certify_mesh_simplex(
-        geometry,
+        mesh,
         simplex_id,
-        cache,
         1.0,
         0.0,
-        0.0,
-        kTol,
-        true
+        kTol
     );
     expect(
         result.status == certificate::SimplexCertificateStatus::VisibleGapless,
@@ -270,13 +201,13 @@ void test_visible_gapless_reports_conservative_bounds() {
 }
 
 void test_visible_gapless_estimates_occupation_bounds() {
-    const auto spectra = std::vector<lineartetrahedron::VertexSpectra>{
+    const auto spectra = std::vector<lineartetrahedron::Eigensystem>{
         diagonal_spectra({-2.0, -1.0, 1.0}),
         diagonal_spectra({-2.0, 0.0, 1.0}),
         diagonal_spectra({-2.0, -0.5, 1.0}),
     };
 
-    const auto result = certify_direct(spectra, 0.0, 0.0, kTol, true);
+    const auto result = certify_direct(spectra, 0.0, 0.0, kTol);
     expect(
         result.status == certificate::SimplexCertificateStatus::VisibleGapless,
         "vertex eigenvalue at mu should stay visibly gapless"
@@ -286,13 +217,13 @@ void test_visible_gapless_estimates_occupation_bounds() {
 }
 
 void test_visible_occupation_mismatch_estimates_occupation_bounds() {
-    const auto spectra = std::vector<lineartetrahedron::VertexSpectra>{
+    const auto spectra = std::vector<lineartetrahedron::Eigensystem>{
         diagonal_spectra({-2.0, -1.0, 1.0}),
         diagonal_spectra({-2.0, 0.5, 1.0}),
         diagonal_spectra({-2.0, -0.5, 1.0}),
     };
 
-    const auto result = certify_direct(spectra, 0.0, 0.0, kTol, true);
+    const auto result = certify_direct(spectra, 0.0, 0.0, kTol);
     expect(
         result.status == certificate::SimplexCertificateStatus::VisibleGapless,
         "vertex occupation mismatch should stay visibly gapless"
@@ -301,88 +232,56 @@ void test_visible_occupation_mismatch_estimates_occupation_bounds() {
     expect_eq(result.occupation_bounds.upper, 2, "mismatch estimated upper occupation bound");
 }
 
-void test_visible_gapless_without_estimator_reports_conservative_bounds() {
-    const auto spectra = std::vector<lineartetrahedron::VertexSpectra>{
-        diagonal_spectra({-2.0, -1.0, 1.0}),
+void test_identical_visible_gapless_spectra_have_useful_bounds() {
+    const auto spectra = std::vector<lineartetrahedron::Eigensystem>{
         diagonal_spectra({-2.0, 0.0, 1.0}),
-        diagonal_spectra({-2.0, -0.5, 1.0}),
+        diagonal_spectra({-2.0, 0.0, 1.0}),
+        diagonal_spectra({-2.0, 0.0, 1.0}),
     };
 
-    const auto result = certify_direct(spectra, 0.0, 0.0, kTol, false);
+    const auto result = certify_direct(spectra);
     expect(
         result.status == certificate::SimplexCertificateStatus::VisibleGapless,
-        "disabled estimator should not change visible status"
+        "an anchor eigenvalue at mu should be visibly gapless"
     );
-    expect_eq(result.occupation_bounds.lower, 0, "unestimated visible lower occupation bound");
-    expect_eq(result.occupation_bounds.upper, 3, "unestimated visible upper occupation bound");
+    expect_eq(result.occupation_bounds.lower, 1, "identical visible lower occupation bound");
+    expect_eq(result.occupation_bounds.upper, 2, "identical visible upper occupation bound");
 }
 
-void test_inconclusive_without_estimator_reports_conservative_bounds() {
-    auto geometry = adaptivesimplex::core::root_geometry(1, 2);
-    const auto simplex_id = first_active_simplex(geometry);
-    auto evaluator = lineartetrahedron::VertexSpectraEvaluator(winding_model(2));
-    auto cache = adaptivesimplex::core::VertexCache<lineartetrahedron::VertexSpectra>{};
-    fill_vertex_cache(geometry, simplex_id, evaluator, cache);
-
-    const auto result = certificate::certify_mesh_simplex(
-        geometry,
-        simplex_id,
-        cache,
-        0.0,
-        0.0,
-        0.0,
-        kTol,
-        false
-    );
+void test_asymmetric_mu_interval_uses_the_correct_radii() {
+    const auto result = certify_direct({diagonal_spectra({-2.0, 5.0})});
     expect(
-        result.status == certificate::SimplexCertificateStatus::Inconclusive,
-        "antipodal interval should be inconclusive without estimator"
+        result.status == certificate::SimplexCertificateStatus::CertifiedGapped,
+        "asymmetric diagonal spectrum should certify"
     );
-    expect_eq(result.occupation_bounds.lower, 0, "unestimated lower occupation bound");
-    expect_eq(result.occupation_bounds.upper, 2, "unestimated upper occupation bound");
+    expect(result.mu_interval.has_value(), "certified spectrum should report a mu interval");
+    expect_near(result.mu_interval->lower, -2.0, 2e-10, "occupied radius sets lower mu");
+    expect_near(result.mu_interval->upper, 5.0, 2e-10, "unoccupied radius sets upper mu");
 }
 
-void test_zero_width_mu_bounds_are_valid_but_not_reusable_nearby() {
-    const auto estimate = detail::estimate_ordered_subset_rank_with_mu_radius(
+void test_exact_occupation_bounds_promote_an_inconclusive_gap_proof() {
+    constexpr auto sine = 0.005;
+    const auto cosine = std::sqrt(1.0 - sine * sine);
+    const auto spectra = std::vector<lineartetrahedron::Eigensystem>{
+        diagonal_spectra({-2.0, 2.0}),
         {
-            {
-                Complex{1.0, 0.0},
-                Complex{1.0, 0.0},
-                Complex{1.0, 0.0},
-                Complex{2.0, 0.0},
+            .eigenvalues = {-1.0, 10000.0},
+            .eigenvectors = {
+                Complex{cosine, 0.0},
+                Complex{sine, 0.0},
+                Complex{-sine, 0.0},
+                Complex{cosine, 0.0},
             },
         },
-        2,
-        kTol
-    );
-    expect_eq(estimate.rank, 2, "positive block should certify rank two");
-    expect_near(
-        estimate.mu_radius,
-        0.0,
-        1e-14,
-        "non-diagonally-dominant positive block should have zero Gershgorin mu radius"
-    );
+    };
 
-    auto result = certificate::SimplexCertificate{};
-    result.status = certificate::SimplexCertificateStatus::Inconclusive;
-    result.occupation_bounds = certificate::OccupationBounds{.lower = 2, .upper = 2};
-    result.mu_interval = certificate::MuInterval{.lower = 0.0, .upper = 0.0};
-    expect(certificate::has_mu_interval(result), "zero-width mu interval is still an interval");
-    expect(certificate::reusable_at(result, 0.0), "zero-width interval should hit its endpoint");
-    expect(!certificate::reusable_at(result, 1e-8), "zero-width interval should miss nearby mu");
-}
-
-void test_empty_simplex_spectra_throws() {
-    auto threw = false;
-    try {
-        (void)certificate::certify_simplex(
-            std::span<const std::span<const double>>{},
-            std::span<const std::span<const Complex>>{}
-        );
-    } catch (const std::runtime_error &) {
-        threw = true;
-    }
-    expect(threw, "empty simplex spectra should throw");
+    const auto result = certify_direct(spectra);
+    expect(
+        result.status == certificate::SimplexCertificateStatus::CertifiedGapped,
+        "matching rigorous occupation bounds should certify the gap"
+    );
+    expect_eq(result.occupation_bounds.lower, 1, "promoted lower occupation bound");
+    expect_eq(result.occupation_bounds.upper, 1, "promoted upper occupation bound");
 }
 
 }  // namespace
@@ -390,16 +289,15 @@ void test_empty_simplex_spectra_throws() {
 int main() {
     try {
         test_certified_simplex_reports_mu_bounds();
-        test_mesh_hessian_bound_matches_direct_margin();
-        test_large_mesh_hessian_bound_blocks_certification();
+        test_mesh_linearization_error_bound_matches_direct_error();
+        test_large_linearization_error_bound_blocks_certification();
         test_occupation_bound_certificate_reports_mu_bounds();
         test_visible_gapless_reports_conservative_bounds();
         test_visible_gapless_estimates_occupation_bounds();
         test_visible_occupation_mismatch_estimates_occupation_bounds();
-        test_visible_gapless_without_estimator_reports_conservative_bounds();
-        test_inconclusive_without_estimator_reports_conservative_bounds();
-        test_zero_width_mu_bounds_are_valid_but_not_reusable_nearby();
-        test_empty_simplex_spectra_throws();
+        test_identical_visible_gapless_spectra_have_useful_bounds();
+        test_asymmetric_mu_interval_uses_the_correct_radii();
+        test_exact_occupation_bounds_promote_an_inconclusive_gap_proof();
     } catch (const std::exception &exc) {
         std::cerr << exc.what() << "\n";
         return 1;

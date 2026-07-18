@@ -5,10 +5,11 @@
 namespace nb = nanobind;
 
 NB_MODULE(_native, m) {
-    m.doc() = "Native runtime for lineartetrahedron";
+    m.doc() = "Native numerical core for lineartetrahedron";
 
     lineartetrahedron::bindings::bind_tight_binding(m);
-    lineartetrahedron::bindings::bind_certificate(m);
-    lineartetrahedron::bindings::bind_integration(m);
+    lineartetrahedron::bindings::bind_certification(m);
+    lineartetrahedron::bindings::bind_integration_types(m);
     lineartetrahedron::bindings::bind_fermi_surface(m);
+    lineartetrahedron::bindings::bind_spectral_mesh(m);
 }

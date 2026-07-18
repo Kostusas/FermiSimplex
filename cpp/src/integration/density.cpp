@@ -5,189 +5,146 @@
 #include <algorithm>
 #include <cmath>
 #include <complex>
-#include <cstdint>
+#include <numbers>
+#include <span>
 #include <stdexcept>
-#include <unordered_map>
 #include <utility>
+#include <vector>
 
-namespace lineartetrahedron {
+namespace lineartetrahedron::integration_detail {
 namespace core = adaptivesimplex::core;
 namespace cut = adaptivesimplex::cut;
 
 namespace {
 
-std::uint64_t component_pair_key(size_t row, size_t col, size_t ndof) {
-    return static_cast<std::uint64_t>(row * ndof + col);
-}
-
-std::vector<std::complex<double>> phases_for_vertex(
-    const std::vector<std::int64_t> &keys,
-    size_t key_count,
-    size_t ndim,
-    const core::DyadicVertex &reduced_vertex
+std::vector<std::complex<double>> lattice_phases(
+    std::span<const std::int64_t> lattice_vectors,
+    std::size_t lattice_vector_count,
+    std::span<const double> point
 ) {
-    std::vector<double> k_point(ndim, 0.0);
-    const auto coords = reduced_vertex.coords();
-    for (size_t axis = 0; axis < ndim; ++axis) {
-        const auto reduced_coord =
-            std::ldexp(static_cast<double>(coords[axis]), -static_cast<int>(reduced_vertex.level()));
-        k_point[axis] = 2.0 * kPi * reduced_coord;
-    }
-
-    std::vector<std::complex<double>> phases(key_count);
-    for (size_t key_index = 0; key_index < key_count; ++key_index) {
-        double phase_arg = 0.0;
-        for (size_t axis = 0; axis < ndim; ++axis) {
-            phase_arg += k_point[axis] * static_cast<double>(keys[key_index * ndim + axis]);
+    std::vector<std::complex<double>> phases(lattice_vector_count);
+    for (std::size_t vector_index = 0;
+         vector_index < lattice_vector_count;
+         ++vector_index) {
+        auto phase = 0.0;
+        for (std::size_t axis = 0; axis < point.size(); ++axis) {
+            phase += point[axis] *
+                     static_cast<double>(
+                         lattice_vectors[vector_index * point.size() + axis]
+                     );
         }
-        phases[key_index] = std::exp(std::complex<double>(0.0, phase_arg));
+        phases[vector_index] = std::exp(
+            std::complex<double>(0.0, 2.0 * std::numbers::pi_v<double> * phase)
+        );
     }
     return phases;
 }
 
-std::complex<double> density_matrix_component(
-    const VertexSpectra &spectra,
+std::complex<double> density_element(
+    const Eigensystem &spectra,
     std::span<const double> band_weights,
-    size_t row,
-    size_t col,
-    size_t ndof
+    std::size_t row,
+    std::size_t column,
+    std::size_t ndof
 ) {
-    std::complex<double> result = 0.0;
-    for (size_t band = 0; band < ndof; ++band) {
-        result += band_weights[band] *
-                  spectra.eigenvectors[band * ndof + row] *
-                  std::conj(spectra.eigenvectors[band * ndof + col]);
+    auto value = std::complex<double>{};
+    for (std::size_t band = 0; band < ndof; ++band) {
+        value += band_weights[band] *
+                 spectra.eigenvectors[band * ndof + row] *
+                 std::conj(spectra.eigenvectors[band * ndof + column]);
     }
-    return result;
+    return value;
 }
 
 }  // namespace
 
-DensityComponents::DensityComponents(
-    size_t ndim,
-    size_t ndof,
-    std::vector<std::int64_t> keys,
-    std::vector<std::int64_t> component_rows,
-    std::vector<std::int64_t> component_cols,
-    std::vector<std::int64_t> component_key_indices
+DensityMatrixRule::DensityMatrixRule(
+    std::size_t ndim,
+    std::size_t ndof,
+    std::vector<LatticeVector> lattice_vectors
 ) : ndim_(ndim),
     ndof_(ndof) {
-    if (ndim_ == 0) {
-        throw std::runtime_error("DensityComponents: dimension must be positive");
+    if (ndim_ == 0 || ndof_ == 0) {
+        throw std::runtime_error("DensityMatrixRule: dimensions must be positive");
     }
-    if (keys.empty() || keys.size() % ndim_ != 0) {
-        throw std::runtime_error("DensityComponents: density key dimension mismatch");
+    if (lattice_vectors.empty()) {
+        throw std::runtime_error("DensityMatrixRule: invalid lattice-vector shape");
     }
-    key_count_ = keys.size() / ndim_;
-    if (key_count_ == 0) {
-        throw std::runtime_error("DensityComponents: keys must be non-empty");
-    }
-    keys_ = std::move(keys);
-
-    const size_t count = component_rows.size();
-    if (component_cols.size() != count || component_key_indices.size() != count) {
-        throw std::runtime_error("DensityComponents: selected component arrays must match");
-    }
-    component_count_ = count;
-
-    std::unordered_map<std::uint64_t, size_t> pair_index;
-    pair_index.reserve(std::min(count, ndof_ * ndof_));
-    pairs_.reserve(std::min(count, ndof_ * ndof_));
-    for (size_t index = 0; index < count; ++index) {
-        const auto row = component_rows[index];
-        const auto col = component_cols[index];
-        const auto key_index = component_key_indices[index];
-        if (row < 0 || col < 0 || key_index < 0) {
-            throw std::runtime_error("DensityComponents: selected component indices must be non-negative");
+    lattice_vector_count_ = lattice_vectors.size();
+    lattice_vectors_.reserve(lattice_vector_count_ * ndim_);
+    for (const auto &lattice_vector : lattice_vectors) {
+        if (lattice_vector.size() != ndim_) {
+            throw std::runtime_error("DensityMatrixRule: invalid lattice-vector shape");
         }
-        if (static_cast<size_t>(row) >= ndof_ || static_cast<size_t>(col) >= ndof_) {
-            throw std::runtime_error("DensityComponents: selected row/column out of bounds");
-        }
-        if (static_cast<size_t>(key_index) >= key_count_) {
-            throw std::runtime_error("DensityComponents: selected key index out of bounds");
-        }
-
-        const auto key = component_pair_key(static_cast<size_t>(row), static_cast<size_t>(col), ndof_);
-        auto item = pair_index.find(key);
-        if (item == pair_index.end()) {
-            const auto new_index = pairs_.size();
-            pairs_.push_back(ComponentPair{
-                static_cast<size_t>(row),
-                static_cast<size_t>(col),
-                {},
-            });
-            item = pair_index.emplace(key, new_index).first;
-        }
-        pairs_[item->second].contributions.push_back(ComponentContribution{
-            index,
-            static_cast<size_t>(key_index),
-        });
+        lattice_vectors_.insert(
+            lattice_vectors_.end(),
+            lattice_vector.begin(),
+            lattice_vector.end()
+        );
     }
 }
 
-DensityComponents::DensityValue DensityComponents::on_simplex(
+DensityMatrixRule::Value DensityMatrixRule::on_simplex(
     double mu,
-    const IntegrationWorkspace &workspace,
+    const SpectralMesh &mesh,
     const core::Geometry &geometry,
-    core::SimplexId simplex_id,
-    const core::VertexCache<VertexSpectra> &cache
+    core::SimplexId simplex_id
 ) const {
-    auto result = DensityValue(component_count_);
     const auto &simplex = geometry.simplices().simplex(simplex_id);
-    const size_t nvertices = simplex.vertex_ids.size();
+    const auto vertex_count = simplex.vertex_ids.size();
+    const auto &cache = mesh.eigensystems();
+    auto band_weights = std::vector<double>(vertex_count * ndof_, 0.0);
 
-    std::vector<double> vertex_band_weights(nvertices * ndof_, 0.0);
-    for (size_t band = 0; band < ndof_; ++band) {
+    for (std::size_t band = 0; band < ndof_; ++band) {
         auto moments = cut::simplex_moments(
             geometry,
             simplex_id,
             [&](core::VertexId vertex_id) {
                 return cache.get(vertex_id).eigenvalues[band];
             },
-            cut::LevelOptions{.level = mu, .level_tolerance = workspace.tol()}
+            cut::LevelOptions{.level = mu, .level_tolerance = mesh.tolerance()}
         );
-
         if (moments.kind == cut::SimplexCutKind::on_level) {
             std::fill(
                 moments.barycentric_moments.begin(),
                 moments.barycentric_moments.end(),
-                0.5 * simplex.volume / static_cast<double>(nvertices)
+                0.5 * simplex.volume / static_cast<double>(vertex_count)
             );
         }
-
-        for (size_t local_vertex = 0; local_vertex < nvertices; ++local_vertex) {
-            vertex_band_weights[local_vertex * ndof_ + band] =
-                moments.barycentric_moments[local_vertex];
+        for (std::size_t vertex = 0; vertex < vertex_count; ++vertex) {
+            band_weights[vertex * ndof_ + band] = moments.barycentric_moments[vertex];
         }
     }
 
-    for (size_t local_vertex = 0; local_vertex < nvertices; ++local_vertex) {
+    auto result = Value(lattice_vector_count_ * ndof_ * ndof_);
+    for (std::size_t local_vertex = 0; local_vertex < vertex_count; ++local_vertex) {
         const auto vertex_id = simplex.vertex_ids[local_vertex];
-        const auto &spectra = cache.get(vertex_id);
-        const auto phases = phases_for_vertex(
-            keys_,
-            key_count_,
-            ndim_,
-            geometry.vertices().dyadic_vertex(vertex_id)
+        const auto point = geometry.vertices().dyadic_vertex(vertex_id).to_point();
+        const auto phases = lattice_phases(
+            lattice_vectors_,
+            lattice_vector_count_,
+            std::span<const double>(point.data(), point.size())
         );
-        const auto band_weights = std::span<const double>(
-            vertex_band_weights.data() + local_vertex * ndof_,
+        const auto weights = std::span<const double>(
+            band_weights.data() + local_vertex * ndof_,
             ndof_
         );
+        const auto &spectra = cache.get(vertex_id);
 
-        for (const auto &pair : pairs_) {
-            const auto density =
-                density_matrix_component(spectra, band_weights, pair.row, pair.col, ndof_);
-            if (density == std::complex<double>(0.0, 0.0)) {
-                continue;
-            }
-            for (const auto &contribution : pair.contributions) {
-                result[contribution.component_index] +=
-                    phases[contribution.key_index] * density;
+        for (std::size_t row = 0; row < ndof_; ++row) {
+            for (std::size_t column = 0; column < ndof_; ++column) {
+                const auto element =
+                    density_element(spectra, weights, row, column, ndof_);
+                for (std::size_t vector_index = 0;
+                     vector_index < lattice_vector_count_;
+                     ++vector_index) {
+                    result[(vector_index * ndof_ + row) * ndof_ + column] +=
+                        phases[vector_index] * element;
+                }
             }
         }
     }
     return result;
 }
 
-}  // namespace lineartetrahedron
+}  // namespace lineartetrahedron::integration_detail

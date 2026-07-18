@@ -1,5 +1,5 @@
-#include "certificate/linalg/cholesky.h"
-#include "certificate/bounds/occupation_bounds.h"
+#include "certification/linalg/cholesky.h"
+#include "certification/bounds/occupation_bounds.h"
 #include "test_helpers.h"
 
 #include <complex>
@@ -12,7 +12,7 @@
 namespace {
 
 using namespace lineartetrahedron::test;
-namespace detail = lineartetrahedron::simplex_certificate::detail;
+namespace detail = lineartetrahedron::certification::detail;
 
 std::pair<size_t, size_t> winding_bounds(int winding, std::initializer_list<double> points) {
     std::vector<std::vector<Complex>> plus_blocks;
@@ -26,8 +26,10 @@ std::pair<size_t, size_t> winding_bounds(int winding, std::initializer_list<doub
             -std::real(h[detail::column_major_index(1, 1, 2)]),
         }));
     }
-    const auto r_minus = detail::estimate_ordered_subset_rank(minus_blocks, 1, kTol);
-    const auto r_plus = detail::estimate_ordered_subset_rank(plus_blocks, 1, kTol);
+    const auto r_minus =
+        detail::estimate_ordered_subset_rank(minus_blocks, 1, 0.0, kTol);
+    const auto r_plus =
+        detail::estimate_ordered_subset_rank(plus_blocks, 1, 0.0, kTol);
     return {r_minus, 2 - r_plus};
 }
 
@@ -40,6 +42,7 @@ void test_explicit_occupation_bound_cases() {
                 diagonal_matrix({4.0, 1.2}),
             },
             2,
+            0.0,
             kTol
         ),
         2,
@@ -53,6 +56,7 @@ void test_explicit_occupation_bound_cases() {
                 diagonal_matrix({1.5, -0.5}),
             },
             2,
+            0.0,
             kTol
         ),
         1,
@@ -66,6 +70,7 @@ void test_explicit_occupation_bound_cases() {
                 diagonal_matrix({-1.0, 1.0}),
             },
             2,
+            0.0,
             kTol
         ),
         0,
@@ -80,6 +85,7 @@ void test_explicit_occupation_bound_cases() {
                 diagonal_matrix({4.0, 1.5, -2.0}),
             },
             3,
+            0.0,
             kTol
         ),
         2,
@@ -93,6 +99,7 @@ void test_explicit_occupation_bound_cases() {
                 diagonal_matrix({1.0, -1.0, 2.0}),
             },
             3,
+            0.0,
             kTol
         ),
         2,
@@ -105,6 +112,7 @@ void test_explicit_occupation_bound_cases() {
             diagonal_matrix({1.5, 2.5}),
         },
         2,
+        0.0,
         kTol
     );
     expect_eq(full_rank_estimate.rank, 2, "rank estimate should report full rank");
@@ -119,6 +127,7 @@ void test_explicit_occupation_bound_cases() {
             diagonal_matrix({-1.0, 1.0}),
         },
         2,
+        0.0,
         kTol
     );
     expect_eq(zero_rank_estimate.rank, 0, "zero-rank estimate should report zero rank");

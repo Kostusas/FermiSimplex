@@ -19,7 +19,7 @@ python = ">=3.11,<3.14"
 numpy = ">=2.0"
 nanobind = ">=2.2"
 scikit-build-core = ">=0.10"
-cmake = ">=3.25"
+cmake = ">=3.28"
 ninja = ">=1.11"
 libblas = "*"
 liblapack = "*"
@@ -32,7 +32,7 @@ libblas = "*"
 liblapack = "*"
 
 [dependencies]
-cmake = ">=3.25"
+cmake = ">=3.28"
 ninja = ">=1.11"
 numpy = ">=2.0"
 pip = "*"
@@ -48,7 +48,11 @@ matplotlib = ">=3.8"
 cxx-compiler = ">=1.11"
 
 [tasks]
-install-editable = "python -m pip install -v --no-build-isolation -e ."
-smoke-test = "python -c \"import numpy as np; from lineartetrahedron import fermi_surface; H=lambda kx, ky: np.array([[np.cos(2*np.pi*kx)+np.cos(2*np.pi*ky)]], dtype=complex); s=fermi_surface(H, mu=0.2, min_feature_size=0.03); print({'converged': s.converged, 'points': s.points.shape, 'cells': s.cells.shape, 'diagonalizations': s.stats.evaluated_vertices})\""
+install-editable = { cmd = "python -m pip install -v --no-build-isolation -e . --config-settings=cmake.args=-DFETCHCONTENT_SOURCE_DIR_ADAPTIVESIMPLEX=$PIXI_PROJECT_ROOT/build/cpp-tests/_deps/adaptivesimplex-src", depends-on = ["configure-cpp-tests"] }
+smoke-test = { cmd = "python examples/quick_start.py", depends-on = ["install-editable"] }
 build-package = "pixi build --output-dir dist"
-test = { cmd = "pytest", depends-on = ["install-editable"] }
+configure-cpp-tests = "cmake -S . -B build/cpp-tests -G Ninja -DLINEARTETRAHEDRON_BUILD_PYTHON=OFF -DLINEARTETRAHEDRON_INSTALL_CPP=ON"
+build-cpp-tests = { cmd = "cmake --build build/cpp-tests", depends-on = ["configure-cpp-tests"] }
+test-cpp = { cmd = "ctest --test-dir build/cpp-tests --output-on-failure", depends-on = ["build-cpp-tests"] }
+test-python = { cmd = "pytest", depends-on = ["install-editable"] }
+test = { depends-on = ["test-cpp", "test-python"] }

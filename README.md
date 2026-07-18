@@ -1,177 +1,149 @@
 # LinearTetrahedron
 
-Adaptive Fermi-surface extraction for dense tight-binding and callable
-Hamiltonians. The public Python API works in reduced Brillouin-zone coordinates
-`[0, 1]^d`:
+**Adaptive, occupation-certified spectral calculations on simplex meshes.**
 
-```python
-surface = fermi_surface(H, mu=0.0, min_feature_size=0.01)
-```
+LinearTetrahedron finds Fermi surfaces and computes zero-temperature charge and
+density matrices without paying for a dense momentum grid. Its central object
+is the local occupation
 
-`surface.points` contains reduced-coordinate surface points, and
-`surface.cells` indexes line segments into those points for 2D plots.
+$$
+N(k;\mu)=\operatorname{Tr}\Theta\!\left(\mu I-H(k)\right),
+$$
 
-Coordinates passed to the Hamiltonian are normalized. In 2D, `kx=0` and
-`kx=1` are the same reciprocal-lattice point, and the physical phase convention
-for a tight-binding term with lattice vector `R` is
-`exp(-2j * pi * dot(k, R))`.
+and its central question is simple: *can the occupation be proved constant on
+this simplex, or should we look more closely?*
 
-Charge integration estimates `Inconclusive` simplex errors from projected
-nonlinear residuals by default. Pass
-`inconclusive_error_mode="conservative"` to `charge` to recover the full
-occupation-width estimate used previously:
+![Adaptive Fermi-surface refinement](docs/assets/fermi_surface_refinement.gif)
 
-```python
-result = charge(mesh, mu=0.0, inconclusive_error_mode="conservative")
-```
+- 🛡️ **Occupation certificates** prove gapped simplices and rigorous charge
+  bounds from vertex eigensystems and a user-supplied curvature bound.
+- ⚡ **Adaptive sampling** concentrates diagonalizations near unresolved Fermi
+  surfaces instead of refining the entire Brillouin zone uniformly.
+- ♻️ **Shared spectral cache** lets Fermi-surface, charge, and density-matrix
+  calculations reuse the same mesh and eigensystems.
+- 🎯 **Projected charge estimates** inspect the nonlinear Hamiltonian residual
+  only in the bands whose occupation is still ambiguous.
+- 🧩 **Python and C++** share one numerical core; models can be dense callables
+  or translation-invariant tight-binding Hamiltonians.
 
-## Install
+## Quick start
 
-Recommended: add the Git branch as a Pixi source package. Pixi will build the
-native extension with the right compiler, CMake/Ninja, BLAS/LAPACK, and Python
-dependencies:
+From a source checkout with a C++20 compiler and BLAS/LAPACK available:
 
 ```bash
-pixi init
-pixi add matplotlib
-pixi add lineartetrahedron \
-  --git https://gitlab.kwant-project.org/qt/lineartetrahedron.git \
-  --branch inertia-marking
+pip install .
 ```
 
-The build fetches a pinned AdaptiveSimplex source automatically, so installation
-needs internet access.
-
-## Plot A Fermi Surface
+The model below produces the three-dimensional surface shown above:
 
 ```python
 import numpy as np
-from matplotlib import pyplot as plt
-from matplotlib.collections import LineCollection
 
-from lineartetrahedron import fermi_surface
+from lineartetrahedron import Hamiltonian, SpectralMesh
 
 
-def H(kx, ky):
-    # kx and ky are reduced coordinates in [0, 1].
-    x = 2.0 * np.pi * kx
-    y = 2.0 * np.pi * ky
-    scalar = -0.12 + 0.42 * np.cos(x) - 0.34 * np.cos(y) + 0.16 * np.cos(x + y)
-    dx = 0.22 * np.sin(x) + 0.10 * np.sin(x - y)
-    dz = 0.18 * np.cos(y) - 0.08 * np.cos(2.0 * x + y)
-    return np.array([[scalar + dz, dx], [dx, scalar - dz]], dtype=complex)
+def hamiltonian(k):
+    phase = 2 * np.pi * np.asarray(k)
+    return np.array([[np.cos(phase).sum()]], dtype=complex)
 
 
-surface = fermi_surface(H, mu=0.0, min_feature_size=0.01)
-
-fig, ax = plt.subplots(figsize=(6, 6), constrained_layout=True)
-if surface.cells.size:
-    ax.add_collection(
-        LineCollection(surface.points[surface.cells], colors="#b91c1c", linewidths=0.8)
-    )
-ax.set_xlim(0.0, 1.0)
-ax.set_ylim(0.0, 1.0)
-ax.set_aspect("equal")
-ax.set_xlabel("kx")
-ax.set_ylabel("ky")
-ax.set_title(f"Fermi surface, {surface.stats.evaluated_vertices} diagonalizations")
-plt.show()
-```
-
-## API
-
-```python
-from lineartetrahedron import fermi_surface
-
-surface = fermi_surface(
-    hamiltonian,
-    mu=0.0,
-    min_feature_size=0.01,
-    max_diagonalizations=None,
-    hessian_bound=0.0,
-    anharmonicity_bound=0.0,
-    return_states=False,
+mesh = SpectralMesh(Hamiltonian(hamiltonian, ndim=3, ndof=1))
+surface = mesh.fermi_surface(
+    mu=0.17,
+    min_feature_size=0.07,
+    curvature_bound=(2 * np.pi) ** 2,
 )
+
+surface.points      # (npoints, 3)
+surface.cells       # (ntriangles, 3)
+surface.cell_bands  # band index for every triangle
 ```
 
-`hamiltonian` must be either a callable with explicit scalar arguments, such as
-`H(kx, ky)`, or a `SpectralMesh`.
+The coordinates are reduced coordinates in $[0,1]^d$. Here
+$M=(2\pi)^2$ bounds every directional second derivative of the scalar
+Hamiltonian.
 
-For callable Hamiltonians:
+![Two- and three-dimensional Fermi surfaces](docs/assets/fermi_surface_gallery.png)
 
-- the number of required positional arguments is the dimension;
-- each argument is a reduced coordinate in `[0, 1]`;
-- the callable must return a dense square NumPy-compatible matrix;
-- vector-style callables such as `H(k)` are intentionally not accepted.
-
-For tight-binding dictionaries, first convert them with
-`tight_binding_hamiltonian`. Keys are integer lattice vectors and values are
-dense square hopping matrices. The resulting callable evaluates
+The same `SpectralMesh` can drive the other observables:
 
 ```python
-H(k) = sum(H_R * exp(-2j * pi * dot(k, R)) for R, H_R in hamiltonian.items())
+from lineartetrahedron import AdaptiveOptions
+
+options = AdaptiveOptions(target_error=1e-2, max_refinements=10_000)
+
+charge = mesh.integrate_charge(
+    mu=0.17,
+    options=options,
+    curvature_bound=(2 * np.pi) ** 2,
+)
+density = mesh.integrate_density_matrix(
+    mu=0.17,
+    lattice_vectors=[(0, 0, 0), (1, 0, 0)],
+    options=options,
+)
+
+charge.value
+charge.stopping_error
+charge.certified_error_bound
+density.matrices  # (number of lattice vectors, ndof, ndof)
 ```
 
-where `k` is reduced-coordinate.
+For a tight-binding model,
 
-`min_feature_size` is the target smallest simplex edge length in reduced
-Brillouin-zone units. For example, `min_feature_size=0.01` means the adaptive
-mesh keeps refining visible or unresolved Fermi-surface regions until triangle
-edges are about one percent of the reduced-zone side length, unless they are
-certified safe earlier. Smaller values give sharper Fermi surfaces and require
-more diagonalizations.
+$$
+H(k)=\sum_R H_R e^{-2\pi i k\cdot R},
+$$
 
-`max_diagonalizations` is optional and caps unique mesh-vertex diagonalizations.
-If the cap is hit before the adaptive run finishes, `surface.converged` is
-`False`.
+use `TightBinding({R: H_R, ...})`. Opposite hoppings are checked for
+$H_{-R}=H_R^\dagger$.
 
-`hessian_bound` is an optional scalar upper bound on the local second derivative
-of `H(k)` with respect to reduced coordinates. It may be a non-negative number
-or a callable `hessian_bound(kx, ky, ...) -> float` evaluated at each simplex
-center. `anharmonicity_bound` is an optional non-negative scalar third-order
-remainder bound. The default values give the affine simplex certificate. A
-positive value accounts for nonlinear interpolation error by requiring each mesh
-simplex to certify against
-`0.5 * hessian_bound * diameter(simplex)^2 + 0.5 * anharmonicity_bound * diameter(simplex)^3`,
-so larger values can force more refinement. Visible Fermi crossings are still
-detected independently of this bound.
+## What is certified?
 
-Set `return_states=True` to attach approximate eigenstates to the extracted
-Fermi-surface points:
+For a simplex of diameter $D$, a supplied curvature bound $M$ gives the
+Hamiltonian interpolation bound
 
-```python
-surface = fermi_surface(H, mu=0.0, min_feature_size=0.01, return_states=True)
-states = surface.states
-```
+$$
+\epsilon=\frac12 M D^2.
+$$
 
-For each Fermi point, the state is copied from the endpoint vertex of the
-crossing edge whose band eigenvalue is closest to `mu`. This is cheap and useful
-for local expectation values such as spin, orbital, sublattice, or layer weight.
-The phases are whatever the diagonalizer returned, so these states should not be
-used directly for Berry phases or derivatives along the Fermi contour.
+Every charge and Fermi-surface simplex is passed through the certificate.
+Omitting `curvature_bound`, passing `None`, and passing `0.0` are equivalent:
+all assert zero curvature; none disables certification.
 
-When states are requested:
+- `charge.certified_error_bound` is rigorous if the supplied $M$ is valid.
+- `charge.stopping_error` is the projected/adaptive estimate used to decide
+  refinement; it is not a certificate.
+- `surface.coverage_certified` concerns occupation classification down to the
+  requested feature size, not topology or geometric/Hausdorff error.
+- density-matrix `stopping_error` is an adaptive quadrature estimate; density
+  matrices are not currently certified.
 
-- `surface.states.band_indices`: crossing band for each point;
-- `surface.states.eigenvalues`: selected endpoint eigenvalue;
-- `surface.states.eigenvectors`: selected endpoint eigenvector.
+The derivation—including the rotated-subspace certificate, partial occupation
+bounds, asymmetric residual pairing, cut-simplex charge formula, and preview
+error—is in [the mathematics guide](docs/mathematics.md).
 
-Useful result fields:
+## API at a glance
 
-- `surface.points`: array with shape `(n_points, ndim)`;
-- `surface.cells`: array with shape `(n_cells, ndim)`, line segments in 2D;
-- `surface.converged`: whether all active simplices reached a terminal decision;
-- `surface.stats.evaluated_vertices`: number of unique Hamiltonian
-  diagonalizations;
-- `surface.stats.cut_simplices`, `feature_size_simplices`, and
-  `unresolved_simplices`: compact terminal-outcome counters;
-- `surface.parameters`: resolved `mu`, `min_feature_size`, dimension, and matrix
-  size.
+- `Hamiltonian`: wrap a dense Python callable.
+- `TightBinding`: evaluate a Hermitian hopping expansion.
+- `SpectralMesh`: own adaptive geometry and cached eigensystems.
+- `certify_simplex`: certify supplied vertex eigenpairs directly.
+- `integrate_charge`: adaptive filling and $dQ/d\mu$.
+- `integrate_density_matrix`: real-space density-matrix components.
+- `fermi_surface`: band-labelled points and cells in reduced coordinates.
+
+See the runnable [quick start](examples/quick_start.py) and
+[two-band plotting example](examples/fermi_surface.py), the
+[visual-generation notes](docs/visuals.md), and the
+[build and architecture guide](docs/development.md).
 
 ## Development
-
-From a checkout:
 
 ```bash
 pixi run test
 ```
+
+This builds the standalone C++ library, verifies an installed downstream CMake
+consumer, rebuilds the Python extension, and runs the Python tests. The dense
+60-band stress case lives in [benchmarks/fermi_surface_60.py](benchmarks/fermi_surface_60.py).

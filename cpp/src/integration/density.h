@@ -1,59 +1,44 @@
 #pragma once
 
-#include "core/vertex_spectra.h"
-#include "integration/workspace.h"
+#include <lineartetrahedron/spectral_mesh.h>
 
 #include <adaptivesimplex/adaptive/dense_value.h>
 #include <adaptivesimplex/core/geometry.h>
-#include <adaptivesimplex/core/vertex_cache.h>
 
 #include <complex>
 #include <cstddef>
 #include <cstdint>
 #include <vector>
 
-namespace lineartetrahedron {
+namespace lineartetrahedron::integration_detail {
 
-class DensityComponents {
+class DensityMatrixRule {
 public:
-    using DensityValue = adaptivesimplex::adaptive::DenseValue<std::complex<double>>;
+    using Value = adaptivesimplex::adaptive::DenseValue<std::complex<double>>;
 
-    DensityComponents(
-        size_t ndim,
-        size_t ndof,
-        std::vector<std::int64_t> keys,
-        std::vector<std::int64_t> component_rows,
-        std::vector<std::int64_t> component_cols,
-        std::vector<std::int64_t> component_key_indices
+    DensityMatrixRule(
+        std::size_t ndim,
+        std::size_t ndof,
+        std::vector<LatticeVector> lattice_vectors
     );
 
-    size_t size() const noexcept { return component_count_; }
+    std::size_t lattice_vector_count() const noexcept {
+        return lattice_vector_count_;
+    }
+    std::size_t ndof() const noexcept { return ndof_; }
 
-    DensityValue on_simplex(
+    Value on_simplex(
         double mu,
-        const IntegrationWorkspace &workspace,
+        const SpectralMesh &mesh,
         const adaptivesimplex::core::Geometry &geometry,
-        adaptivesimplex::core::SimplexId simplex_id,
-        const adaptivesimplex::core::VertexCache<VertexSpectra> &cache
+        adaptivesimplex::core::SimplexId simplex_id
     ) const;
 
 private:
-    struct ComponentContribution {
-        size_t component_index = 0;
-        size_t key_index = 0;
-    };
-    struct ComponentPair {
-        size_t row = 0;
-        size_t col = 0;
-        std::vector<ComponentContribution> contributions;
-    };
-
-    size_t ndim_ = 0;
-    size_t ndof_ = 0;
-    size_t key_count_ = 0;
-    size_t component_count_ = 0;
-    std::vector<std::int64_t> keys_;
-    std::vector<ComponentPair> pairs_;
+    std::size_t ndim_ = 0;
+    std::size_t ndof_ = 0;
+    std::size_t lattice_vector_count_ = 0;
+    std::vector<std::int64_t> lattice_vectors_;
 };
 
-}  // namespace lineartetrahedron
+}  // namespace lineartetrahedron::integration_detail

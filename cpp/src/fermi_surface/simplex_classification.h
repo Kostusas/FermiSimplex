@@ -1,41 +1,27 @@
 #pragma once
 
-#include "fermi_surface/vertex_evaluation.h"
+#include <lineartetrahedron/spectral_mesh.h>
 
 #include <cstdint>
-#include <functional>
-#include <set>
 #include <vector>
 
 namespace lineartetrahedron::fermi_surface_detail {
 
-using EnergyBoundFunction = std::function<double(const core::Geometry &, core::SimplexId)>;
+namespace core = adaptivesimplex::core;
 
 struct SimplexClassification {
     std::vector<core::SimplexId> refine;
     std::vector<core::SimplexId> terminal_surface;
-    std::int64_t visible_gapless_terminal = 0;
-    std::int64_t inconclusive_terminal = 0;
-    std::int64_t unresolved = 0;
+    std::int64_t terminal_visible = 0;
+    std::int64_t terminal_inconclusive = 0;
 };
 
 SimplexClassification classify_frontier(
-    const core::Geometry &geometry,
-    const SpectraCache &cache,
+    const SpectralMesh &mesh,
     const std::vector<core::SimplexId> &frontier,
     double mu,
     double min_feature_size,
-    const EnergyBoundFunction &energy_bound,
-    double tol
-);
-
-std::set<core::SimplexId> simplex_set(const std::vector<core::SimplexId> &simplex_ids);
-
-std::vector<core::SimplexId> next_frontier(
-    const core::Geometry &geometry,
-    const std::set<core::SimplexId> &previous_active,
-    const std::vector<core::SimplexId> &requested_refinement,
-    const std::vector<core::SimplexId> &refined
+    double curvature_bound
 );
 
 }  // namespace lineartetrahedron::fermi_surface_detail

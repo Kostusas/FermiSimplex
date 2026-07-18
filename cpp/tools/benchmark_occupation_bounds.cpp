@@ -1,6 +1,5 @@
-#include "certificate/linalg/cholesky.h"
-#include "certificate/bounds/occupation_bounds.h"
-#include "core/types.h"
+#include "certification/linalg/cholesky.h"
+#include "certification/bounds/occupation_bounds.h"
 
 #include <chrono>
 #include <cmath>
@@ -9,6 +8,7 @@
 #include <cstdint>
 #include <iomanip>
 #include <iostream>
+#include <numbers>
 #include <random>
 #include <string>
 #include <utility>
@@ -17,7 +17,7 @@
 namespace {
 
 using Complex = std::complex<double>;
-namespace detail = lineartetrahedron::simplex_certificate::detail;
+namespace detail = lineartetrahedron::certification::detail;
 
 constexpr double kTol = 1e-12;
 using Clock = std::chrono::steady_clock;
@@ -36,7 +36,8 @@ std::vector<Complex> hermitian_2x2(double a, double b, double c) {
 }
 
 std::vector<Complex> winding_hamiltonian(int winding, double reduced_k) {
-    const auto phase = 2.0 * lineartetrahedron::kPi * static_cast<double>(winding) * reduced_k;
+    const auto phase =
+        2.0 * std::numbers::pi_v<double> * static_cast<double>(winding) * reduced_k;
     const auto c = std::cos(phase);
     const auto s = std::sin(phase);
     return hermitian_2x2(c, s, -c);
@@ -97,7 +98,8 @@ double microseconds_for(
             ).passed ? 1 : 0;
         }
         if (estimate_occupation_rank) {
-            checksum += detail::estimate_ordered_subset_rank(blocks, size, kTol);
+            checksum +=
+                detail::estimate_ordered_subset_rank(blocks, size, 0.0, kTol);
         }
     }
     const auto end = Clock::now();
@@ -117,7 +119,7 @@ void run_case(
     const auto bounded_us = microseconds_for(blocks, size, iterations, true);
     const auto baseline_each = baseline_us / static_cast<double>(iterations);
     const auto bounded_each = bounded_us / static_cast<double>(iterations);
-    const auto rank = detail::estimate_ordered_subset_rank(blocks, size, kTol);
+    const auto rank = detail::estimate_ordered_subset_rank(blocks, size, 0.0, kTol);
     std::cout
         << "{\"case\":\"" << name
         << "\",\"certificates\":" << iterations

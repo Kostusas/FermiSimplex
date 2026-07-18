@@ -1,40 +1,31 @@
 #pragma once
 
-#include "core/types.h"
-#include "core/vertex_spectra.h"
-#include "integration/charge_certificate_cache.h"
-#include "integration/workspace.h"
+#include <lineartetrahedron/integration.h>
 
 #include <adaptivesimplex/core/geometry.h>
-#include <adaptivesimplex/core/vertex_cache.h>
 
-namespace lineartetrahedron {
+#include <cstdint>
 
-ChargeValue charge_on_simplex(
+namespace lineartetrahedron::integration_detail {
+
+struct ChargeContribution {
+    double value = 0.0;
+    double dcharge_dmu = 0.0;
+    double projected_error = 0.0;
+    double certified_error_bound = 0.0;
+    std::int64_t visible_gapless_simplices = 0;
+    std::int64_t inconclusive_simplices = 0;
+
+    ChargeContribution &operator+=(const ChargeContribution &other) noexcept;
+    ChargeContribution &operator-=(const ChargeContribution &other) noexcept;
+};
+
+ChargeContribution charge_on_simplex(
     double mu,
-    const IntegrationWorkspace &workspace,
+    const SpectralMesh &mesh,
     const adaptivesimplex::core::Geometry &geometry,
     adaptivesimplex::core::SimplexId simplex_id,
-    const adaptivesimplex::core::VertexCache<VertexSpectra> &cache,
-    bool certify = true,
-    ChargeCertificateCache *certificate_cache = nullptr,
-    double hessian_bound = 0.0,
-    double anharmonicity_bound = 0.0,
-    InconclusiveChargeErrorMode inconclusive_error_mode =
-        InconclusiveChargeErrorMode::Projected
+    double curvature_bound
 );
 
-ChargeValue charge_on_simplex_with_energy_bound(
-    double mu,
-    const IntegrationWorkspace &workspace,
-    const adaptivesimplex::core::Geometry &geometry,
-    adaptivesimplex::core::SimplexId simplex_id,
-    const adaptivesimplex::core::VertexCache<VertexSpectra> &cache,
-    bool certify,
-    ChargeCertificateCache *certificate_cache,
-    double energy_bound,
-    InconclusiveChargeErrorMode inconclusive_error_mode =
-        InconclusiveChargeErrorMode::Projected
-);
-
-}  // namespace lineartetrahedron
+}  // namespace lineartetrahedron::integration_detail

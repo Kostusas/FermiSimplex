@@ -1,227 +1,199 @@
-#include "certificate/simplex_certificate.h"
 #include "integration/charge.h"
-#include "integration/charge_certificate_cache.h"
-#include "integration/runtime.h"
 #include "test_helpers.h"
 
+#include <lineartetrahedron/integration.h>
+
 #include <adaptivesimplex/adaptive/types.h>
-#include <adaptivesimplex/core/root_mesh.h>
 
 #include <exception>
 #include <iostream>
+#include <limits>
 #include <memory>
-#include <utility>
+#include <span>
+#include <vector>
 
 namespace {
 
+using namespace lineartetrahedron;
 using namespace lineartetrahedron::test;
-namespace certificate = lineartetrahedron::simplex_certificate;
+namespace adaptive = adaptivesimplex::adaptive;
 
-void test_charge_certificate_cache_respects_mu_range() {
-    auto cache = lineartetrahedron::ChargeCertificateCache{};
-    auto cert = certificate::SimplexCertificate{};
-    cert.status = certificate::SimplexCertificateStatus::CertifiedGapped;
-    cert.mu_interval = certificate::MuInterval{.lower = -0.2, .upper = 0.3};
-    cert.energy_bound = 0.0;
+class AffineXModel final : public HamiltonianModel {
+public:
+    std::size_t ndim() const noexcept override { return 2; }
+    std::size_t ndof() const noexcept override { return 1; }
 
-    cache.insert(7, cert);
-    expect_eq(cache.size(), 1, "cache should store reusable certificates");
-    expect(cache.find(7, 0.0, 0.0) != nullptr, "cache should hit inside the mu range");
-    expect(cache.find(7, 0.3, 0.0) != nullptr, "cache should hit the upper mu endpoint");
-    expect(cache.find(7, 0.31, 0.0) == nullptr, "cache should miss outside the mu range");
-    expect(cache.find(8, 0.0, 0.0) == nullptr, "cache should miss different simplex ids");
-    expect(
-        cache.find(7, 0.0, 1.0) == nullptr,
-        "cache should miss when requested energy bound is stricter than stored energy bound"
-    );
+    std::vector<Complex> evaluate(std::span<const double> point) const override {
+        return {Complex{point[0], 0.0}};
+    }
+};
 
-    auto stricter_cert = cert;
-    stricter_cert.energy_bound = 2.0;
-    cache.insert(7, stricter_cert);
-    expect(cache.find(7, 0.0, 1.0) != nullptr, "cache should reuse stricter energy-bound records");
-    expect(cache.find(7, 0.0, 3.0) == nullptr, "cache should reject weaker energy-bound records");
+class AffineConeModel final : public HamiltonianModel {
+public:
+    std::size_t ndim() const noexcept override { return 2; }
+    std::size_t ndof() const noexcept override { return 2; }
 
-    auto empty_range = cert;
-    empty_range.mu_interval = certificate::MuInterval{};
-    cache.insert(7, empty_range);
-    expect_eq(cache.size(), 2, "cache should ignore empty mu ranges");
+    std::vector<Complex> evaluate(std::span<const double> point) const override {
+        const auto x = point[0] - 0.5;
+        const auto z = point[1] - 0.5;
+        return {
+            Complex{z, 0.0},
+            Complex{x, 0.0},
+            Complex{x, 0.0},
+            Complex{-z, 0.0},
+        };
+    }
+};
 
-    cache.erase(7);
-    expect_eq(cache.size(), 0, "cache erase should remove simplex certificates");
+adaptive::Options fixed_options(double target_error) {
+    return adaptive::Options{
+        .target_error = target_error,
+        .max_refinements = 0,
+        .preview_depth = 1,
+        .min_refinement_batch_size = 1,
+        .max_refinement_batch_size = 100,
+    };
 }
 
-void test_charge_on_simplex_reuses_cached_certificate() {
-    auto geometry = adaptivesimplex::core::root_geometry(1, 4);
-    const auto simplex_id = first_active_simplex(geometry);
-    auto workspace = lineartetrahedron::IntegrationWorkspace(winding_model(1), kTol);
-    fill_workspace_cache(geometry, simplex_id, workspace);
+std::shared_ptr<TightBindingModel> aliased_pocket() {
+    return std::make_shared<TightBindingModel>(
+        std::vector<HoppingTerm>{
+            {.lattice_vector = {0}, .matrix = {0.5}},
+            {.lattice_vector = {8}, .matrix = {0.5}},
+            {.lattice_vector = {-8}, .matrix = {0.5}},
+        }
+    );
+}
 
-    auto certificate_cache = lineartetrahedron::ChargeCertificateCache{};
-    (void)lineartetrahedron::charge_on_simplex(
+void test_constant_insulator_charge_is_certified() {
+    auto mesh = SpectralMesh(constant_insulator());
+    const auto result = integrate_charge(mesh, 0.0, fixed_options(0.0), 0.0);
+
+    expect_near(result.value, 1.0, kTol, "constant insulator charge");
+    expect_near(result.stopping_error, 0.0, kTol, "constant insulator estimate");
+    expect_near(
+        result.certified_error_bound,
         0.0,
-        workspace,
-        geometry,
-        simplex_id,
-        workspace.cache(),
-        true,
-        &certificate_cache,
+        kTol,
+        "constant insulator certificate"
+    );
+}
+
+void test_default_curvature_bound_is_zero() {
+    auto mesh = SpectralMesh(winding_model(3));
+    const auto implicit_zero = estimate_charge_on_current_mesh(
+        mesh,
+        0.0,
+        3.0
+    );
+    const auto explicit_zero = estimate_charge_on_current_mesh(
+        mesh,
+        0.0,
+        3.0,
+        1,
         0.0
     );
-    expect_eq(
-        certificate_cache.size(),
+
+    expect_near(
+        implicit_zero.certified_error_bound,
+        explicit_zero.certified_error_bound,
+        kTol,
+        "omitted curvature must mean zero curvature"
+    );
+}
+
+void test_curvature_prevents_false_certification_of_aliased_band() {
+    auto mesh = SpectralMesh(aliased_pocket());
+    const auto result = estimate_charge_on_current_mesh(
+        mesh,
+        0.0,
+        0.0,
         1,
-        "first certified charge evaluation should cache one certificate"
+        256.0 * std::numbers::pi_v<double> * std::numbers::pi_v<double>
     );
-    const auto *cached = certificate_cache.find(simplex_id, 0.0, 0.0);
-    expect(cached != nullptr, "cached certificate should contain the original mu");
+
     expect(
-        cached->mu_interval.upper > 0.0,
-        "test fixture should provide a positive reusable mu interval"
-    );
-
-    const auto inside_mu = 0.5 * cached->mu_interval.upper;
-    (void)lineartetrahedron::charge_on_simplex(
-        inside_mu,
-        workspace,
-        geometry,
-        simplex_id,
-        workspace.cache(),
-        true,
-        &certificate_cache,
-        0.0
-    );
-    expect_eq(
-        certificate_cache.size(),
-        1,
-        "charge evaluation inside cached mu range should reuse the certificate"
+        result.certified_error_bound > 0.0,
+        "global tight-binding curvature must expose unresolved aliased structure"
     );
 }
 
-void test_charge_path_uses_occupation_bounds() {
-    const auto options = adaptivesimplex::adaptive::Options{
-        .target_error = 0.75,
-        .max_refinements = 0,
-        .preview_depth = 1,
-        .min_refinement_batch_size = 1,
-        .max_refinement_batch_size = 100,
-    };
+void test_charge_derivative_handles_repeated_vertex_energies() {
+    for (const auto root_level : {0U, 1U, 2U}) {
+        auto mesh = SpectralMesh(
+            std::make_shared<AffineXModel>(),
+            kTol,
+            root_level
+        );
+        const auto result = estimate_charge_on_current_mesh(
+            mesh,
+            0.25,
+            1.0
+        );
+        expect_near(
+            result.dcharge_dmu,
+            1.0,
+            1e-12,
+            "affine x band should have unit charge derivative"
+        );
+    }
+}
 
-    auto bounded_runtime = lineartetrahedron::IntegrationRuntime(
-        winding_model(3),
-        {0},
-        {},
-        {},
-        {},
-        kTol
-    );
-    const auto bounded_result = bounded_runtime.evaluate_charge(0.0, options);
-    expect_near(
-        bounded_result.charge_error,
-        0.0,
-        1e-12,
-        "inconclusive charge error should use the projected residual estimate by default"
-    );
-    const auto conservative_result = bounded_runtime.evaluate_charge(
-        0.0,
-        options,
-        true,
-        0.0,
-        0.0,
-        lineartetrahedron::InconclusiveChargeErrorMode::Conservative
-    );
-    expect_near(
-        conservative_result.charge_error,
-        2.0,
-        1e-12,
-        "conservative mode should use the certified [0,2] occupation-width error"
-    );
-
-    auto visible_runtime = lineartetrahedron::IntegrationRuntime(
-        winding_model(1),
-        {0},
-        {},
-        {},
-        {},
-        kTol
-    );
-    const auto visible_default = visible_runtime.evaluate_charge(0.0, options);
-    expect_near(
-        visible_default.charge_error,
-        0.0,
-        1e-12,
-        "visible/certified charge cases should not gain bound-based error"
-    );
-
-    const auto strict_hessian = visible_runtime.evaluate_charge(0.0, options, true, 1.0e6);
-    expect_near(
-        strict_hessian.charge_error,
-        visible_default.charge_error,
-        1e-12,
-        "Hessian input should not contribute charge certificate error"
+void test_affine_matrix_charge_does_not_converge_at_root() {
+    auto mesh = SpectralMesh(std::make_shared<AffineConeModel>(), kTol, 0);
+    expect_runtime_error(
+        [&] {
+            (void)integrate_charge(
+                mesh,
+                0.25,
+                fixed_options(1e-3)
+            );
+        },
+        "did not converge",
+        "affine matrix charge must request refinement when its eigenvalues curve"
     );
 }
 
-void test_projected_error_detects_nonlinear_visible_cut() {
-    std::vector<std::int64_t> keys{1, -1};
-    std::vector<Complex> matrices{Complex{0.5, 0.0}, Complex{0.5, 0.0}};
-    auto runtime = lineartetrahedron::IntegrationRuntime(
-        std::make_shared<lineartetrahedron::TightBindingModel>(
-            1,
-            1,
-            std::move(keys),
-            std::move(matrices)
-        ),
-        {0},
-        {},
-        {},
-        {},
-        kTol
-    );
-    const auto options = adaptivesimplex::adaptive::Options{
-        .target_error = 1.0,
-        .max_refinements = 0,
-        .preview_depth = 1,
-        .min_refinement_batch_size = 1,
-        .max_refinement_batch_size = 100,
-    };
+void test_integration_rejects_nonfinite_mu() {
+    auto mesh = SpectralMesh(constant_insulator());
+    const auto options = fixed_options(1.0);
+    for (const auto mu : {
+             std::numeric_limits<double>::quiet_NaN(),
+             std::numeric_limits<double>::infinity(),
+             -std::numeric_limits<double>::infinity(),
+         }) {
+        expect_runtime_error(
+            [&] { (void)integrate_charge(mesh, mu, options); },
+            "mu must be finite",
+            "charge integration should reject a non-finite chemical potential"
+        );
+        expect_runtime_error(
+            [&] { (void)estimate_charge_on_current_mesh(mesh, mu, 1.0); },
+            "mu must be finite",
+            "fixed-mesh charge should reject a non-finite chemical potential"
+        );
+        expect_runtime_error(
+            [&] { (void)integrate_density_matrix(mesh, mu, {{0}}, options); },
+            "mu must be finite",
+            "density integration should reject a non-finite chemical potential"
+        );
+    }
 
-    const auto result = runtime.evaluate_charge(0.2, options);
-    expect(
-        result.charge_error > 0.0,
-        "projected residual shell should add error for nonlinear visible cuts"
+    expect_runtime_error(
+        [&] {
+            (void)estimate_charge_on_current_mesh(
+                mesh,
+                0.0,
+                std::numeric_limits<double>::quiet_NaN()
+            );
+        },
+        "target_error",
+        "fixed-mesh charge should reject a non-finite target error"
     );
-}
-
-void test_projected_error_uses_asymmetric_residual_directions() {
-    std::vector<std::int64_t> keys{1, -1};
-    std::vector<Complex> matrices{Complex{0.5, 0.0}, Complex{0.5, 0.0}};
-    auto runtime = lineartetrahedron::IntegrationRuntime(
-        std::make_shared<lineartetrahedron::TightBindingModel>(
-            1,
-            1,
-            std::move(keys),
-            std::move(matrices)
-        ),
-        {0},
-        {},
-        {},
-        {},
-        kTol
-    );
-    const auto options = adaptivesimplex::adaptive::Options{
-        .target_error = 1.0,
-        .max_refinements = 0,
-        .preview_depth = 1,
-        .min_refinement_batch_size = 1,
-        .max_refinement_batch_size = 100,
-    };
-
-    const auto result = runtime.evaluate_charge(0.0, options);
-    expect_near(
-        result.charge_error,
-        0.0,
-        1e-12,
-        "positive actual-minus-linear residuals must tighten the lower occupation bound"
+    expect_runtime_error(
+        [&] { (void)estimate_charge_on_current_mesh(mesh, 0.0, 1.0, 0); },
+        "preview_depth",
+        "fixed-mesh charge should reject a zero preview depth"
     );
 }
 
@@ -229,13 +201,14 @@ void test_projected_error_uses_asymmetric_residual_directions() {
 
 int main() {
     try {
-        test_charge_certificate_cache_respects_mu_range();
-        test_charge_on_simplex_reuses_cached_certificate();
-        test_charge_path_uses_occupation_bounds();
-        test_projected_error_detects_nonlinear_visible_cut();
-        test_projected_error_uses_asymmetric_residual_directions();
-    } catch (const std::exception &exc) {
-        std::cerr << exc.what() << "\n";
+        test_constant_insulator_charge_is_certified();
+        test_default_curvature_bound_is_zero();
+        test_curvature_prevents_false_certification_of_aliased_band();
+        test_charge_derivative_handles_repeated_vertex_energies();
+        test_affine_matrix_charge_does_not_converge_at_root();
+        test_integration_rejects_nonfinite_mu();
+    } catch (const std::exception &error) {
+        std::cerr << error.what() << "\n";
         return 1;
     }
     return 0;

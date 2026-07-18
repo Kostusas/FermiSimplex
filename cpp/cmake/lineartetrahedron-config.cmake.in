@@ -1,0 +1,9 @@
+@PACKAGE_INIT@
+
+include(CMakeFindDependencyMacro)
+find_dependency(adaptivesimplex CONFIG)
+find_dependency(LAPACK)
+
+include("${CMAKE_CURRENT_LIST_DIR}/lineartetrahedron-targets.cmake")
+
+check_required_components(lineartetrahedron)

@@ -5,7 +5,34 @@ from dataclasses import dataclass
 import numpy as np
 
 
-def dimerized_chain(delta: float = 0.2) -> dict[tuple[int, ...], np.ndarray]:
+TightBindingData = dict[tuple[int, ...], np.ndarray]
+
+
+def constant_insulator(ndim: int) -> TightBindingData:
+    return {(0,) * ndim: np.diag([-1.0, 1.0]).astype(complex)}
+
+
+def axis_cosine_band(ndim: int) -> TightBindingData:
+    positive = [0] * ndim
+    positive[0] = 1
+    negative = [0] * ndim
+    negative[0] = -1
+    return {
+        tuple(positive): np.array([[0.5]], dtype=complex),
+        tuple(negative): np.array([[0.5]], dtype=complex),
+    }
+
+
+def winding_constant_gap_band(winding: int) -> TightBindingData:
+    sigma_z = np.diag([1.0, -1.0]).astype(complex)
+    sigma_x = np.array([[0.0, 1.0], [1.0, 0.0]], dtype=complex)
+    return {
+        (winding,): 0.5 * sigma_z + 0.5j * sigma_x,
+        (-winding,): 0.5 * sigma_z - 0.5j * sigma_x,
+    }
+
+
+def dimerized_chain(delta: float = 0.2) -> TightBindingData:
     return {
         (0,): np.array([[delta, 1.0], [1.0, -delta]], dtype=complex),
         (1,): np.array([[0.0, 0.4], [0.0, 0.0]], dtype=complex),
@@ -13,7 +40,7 @@ def dimerized_chain(delta: float = 0.2) -> dict[tuple[int, ...], np.ndarray]:
     }
 
 
-def qiwuzhang(mass: float = 0.5) -> dict[tuple[int, ...], np.ndarray]:
+def qiwuzhang(mass: float = 0.5) -> TightBindingData:
     sx = np.array([[0.0, 1.0], [1.0, 0.0]], dtype=complex)
     sy = np.array([[0.0, -1.0j], [1.0j, 0.0]], dtype=complex)
     sz = np.array([[1.0, 0.0], [0.0, -1.0]], dtype=complex)
@@ -26,65 +53,48 @@ def qiwuzhang(mass: float = 0.5) -> dict[tuple[int, ...], np.ndarray]:
     }
 
 
-def tb_k_matrix(tb: dict[tuple[int, ...], np.ndarray], point: np.ndarray) -> np.ndarray:
+def tb_k_matrix(hoppings: TightBindingData, point: np.ndarray) -> np.ndarray:
     return sum(
-        matrix * np.exp(-2j * np.pi * np.dot(point, np.asarray(key, dtype=float)))
-        for key, matrix in tb.items()
+        matrix * np.exp(-2j * np.pi * np.dot(point, np.asarray(key)))
+        for key, matrix in hoppings.items()
     )
 
 
 @dataclass(frozen=True)
 class DenseReference:
-    mu: float
-    rho: dict[tuple[int, ...], np.ndarray]
+    density_matrices: dict[tuple[int, ...], np.ndarray]
     filling: float
 
 
 def dense_reference(
-    tb: dict[tuple[int, ...], np.ndarray],
+    hoppings: TightBindingData,
     *,
+    mu: float,
     keys: list[tuple[int, ...]],
-    mu: float | None = None,
-    filling: float | None = None,
     nk: int = 1201,
 ) -> DenseReference:
-    if (mu is None) == (filling is None):
-        raise ValueError("Exactly one of mu or filling must be provided")
-    ndim = len(next(iter(tb)))
-    ndof = next(iter(tb.values())).shape[0]
+    ndim = len(next(iter(hoppings)))
+    ndof = next(iter(hoppings.values())).shape[0]
     grids = [np.linspace(0.0, 1.0, nk, endpoint=False) for _ in range(ndim)]
     points = np.stack(np.meshgrid(*grids, indexing="ij"), axis=-1).reshape(-1, ndim)
+    density_matrices = {
+        key: np.zeros((ndof, ndof), dtype=complex)
+        for key in keys
+    }
+    filling = 0.0
 
-    eigvals = []
-    eigvecs = []
     for point in points:
-        values, vectors = np.linalg.eigh(tb_k_matrix(tb, point))
-        eigvals.append(values)
-        eigvecs.append(vectors)
-    eigvals = np.asarray(eigvals)
-    eigvecs = np.asarray(eigvecs)
-    if filling is not None:
-        flat = np.sort(eigvals.reshape(-1))
-        index = int(np.clip(np.ceil(float(filling) * points.shape[0]) - 1, 0, flat.size - 1))
-        mu = float(flat[index])
-    assert mu is not None
-
-    rho = {key: np.zeros((ndof, ndof), dtype=complex) for key in keys}
-    resolved_filling = 0.0
-    for point, values, vectors in zip(points, eigvals, eigvecs, strict=True):
-        occupations = values <= mu
-        resolved_filling += float(np.sum(occupations))
-        density = vectors * occupations[np.newaxis, :] @ vectors.conj().T
+        eigenvalues, eigenvectors = np.linalg.eigh(tb_k_matrix(hoppings, point))
+        occupations = eigenvalues <= mu
+        filling += float(np.sum(occupations))
+        density = eigenvectors * occupations[np.newaxis, :] @ eigenvectors.conj().T
         for key in keys:
-            rho[key] += density * np.exp(2j * np.pi * np.dot(point, np.asarray(key, dtype=float)))
-    for key in keys:
-        rho[key] /= points.shape[0]
-    resolved_filling /= points.shape[0]
-    return DenseReference(mu=float(mu), rho=rho, filling=resolved_filling)
+            phase = np.exp(2j * np.pi * np.dot(point, np.asarray(key)))
+            density_matrices[key] += phase * density
 
-
-def max_density_error(
-    actual: dict[tuple[int, ...], np.ndarray],
-    expected: dict[tuple[int, ...], np.ndarray],
-) -> float:
-    return max(float(np.max(np.abs(actual[key] - expected[key]))) for key in expected)
+    for matrix in density_matrices.values():
+        matrix /= len(points)
+    return DenseReference(
+        density_matrices=density_matrices,
+        filling=filling / len(points),
+    )

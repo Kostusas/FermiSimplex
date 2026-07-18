@@ -1,6 +1,6 @@
 #include "integration/projected_error.h"
 
-#include "core/linear_algebra.h"
+#include "linalg/blas_lapack.h"
 
 #include <algorithm>
 #include <complex>
@@ -21,7 +21,7 @@ size_t column_major_index(size_t row, size_t column, size_t rows) {
 }
 
 double ambiguous_block_margin(
-    const VertexSpectra &spectra,
+    const Eigensystem &spectra,
     size_t lower_band,
     size_t upper_band
 ) {
@@ -40,7 +40,7 @@ double ambiguous_block_margin(
 size_t largest_gap_anchor(
     const core::Geometry &geometry,
     core::SimplexId simplex_id,
-    const core::VertexCache<VertexSpectra> &cache,
+    const core::VertexCache<Eigensystem> &cache,
     size_t lower_band,
     size_t upper_band
 ) {
@@ -59,7 +59,7 @@ size_t largest_gap_anchor(
 }
 
 std::vector<Complex> ambiguous_anchor_vectors(
-    const VertexSpectra &anchor,
+    const Eigensystem &anchor,
     size_t lower_band,
     size_t upper_band
 ) {
@@ -109,61 +109,88 @@ std::vector<Complex> project_matrix(
     size_t jdim
 ) {
     std::vector<Complex> matrix_times_v(ndof * jdim, Complex{0.0, 0.0});
-    for (size_t column = 0; column < jdim; ++column) {
-        for (size_t row = 0; row < ndof; ++row) {
-            auto value = Complex{0.0, 0.0};
-            for (size_t inner = 0; inner < ndof; ++inner) {
-                value += matrix[column_major_index(row, inner, ndof)] *
-                         vectors[column_major_index(inner, column, ndof)];
-            }
-            matrix_times_v[column_major_index(row, column, ndof)] = value;
-        }
-    }
+    linalg::matrix_multiply(
+        'N',
+        'N',
+        ndof,
+        jdim,
+        ndof,
+        Complex{1.0, 0.0},
+        matrix.data(),
+        ndof,
+        vectors.data(),
+        ndof,
+        Complex{0.0, 0.0},
+        matrix_times_v.data(),
+        ndof
+    );
 
     std::vector<Complex> result(jdim * jdim, Complex{0.0, 0.0});
-    for (size_t column = 0; column < jdim; ++column) {
-        for (size_t row = 0; row < jdim; ++row) {
-            auto value = Complex{0.0, 0.0};
-            for (size_t inner = 0; inner < ndof; ++inner) {
-                value += std::conj(vectors[column_major_index(inner, row, ndof)]) *
-                         matrix_times_v[column_major_index(inner, column, ndof)];
-            }
-            result[column_major_index(row, column, jdim)] = value;
-        }
-    }
+    linalg::matrix_multiply(
+        'C',
+        'N',
+        jdim,
+        jdim,
+        ndof,
+        Complex{1.0, 0.0},
+        vectors.data(),
+        ndof,
+        matrix_times_v.data(),
+        ndof,
+        Complex{0.0, 0.0},
+        result.data(),
+        jdim
+    );
     return result;
 }
 
 std::vector<Complex> project_vertex_hamiltonian(
-    const VertexSpectra &spectra,
+    const Eigensystem &spectra,
     std::span<const Complex> vectors,
     size_t jdim
 ) {
     const auto ndof = spectra.eigenvalues.size();
     std::vector<Complex> overlap(ndof * jdim, Complex{0.0, 0.0});
+    linalg::matrix_multiply(
+        'C',
+        'N',
+        ndof,
+        jdim,
+        ndof,
+        Complex{1.0, 0.0},
+        spectra.eigenvectors.data(),
+        ndof,
+        vectors.data(),
+        ndof,
+        Complex{0.0, 0.0},
+        overlap.data(),
+        ndof
+    );
+
+    auto weighted_overlap = overlap;
     for (size_t column = 0; column < jdim; ++column) {
         for (size_t band = 0; band < ndof; ++band) {
-            auto value = Complex{0.0, 0.0};
-            for (size_t row = 0; row < ndof; ++row) {
-                value += std::conj(spectra.eigenvectors[column_major_index(row, band, ndof)]) *
-                         vectors[column_major_index(row, column, ndof)];
-            }
-            overlap[column_major_index(band, column, ndof)] = value;
+            weighted_overlap[column_major_index(band, column, ndof)] *=
+                spectra.eigenvalues[band];
         }
     }
 
     std::vector<Complex> result(jdim * jdim, Complex{0.0, 0.0});
-    for (size_t column = 0; column < jdim; ++column) {
-        for (size_t row = 0; row < jdim; ++row) {
-            auto value = Complex{0.0, 0.0};
-            for (size_t band = 0; band < ndof; ++band) {
-                value += spectra.eigenvalues[band] *
-                         std::conj(overlap[column_major_index(band, row, ndof)]) *
-                         overlap[column_major_index(band, column, ndof)];
-            }
-            result[column_major_index(row, column, jdim)] = value;
-        }
-    }
+    linalg::matrix_multiply(
+        'C',
+        'N',
+        jdim,
+        jdim,
+        ndof,
+        Complex{1.0, 0.0},
+        overlap.data(),
+        ndof,
+        weighted_overlap.data(),
+        ndof,
+        Complex{0.0, 0.0},
+        result.data(),
+        jdim
+    );
     return result;
 }
 
@@ -179,17 +206,17 @@ void add_scaled(
 
 }  // namespace
 
-ProjectedErrorEstimate estimate_projected_error(
-    const IntegrationWorkspace &workspace,
-    const core::Geometry &geometry,
+ProjectedResidualEstimate estimate_projected_residual(
+    const SpectralMesh &mesh,
     core::SimplexId simplex_id,
-    const core::VertexCache<VertexSpectra> &cache,
     size_t lower_band,
     size_t upper_band
 ) {
-    const auto ndof = workspace.ndof();
+    const auto &geometry = mesh.geometry();
+    const auto &cache = mesh.eigensystems();
+    const auto ndof = mesh.ndof();
     if (lower_band > upper_band || upper_band > ndof) {
-        throw std::runtime_error("estimate_projected_error: invalid ambiguous band interval");
+        throw std::runtime_error("estimate_projected_residual: invalid ambiguous band interval");
     }
     const auto jdim = upper_band - lower_band;
     if (jdim == 0) {
@@ -209,34 +236,45 @@ ProjectedErrorEstimate estimate_projected_error(
     }
 
     std::vector<std::vector<double>> samples;
-    samples.reserve(simplex.vertex_ids.size() * (simplex.vertex_ids.size() - 1) / 2 + 1);
+    const auto nvertices = simplex.vertex_ids.size();
+    samples.reserve(nvertices * (nvertices - 1) / 2 + (nvertices > 2 ? 1 : 0));
     for (size_t left = 0; left < simplex.vertex_ids.size(); ++left) {
         for (size_t right = left + 1; right < simplex.vertex_ids.size(); ++right) {
             samples.push_back(barycentric_sample(simplex.vertex_ids.size(), left, right));
         }
     }
-    samples.push_back(center_sample(simplex.vertex_ids.size()));
+    // In one dimension the barycenter is already the sole edge midpoint.
+    if (nvertices > 2) {
+        samples.push_back(center_sample(nvertices));
+    }
 
-    auto estimate = ProjectedErrorEstimate{};
+    auto estimate = ProjectedResidualEstimate{};
     for (const auto &weights : samples) {
         const auto point = sample_point(geometry, simplex, weights);
-        const auto hamiltonian =
-            workspace.evaluate_hamiltonian(std::span<const double>(point.data(), point.size()));
+        const auto hamiltonian = mesh.hamiltonian(
+            std::span<const double>(point.data(), point.size())
+        );
         auto residual_projection = project_matrix(hamiltonian, vectors, ndof, jdim);
         for (size_t vertex = 0; vertex < vertex_projections.size(); ++vertex) {
             add_scaled(residual_projection, vertex_projections[vertex], -weights[vertex]);
         }
 
         std::vector<double> eigenvalues;
-        diagonalize_hermitian_in_place(
+        linalg::diagonalize_hermitian_in_place(
             residual_projection,
             eigenvalues,
             jdim,
             false,
-            "estimate_projected_error"
+            "estimate_projected_residual"
         );
-        estimate.rho_up = std::max(estimate.rho_up, std::max(eigenvalues.back(), 0.0));
-        estimate.rho_down = std::max(estimate.rho_down, std::max(-eigenvalues.front(), 0.0));
+        estimate.positive_estimate = std::max(
+            estimate.positive_estimate,
+            std::max(eigenvalues.back(), 0.0)
+        );
+        estimate.negative_estimate = std::max(
+            estimate.negative_estimate,
+            std::max(-eigenvalues.front(), 0.0)
+        );
     }
     return estimate;
 }

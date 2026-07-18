@@ -17,10 +17,13 @@ this simplex, or should we look more closely?*
 
 - 🛡️ **Occupation certificates** prove gapped simplices and rigorous charge
   bounds from vertex eigensystems and a user-supplied curvature bound.
-- ⚡ **Adaptive sampling** concentrates diagonalizations near unresolved Fermi
-  surfaces instead of refining the entire Brillouin zone uniformly.
-- ♻️ **Shared spectral cache** lets Fermi-surface, charge, and density-matrix
-  calculations reuse the same mesh and eigensystems.
+- ⚡ **Adaptive sampling**, built on
+  [AdaptiveSimplex](https://gitlab.kwant-project.org/qt/adaptivesimplex),
+  concentrates diagonalizations near unresolved Fermi surfaces instead of
+  refining the entire Brillouin zone uniformly.
+- 🚀 **Efficient by design:** adaptive refinement, shared spectral caching, and
+  low-level C++20/BLAS/LAPACK kernels reduce redundant work, memory use, and
+  runtime overhead.
 - 🎯 **Projected charge estimates** inspect the nonlinear Hamiltonian residual
   only in the bands whose occupation is still ambiguous.
 - 🧩 **Python and C++** share one numerical core; models can be dense callables
@@ -138,6 +141,10 @@ See the runnable [quick start](examples/quick_start.py) and
 [build and architecture guide](docs/development.md).
 
 ## Development
+
+AdaptiveSimplex provides the mesh geometry, refinement, vertex caching, and
+cut-simplex integration; FermiSimplex adds the spectral models, certificates,
+and observable-specific algorithms.
 
 ```bash
 pixi run test

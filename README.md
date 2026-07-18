@@ -1,8 +1,8 @@
-# fermisimplex
+# FermiSimplex
 
 **Adaptive, occupation-certified spectral calculations on simplex meshes.**
 
-fermisimplex finds Fermi surfaces and computes zero-temperature charge and
+FermiSimplex finds Fermi surfaces and computes zero-temperature charge and
 density matrices without paying for a dense momentum grid. Its central object
 is the local occupation
 
@@ -103,7 +103,7 @@ $H_{-R}=H_R^\dagger$.
 ## What does the certificate prove?
 
 The certificate is a local proof that the number of occupied states cannot
-change anywhere inside a simplex. fermisimplex starts from the eigensystems at
+change anywhere inside a simplex. FermiSimplex starts from the eigensystems at
 the simplex vertices and searches for complementary trial subspaces on which
 $H(k)-\mu I$ is strictly negative or strictly positive. A user-supplied
 curvature bound limits how far the Hamiltonian inside the simplex can depart
@@ -114,7 +114,7 @@ throughout the simplex without sampling its interior.
 A successful proof means that no Fermi surface crosses the simplex. If only
 part of the spectrum can be separated, the same argument still gives rigorous
 lower and upper bounds on the occupation. If the proof is inconclusive,
-fermisimplex makes no claim that the simplex is gapless; it refines the simplex
+FermiSimplex makes no claim that the simplex is gapless; it refines the simplex
 and tries again.
 
 The charge and Fermi-surface routines apply this test to every simplex.

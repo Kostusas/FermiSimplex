@@ -1,7 +1,7 @@
 cmake_minimum_required(VERSION 3.28...3.30)
 
 project(
-  fermisimplex
+  FermiSimplex
   VERSION 0.1.0
   LANGUAGES CXX
 )
@@ -15,12 +15,12 @@ endif()
 
 option(
   FERMISIMPLEX_BUILD_PYTHON
-  "Build the fermisimplex Python extension"
+  "Build the FermiSimplex Python extension"
   "${FERMISIMPLEX_TOP_LEVEL_DEFAULT}"
 )
 option(
   FERMISIMPLEX_BUILD_TESTING
-  "Build the fermisimplex C++ tests"
+  "Build the FermiSimplex C++ tests"
   "${FERMISIMPLEX_TOP_LEVEL_DEFAULT}"
 )
 

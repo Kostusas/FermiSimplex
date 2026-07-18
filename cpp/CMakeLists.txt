@@ -3,7 +3,7 @@ cmake_minimum_required(VERSION 3.28...3.30)
 set(FERMISIMPLEX_CPP_TOP_LEVEL OFF)
 if(CMAKE_SOURCE_DIR STREQUAL CMAKE_CURRENT_SOURCE_DIR)
   project(
-    fermisimplex
+    FermiSimplex
     VERSION 0.1.0
     LANGUAGES CXX
   )
@@ -15,17 +15,17 @@ include(CMakePackageConfigHelpers)
 
 option(
   FERMISIMPLEX_BUILD_TESTING
-  "Build the fermisimplex C++ tests"
+  "Build the FermiSimplex C++ tests"
   "${FERMISIMPLEX_CPP_TOP_LEVEL}"
 )
 option(
   FERMISIMPLEX_BUILD_BENCHMARKS
-  "Build the fermisimplex C++ benchmarks"
+  "Build the FermiSimplex C++ benchmarks"
   OFF
 )
 option(
   FERMISIMPLEX_INSTALL_CPP
-  "Install the fermisimplex C++ library and package metadata"
+  "Install the FermiSimplex C++ library and package metadata"
   "${FERMISIMPLEX_CPP_TOP_LEVEL}"
 )
 

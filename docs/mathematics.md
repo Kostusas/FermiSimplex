@@ -1,6 +1,6 @@
 # Mathematics
 
-fermisimplex combines two ideas:
+FermiSimplex combines two ideas:
 
 1. certify how many states are occupied throughout a simplex;
 2. integrate the piecewise-linear bands and refine where their error appears
@@ -202,7 +202,7 @@ $$
 Q(\mu)=\int_{\mathrm{BZ}}N(k;\mu)\,dk.
 $$
 
-For each sorted band index $n$, fermisimplex interpolates the vertex
+For each sorted band index $n$, FermiSimplex interpolates the vertex
 energies,
 
 $$

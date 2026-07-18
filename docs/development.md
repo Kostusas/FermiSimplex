@@ -1,6 +1,6 @@
 # Development and architecture
 
-fermisimplex keeps the reusable numerical library and Python interface in
+FermiSimplex keeps the reusable numerical library and Python interface in
 separate source trees:
 
 ```text
@@ -18,7 +18,7 @@ docs/                            theory and reproducible README assets
 ```
 
 AdaptiveSimplex owns generic geometry, refinement, vertex caching, cut-simplex
-moments, and adaptive-loop mechanics. fermisimplex adds only the spectral
+moments, and adaptive-loop mechanics. FermiSimplex adds only the spectral
 rules and certificates.
 
 ## Python development

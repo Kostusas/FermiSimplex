@@ -29,7 +29,7 @@ set(install_command
 if(NOT "${BUILD_CONFIG}" STREQUAL "")
   list(APPEND install_command --config "${BUILD_CONFIG}")
 endif()
-run_checked("Installing fermisimplex" ${install_command})
+run_checked("Installing FermiSimplex" ${install_command})
 
 set(configure_command
   "${CMAKE_COMMAND}"

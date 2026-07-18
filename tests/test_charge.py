@@ -58,26 +58,20 @@ def test_current_mesh_charge_requires_a_positive_preview_depth():
         mesh.estimate_charge_on_current_mesh(0.0, 1.0, preview_depth=0)
 
 
-def test_callable_hamiltonian_is_evaluated_with_coordinate_vectors():
-    seen_shapes: list[tuple[int, ...]] = []
+def test_callable_hamiltonian_is_evaluated_with_separate_coordinates():
+    seen_points: list[tuple[float, float, float]] = []
 
-    def function(point: np.ndarray) -> np.ndarray:
-        seen_shapes.append(point.shape)
+    def function(kx: float, ky: float, kz: float) -> np.ndarray:
+        seen_points.append((kx, ky, kz))
         return np.diag([-1.0, 1.0]).astype(complex)
 
-    mesh = SpectralMesh(
-        Hamiltonian(
-            function,
-            ndim=3,
-            ndof=2,
-        )
-    )
+    mesh = SpectralMesh(Hamiltonian(function))
 
     result = mesh.estimate_charge_on_current_mesh(0.0, 1e-12)
 
     assert result.value == pytest.approx(1.0)
-    assert seen_shapes
-    assert set(seen_shapes) == {(3,)}
+    assert seen_points
+    assert all(len(point) == 3 for point in seen_points)
 
 
 def test_none_and_zero_curvature_bounds_are_equivalent_for_charge():
@@ -123,15 +117,3 @@ def test_charge_rejects_invalid_curvature_bounds(curvature_bound):
             1.0,
             curvature_bound=curvature_bound,
         )
-
-
-def test_callable_matrix_shape_is_checked_when_the_mesh_evaluates_it():
-    model = Hamiltonian(
-        lambda point: np.zeros((1, 2), dtype=complex),
-        ndim=1,
-        ndof=1,
-    )
-    mesh = SpectralMesh(model)
-
-    with pytest.raises(ValueError, match="shape"):
-        mesh.estimate_charge_on_current_mesh(0.0, 1e-12)

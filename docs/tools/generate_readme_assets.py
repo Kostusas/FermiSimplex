@@ -42,9 +42,7 @@ class SurfaceSnapshot:
 
 
 def refinement_snapshots() -> list[SurfaceSnapshot]:
-    mesh = SpectralMesh(
-        Hamiltonian(schwarz_p_hamiltonian, ndim=3, ndof=1)
-    )
+    mesh = SpectralMesh(Hamiltonian(schwarz_p_hamiltonian))
     snapshots = []
     for feature_size in (0.40, 0.28, 0.20, 0.14, 0.10, 0.07):
         surface = mesh.fermi_surface(
@@ -140,9 +138,7 @@ def write_refinement_gif(snapshots: list[SurfaceSnapshot]) -> None:
 
 
 def write_surface_gallery(final_snapshot: SurfaceSnapshot) -> None:
-    surface_2d = SpectralMesh(
-        Hamiltonian(hamiltonian, ndim=2, ndof=2)
-    ).fermi_surface(
+    surface_2d = SpectralMesh(Hamiltonian(hamiltonian)).fermi_surface(
         0.0,
         0.01,
         curvature_bound=CURVATURE_BOUND,

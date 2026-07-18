@@ -10,8 +10,7 @@ from lineartetrahedron import Hamiltonian, SpectralMesh
 CURVATURE_BOUND = 2.08 * (2.0 * np.pi) ** 2
 
 
-def hamiltonian(point: np.ndarray) -> np.ndarray:
-    kx, ky = point
+def hamiltonian(kx: float, ky: float) -> np.ndarray:
     x = 2.0 * np.pi * kx
     y = 2.0 * np.pi * ky
     scalar = -0.12 + 0.42 * np.cos(x) - 0.34 * np.cos(y) + 0.16 * np.cos(x + y)
@@ -21,7 +20,7 @@ def hamiltonian(point: np.ndarray) -> np.ndarray:
 
 
 def main() -> None:
-    model = Hamiltonian(hamiltonian, ndim=2, ndof=2)
+    model = Hamiltonian(hamiltonian)
     surface = SpectralMesh(model).fermi_surface(
         0.0,
         min_feature_size=0.01,

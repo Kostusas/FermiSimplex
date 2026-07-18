@@ -29,9 +29,7 @@ def test_extracts_a_fermi_surface_in_reduced_coordinates(ndim):
 
 def test_callable_affine_hamiltonian_needs_no_curvature_margin():
     model = Hamiltonian(
-        lambda point: np.array([[point[0] + point[1] - 0.8]], dtype=complex),
-        ndim=2,
-        ndof=1,
+        lambda kx, ky: np.array([[kx + ky - 0.8]], dtype=complex)
     )
     mesh = SpectralMesh(model)
 
@@ -101,11 +99,7 @@ def test_evaluation_budget_reports_an_incomplete_surface():
 
 
 def test_flat_band_at_mu_is_not_coverage_certified():
-    model = Hamiltonian(
-        lambda _point: np.zeros((1, 1), dtype=complex),
-        ndim=2,
-        ndof=1,
-    )
+    model = Hamiltonian(lambda _kx, _ky: np.zeros((1, 1), dtype=complex))
 
     surface = SpectralMesh(model).fermi_surface(
         0.0,
@@ -120,19 +114,13 @@ def test_flat_band_at_mu_is_not_coverage_certified():
 
 
 def test_cells_retain_their_band_identity_without_duplicates():
-    def two_affine_bands(point):
-        coordinate_sum = point[0] + point[1]
+    def two_affine_bands(kx, ky):
+        coordinate_sum = kx + ky
         return np.diag([coordinate_sum - 1.5, coordinate_sum - 0.5]).astype(
             complex
         )
 
-    mesh = SpectralMesh(
-        Hamiltonian(
-            two_affine_bands,
-            ndim=2,
-            ndof=2,
-        )
-    )
+    mesh = SpectralMesh(Hamiltonian(two_affine_bands))
 
     surface = mesh.fermi_surface(0.0, 0.2, curvature_bound=0.0)
 

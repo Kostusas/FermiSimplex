@@ -42,12 +42,12 @@ import numpy as np
 from lineartetrahedron import Hamiltonian, SpectralMesh
 
 
-def hamiltonian(k):
-    phase = 2 * np.pi * np.asarray(k)
+def hamiltonian(kx, ky, kz):
+    phase = 2 * np.pi * np.array([kx, ky, kz])
     return np.array([[np.cos(phase).sum()]], dtype=complex)
 
 
-mesh = SpectralMesh(Hamiltonian(hamiltonian, ndim=3, ndof=1))
+mesh = SpectralMesh(Hamiltonian(hamiltonian))
 surface = mesh.fermi_surface(
     mu=0.17,
     min_feature_size=0.07,
@@ -61,7 +61,9 @@ surface.cell_bands  # band index for every triangle
 
 The coordinates are reduced coordinates in $[0,1]^d$. Here
 $M=(2\pi)^2$ bounds every directional second derivative of the scalar
-Hamiltonian.
+Hamiltonian. `Hamiltonian` infers the momentum-space dimension from the
+function arguments and the matrix dimension by evaluating it at the origin.
+Both model types are evaluated with separate coordinates: `model(kx, ky, ...)`.
 
 ![Two- and three-dimensional Fermi surfaces](docs/assets/fermi_surface_gallery.png)
 

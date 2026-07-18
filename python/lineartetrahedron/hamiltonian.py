@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import inspect
 import operator
 from collections.abc import Callable, Mapping
 
@@ -13,22 +14,39 @@ Matrix = np.ndarray
 Point = np.ndarray
 
 
-def _positive_integer(value: int, name: str) -> int:
+def _coordinate_count(function: Callable[..., Matrix]) -> int:
     try:
-        result = operator.index(value)
-    except TypeError as exc:
-        raise TypeError(f"{name} must be an integer") from exc
-    if result < 1:
-        raise ValueError(f"{name} must be positive")
-    return int(result)
+        parameters = tuple(inspect.signature(function).parameters.values())
+    except (TypeError, ValueError) as exc:
+        raise TypeError("function must have an inspectable signature") from exc
+
+    positional = (
+        inspect.Parameter.POSITIONAL_ONLY,
+        inspect.Parameter.POSITIONAL_OR_KEYWORD,
+    )
+    if not parameters or any(
+        parameter.kind not in positional
+        or parameter.default is not inspect.Parameter.empty
+        for parameter in parameters
+    ):
+        raise TypeError(
+            "function must accept one or more required positional coordinates"
+        )
+    return len(parameters)
 
 
-def _point_array(point, ndim: int) -> Point:
-    result = np.ascontiguousarray(np.asarray(point, dtype=np.float64))
+def _matrix_at(function: Callable[..., Matrix], point: Point) -> Matrix:
+    return np.ascontiguousarray(
+        np.asarray(function(*point.tolist()), dtype=np.complex128)
+    )
+
+
+def _coordinates_array(coordinates, ndim: int) -> Point:
+    result = np.ascontiguousarray(np.asarray(coordinates, dtype=np.float64))
     if result.shape != (ndim,):
-        raise ValueError(f"point must have shape ({ndim},)")
+        raise ValueError(f"expected {ndim} coordinates")
     if not np.all(np.isfinite(result)):
-        raise ValueError("point coordinates must be finite")
+        raise ValueError("coordinates must be finite")
     return result
 
 
@@ -42,20 +60,22 @@ class _HamiltonianModel:
 
 
 class Hamiltonian(_HamiltonianModel):
-    """Dense Hamiltonian defined by a Python callable."""
+    """Dense Hamiltonian defined by a function of explicit coordinates."""
 
-    def __init__(
-        self,
-        function: Callable[[Point], Matrix],
-        *,
-        ndim: int,
-        ndof: int,
-    ) -> None:
+    def __init__(self, function: Callable[..., Matrix]) -> None:
         if not callable(function):
             raise TypeError("function must be callable")
         self._function = function
-        self._ndim = _positive_integer(ndim, "ndim")
-        self._ndof = _positive_integer(ndof, "ndof")
+        self._ndim = _coordinate_count(function)
+
+        matrix = _matrix_at(function, np.zeros(self.ndim))
+        if (
+            matrix.ndim != 2
+            or matrix.shape[0] != matrix.shape[1]
+            or not matrix.shape[0]
+        ):
+            raise ValueError("Hamiltonian must return a non-empty square matrix")
+        self._ndof = matrix.shape[0]
 
     @property
     def ndim(self) -> int:
@@ -65,13 +85,16 @@ class Hamiltonian(_HamiltonianModel):
     def ndof(self) -> int:
         return self._ndof
 
-    def __call__(self, point) -> Matrix:
-        matrix = np.ascontiguousarray(
-            np.asarray(self._function(_point_array(point, self.ndim)), dtype=np.complex128)
-        )
+    def __call__(self, *coordinates) -> Matrix:
+        return self._evaluate(_coordinates_array(coordinates, self.ndim))
+
+    def _evaluate(self, point: Point) -> Matrix:
+        matrix = _matrix_at(self._function, point)
         expected_shape = (self.ndof, self.ndof)
         if matrix.shape != expected_shape:
-            raise ValueError(f"Hamiltonian must return a matrix with shape {expected_shape}")
+            raise ValueError(
+                f"Hamiltonian must return a matrix with shape {expected_shape}"
+            )
         return matrix
 
     def _create_spectral_mesh(
@@ -80,7 +103,7 @@ class Hamiltonian(_HamiltonianModel):
         root_level: int,
     ) -> _NativeSpectralMesh:
         return _NativeSpectralMesh(
-            self,
+            self._evaluate,
             self.ndim,
             self.ndof,
             tolerance,
@@ -135,8 +158,9 @@ class TightBinding(_HamiltonianModel):
     def ndof(self) -> int:
         return int(self._native.ndof)
 
-    def __call__(self, point) -> Matrix:
-        return np.asarray(self._native.evaluate(_point_array(point, self.ndim)))
+    def __call__(self, *coordinates) -> Matrix:
+        point = _coordinates_array(coordinates, self.ndim)
+        return np.asarray(self._native.evaluate(point))
 
     def _create_spectral_mesh(
         self,

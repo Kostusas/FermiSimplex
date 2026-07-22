@@ -7,9 +7,7 @@
 #include <fermisimplex/spectral_mesh.h>
 
 #include <nanobind/stl/optional.h>
-#include <nanobind/stl/shared_ptr.h>
 
-#include <cmath>
 #include <complex>
 #include <cstddef>
 #include <cstdint>
@@ -17,6 +15,7 @@
 #include <optional>
 #include <span>
 #include <stdexcept>
+#include <string>
 #include <utility>
 #include <vector>
 
@@ -53,14 +52,30 @@ public:
         if (!callable_) {
             throw std::runtime_error("Hamiltonian callable is no longer available");
         }
-        auto point = make_array(
-            std::vector<double>(reduced_point.begin(), reduced_point.end()),
-            {ndim_}
+        auto arguments = nb::steal<nb::tuple>(
+            PyTuple_New(static_cast<Py_ssize_t>(ndim_))
         );
-        const auto matrix = nb::cast<CallbackMatrixArray>(callable_(point));
+        if (!arguments) {
+            throw nb::python_error();
+        }
+        for (std::size_t axis = 0; axis < ndim_; ++axis) {
+            auto *coordinate = PyFloat_FromDouble(reduced_point[axis]);
+            if (coordinate == nullptr) {
+                throw nb::python_error();
+            }
+            PyTuple_SET_ITEM(arguments.ptr(), static_cast<Py_ssize_t>(axis), coordinate);
+        }
+        auto returned = nb::steal<nb::object>(
+            PyObject_CallObject(callable_.ptr(), arguments.ptr())
+        );
+        if (!returned) {
+            throw nb::python_error();
+        }
+        const auto matrix = nb::cast<CallbackMatrixArray>(returned);
         if (matrix.shape(0) != ndof_ || matrix.shape(1) != ndof_) {
-            throw std::runtime_error(
-                "Hamiltonian callable returned a matrix with inconsistent shape"
+            throw nb::value_error(
+                ("Hamiltonian must return a matrix with shape (" +
+                 std::to_string(ndof_) + ", " + std::to_string(ndof_) + ")").c_str()
             );
         }
 
@@ -92,6 +107,82 @@ std::shared_ptr<const HamiltonianModel> python_hamiltonian(
         ndim,
         ndof
     );
+}
+
+std::vector<HoppingTerm> copy_hoppings(
+    LatticeVectorArray lattice_vectors,
+    HoppingMatrixArray matrices
+) {
+    const auto term_count = matrices.shape(0);
+    const auto ndim = lattice_vectors.shape(1);
+    const auto ndof = matrices.shape(1);
+    std::vector<HoppingTerm> result;
+    result.reserve(term_count);
+    for (std::size_t term = 0; term < term_count; ++term) {
+        auto hopping = HoppingTerm{};
+        hopping.lattice_vector.assign(
+            lattice_vectors.data() + term * ndim,
+            lattice_vectors.data() + (term + 1) * ndim
+        );
+        hopping.matrix.resize(ndof * ndof);
+        for (std::size_t row = 0; row < ndof; ++row) {
+            for (std::size_t column = 0; column < ndof; ++column) {
+                hopping.matrix[column * ndof + row] =
+                    matrices.data()[(term * ndof + row) * ndof + column];
+            }
+        }
+        result.push_back(std::move(hopping));
+    }
+    return result;
+}
+
+std::shared_ptr<const HamiltonianModel> tight_binding_hamiltonian(
+    LatticeVectorArray lattice_vectors,
+    HoppingMatrixArray matrices
+) {
+    if (lattice_vectors.shape(0) == 0 || lattice_vectors.shape(1) == 0) {
+        throw std::runtime_error("tight-binding lattice vectors must be non-empty");
+    }
+    if (
+        matrices.shape(0) != lattice_vectors.shape(0) ||
+        matrices.shape(1) == 0 ||
+        matrices.shape(1) != matrices.shape(2)
+    ) {
+        throw std::runtime_error("invalid tight-binding hopping-matrix shape");
+    }
+    return std::make_shared<TightBindingModel>(
+        copy_hoppings(lattice_vectors, matrices)
+    );
+}
+
+adaptive::Options adaptive_options(
+    double target_error,
+    std::int64_t max_refinements,
+    std::uint32_t preview_depth,
+    std::size_t min_refinement_batch_size,
+    std::size_t max_refinement_batch_size
+) {
+    return adaptive::Options{
+        .target_error = target_error,
+        .max_refinements = max_refinements,
+        .preview_depth = preview_depth,
+        .min_refinement_batch_size = min_refinement_batch_size,
+        .max_refinement_batch_size = max_refinement_batch_size,
+    };
+}
+
+auto evaluate_hamiltonian(const SpectralMesh &mesh, PointArray point) {
+    const auto matrix = mesh.hamiltonian(
+        std::span<const double>(point.data(), point.shape(0))
+    );
+    std::vector<std::complex<double>> row_major(mesh.ndof() * mesh.ndof());
+    for (std::size_t row = 0; row < mesh.ndof(); ++row) {
+        for (std::size_t column = 0; column < mesh.ndof(); ++column) {
+            row_major[row * mesh.ndof() + column] =
+                matrix[column * mesh.ndof() + row];
+        }
+    }
+    return make_array(std::move(row_major), {mesh.ndof(), mesh.ndof()});
 }
 
 int spectral_mesh_tp_traverse(PyObject *self, visitproc visit, void *arg) {
@@ -141,16 +232,18 @@ void bind_spectral_mesh(nb::module_ &module) {
         .def(
             "__init__",
             [](SpectralMesh *self,
-               std::shared_ptr<TightBindingModel> model,
+               LatticeVectorArray lattice_vectors,
+               HoppingMatrixArray matrices,
                double tolerance,
                std::uint32_t root_level) {
                 new (self) SpectralMesh(
-                    std::static_pointer_cast<const HamiltonianModel>(std::move(model)),
+                    tight_binding_hamiltonian(lattice_vectors, matrices),
                     tolerance,
                     root_level
                 );
             },
-            "model"_a,
+            "lattice_vectors"_a,
+            "matrices"_a,
             "tolerance"_a = 1e-14,
             "root_level"_a = 1
         )
@@ -185,21 +278,40 @@ void bind_spectral_mesh(nb::module_ &module) {
         .def_prop_ro("active_simplices", &SpectralMesh::active_simplices)
         .def_prop_ro("active_vertices", &SpectralMesh::active_vertices)
         .def(
+            "evaluate",
+            &evaluate_hamiltonian,
+            "point"_a
+        )
+        .def(
             "integrate_charge",
             [](SpectralMesh &mesh,
                double mu,
-               const adaptive::Options &options,
+               double target_error,
+               std::int64_t max_refinements,
+               std::uint32_t preview_depth,
+               std::size_t min_refinement_batch_size,
+               std::size_t max_refinement_batch_size,
                double curvature_bound) {
                 return fermisimplex::integrate_charge(
                     mesh,
                     mu,
-                    options,
+                    adaptive_options(
+                        target_error,
+                        max_refinements,
+                        preview_depth,
+                        min_refinement_batch_size,
+                        max_refinement_batch_size
+                    ),
                     curvature_bound
                 );
             },
             "mu"_a,
-            "options"_a,
-            "curvature_bound"_a = 0.0,
+            "target_error"_a,
+            "max_refinements"_a,
+            "preview_depth"_a,
+            "min_refinement_batch_size"_a,
+            "max_refinement_batch_size"_a,
+            "curvature_bound"_a,
             nb::call_guard<nb::gil_scoped_release>()
         )
         .def(
@@ -228,17 +340,31 @@ void bind_spectral_mesh(nb::module_ &module) {
             [](SpectralMesh &mesh,
                double mu,
                LatticeVectorArray lattice_vectors,
-               const adaptive::Options &options) {
+               double target_error,
+               std::int64_t max_refinements,
+               std::uint32_t preview_depth,
+               std::size_t min_refinement_batch_size,
+               std::size_t max_refinement_batch_size) {
                 return fermisimplex::integrate_density_matrix(
                     mesh,
                     mu,
                     copy_lattice_vectors(lattice_vectors),
-                    options
+                    adaptive_options(
+                        target_error,
+                        max_refinements,
+                        preview_depth,
+                        min_refinement_batch_size,
+                        max_refinement_batch_size
+                    )
                 );
             },
             "mu"_a,
             "lattice_vectors"_a,
-            "options"_a,
+            "target_error"_a,
+            "max_refinements"_a,
+            "preview_depth"_a,
+            "min_refinement_batch_size"_a,
+            "max_refinement_batch_size"_a,
             nb::call_guard<nb::gil_scoped_release>()
         )
         .def(

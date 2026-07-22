@@ -42,7 +42,7 @@ The model below produces the three-dimensional surface shown above:
 ```python
 import numpy as np
 
-from fermisimplex import Hamiltonian, SpectralMesh
+from fermisimplex import SpectralMesh
 
 
 def hamiltonian(kx, ky, kz):
@@ -50,7 +50,7 @@ def hamiltonian(kx, ky, kz):
     return np.array([[np.cos(phase).sum()]], dtype=complex)
 
 
-mesh = SpectralMesh(Hamiltonian(hamiltonian))
+mesh = SpectralMesh(hamiltonian)
 surface = mesh.fermi_surface(
     mu=0.17,
     min_feature_size=0.07,
@@ -64,28 +64,27 @@ surface.cell_bands  # band index for every triangle
 
 The coordinates are reduced coordinates in $[0,1]^d$. Here
 $M=(2\pi)^2$ bounds every directional second derivative of the scalar
-Hamiltonian. `Hamiltonian` infers the momentum-space dimension from the
-function arguments and the matrix dimension by evaluating it at the origin.
-Both model types are evaluated with separate coordinates: `model(kx, ky, ...)`.
+Hamiltonian. `SpectralMesh` infers the momentum-space dimension from the
+callable arguments and the matrix dimension by evaluating it at the origin.
+Callables receive separate coordinates: `hamiltonian(kx, ky, ...)`.
 
 ![Two- and three-dimensional Fermi surfaces](docs/assets/fermi_surface_gallery.png)
 
-The same `SpectralMesh` can drive the other observables:
+The same `SpectralMesh` can drive the other observables and reuse every
+eigensystem it has already computed:
 
 ```python
-from fermisimplex import AdaptiveOptions
-
-options = AdaptiveOptions(target_error=1e-2, max_refinements=10_000)
-
 charge = mesh.integrate_charge(
     mu=0.17,
-    options=options,
+    target_error=1e-2,
+    max_refinements=10_000,
     curvature_bound=(2 * np.pi) ** 2,
 )
 density = mesh.integrate_density_matrix(
     mu=0.17,
     lattice_vectors=[(0, 0, 0), (1, 0, 0)],
-    options=options,
+    target_error=1e-2,
+    max_refinements=10_000,
 )
 
 charge.value
@@ -100,8 +99,8 @@ $$
 H(k)=\sum_R H_R e^{-2\pi i k\cdot R},
 $$
 
-use `TightBinding({R: H_R, ...})`. Opposite hoppings are checked for
-$H_{-R}=H_R^\dagger$.
+pass `{R: H_R, ...}` directly to `SpectralMesh`. Opposite hoppings are checked
+for $H_{-R}=H_R^\dagger$.
 
 ## What does the certificate prove?
 
@@ -127,13 +126,16 @@ The guarantee assumes a valid `curvature_bound`. Omitting it, `None`, and
 
 ## API at a glance
 
-- `Hamiltonian`: wrap a dense Python callable.
-- `TightBinding`: evaluate a Hermitian hopping expansion.
-- `SpectralMesh`: own adaptive geometry and cached eigensystems.
+- `SpectralMesh`: accept a callable or tight-binding dictionary and own the
+  adaptive geometry and cached eigensystems.
 - `certify_simplex`: certify supplied vertex eigenpairs directly.
-- `integrate_charge`: adaptive filling and $dQ/d\mu$.
-- `integrate_density_matrix`: real-space density-matrix components.
-- `fermi_surface`: band-labelled points and cells in reduced coordinates.
+- `mesh.integrate_charge`: adaptive filling and $dQ/d\mu$.
+- `mesh.integrate_density_matrix`: real-space density-matrix components.
+- `mesh.fermi_surface`: band-labelled points and cells in reduced coordinates.
+
+Adaptive controls such as `target_error`, `max_refinements`, and
+`preview_depth` are ordinary keyword arguments on the calculation that uses
+them—there is no separate options object.
 
 See the runnable [quick start](examples/quick_start.py) and
 [two-band plotting example](examples/fermi_surface.py), the

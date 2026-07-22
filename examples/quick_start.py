@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import numpy as np
 
-from fermisimplex import Hamiltonian, SpectralMesh
+from fermisimplex import SpectralMesh
 
 
 CURVATURE_BOUND = (2.0 * np.pi) ** 2
@@ -14,7 +14,7 @@ def hamiltonian(kx: float, ky: float, kz: float) -> np.ndarray:
 
 
 def main() -> None:
-    mesh = SpectralMesh(Hamiltonian(hamiltonian))
+    mesh = SpectralMesh(hamiltonian)
     surface = mesh.fermi_surface(
         mu=0.17,
         min_feature_size=0.07,

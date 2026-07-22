@@ -3,7 +3,7 @@ from __future__ import annotations
 import numpy as np
 import pytest
 
-from fermisimplex import Hamiltonian, SpectralMesh, TightBinding
+from fermisimplex import SpectralMesh
 
 from .helpers import axis_cosine_band, constant_insulator
 
@@ -12,9 +12,13 @@ from .helpers import axis_cosine_band, constant_insulator
 def test_extracts_a_fermi_surface_in_reduced_coordinates(ndim):
     mu = 0.3
     feature_size = {1: 0.05, 2: 0.1, 3: 0.24}[ndim]
-    mesh = SpectralMesh(TightBinding(axis_cosine_band(ndim)))
+    mesh = SpectralMesh(axis_cosine_band(ndim))
 
-    surface = mesh.fermi_surface(mu, feature_size, max_evaluations=20_000)
+    surface = mesh.fermi_surface(
+        mu=mu,
+        min_feature_size=feature_size,
+        max_evaluations=20_000,
+    )
 
     assert surface.completed
     assert surface.points.shape[1] == ndim
@@ -28,12 +32,15 @@ def test_extracts_a_fermi_surface_in_reduced_coordinates(ndim):
 
 
 def test_callable_affine_hamiltonian_needs_no_curvature_margin():
-    model = Hamiltonian(
+    mesh = SpectralMesh(
         lambda kx, ky: np.array([[kx + ky - 0.8]], dtype=complex)
     )
-    mesh = SpectralMesh(model)
 
-    surface = mesh.fermi_surface(0.0, 0.12, curvature_bound=0.0)
+    surface = mesh.fermi_surface(
+        mu=0.0,
+        min_feature_size=0.12,
+        curvature_bound=0.0,
+    )
 
     assert surface.completed
     assert surface.coverage_certified
@@ -44,9 +51,13 @@ def test_callable_affine_hamiltonian_needs_no_curvature_margin():
 
 
 def test_constant_insulator_is_certified_without_a_surface():
-    mesh = SpectralMesh(TightBinding(constant_insulator(2)))
+    mesh = SpectralMesh(constant_insulator(2))
 
-    surface = mesh.fermi_surface(0.0, 0.4, curvature_bound=0.0)
+    surface = mesh.fermi_surface(
+        mu=0.0,
+        min_feature_size=0.4,
+        curvature_bound=0.0,
+    )
 
     assert surface.completed
     assert surface.coverage_certified
@@ -56,17 +67,20 @@ def test_constant_insulator_is_certified_without_a_surface():
 
 
 def test_none_and_zero_curvature_bounds_are_equivalent_for_fermi_surface():
-    model = TightBinding(constant_insulator(2))
+    hamiltonian = constant_insulator(2)
 
-    implicit_zero = SpectralMesh(model).fermi_surface(0.0, 0.4)
-    explicit_none = SpectralMesh(model).fermi_surface(
-        0.0,
-        0.4,
+    implicit_zero = SpectralMesh(hamiltonian).fermi_surface(
+        mu=0.0,
+        min_feature_size=0.4,
+    )
+    explicit_none = SpectralMesh(hamiltonian).fermi_surface(
+        mu=0.0,
+        min_feature_size=0.4,
         curvature_bound=None,
     )
-    explicit_zero = SpectralMesh(model).fermi_surface(
-        0.0,
-        0.4,
+    explicit_zero = SpectralMesh(hamiltonian).fermi_surface(
+        mu=0.0,
+        min_feature_size=0.4,
         curvature_bound=0.0,
     )
 
@@ -89,9 +103,13 @@ def test_none_and_zero_curvature_bounds_are_equivalent_for_fermi_surface():
 
 
 def test_evaluation_budget_reports_an_incomplete_surface():
-    mesh = SpectralMesh(TightBinding(axis_cosine_band(2)))
+    mesh = SpectralMesh(axis_cosine_band(2))
 
-    surface = mesh.fermi_surface(0.0, 0.02, max_evaluations=0)
+    surface = mesh.fermi_surface(
+        mu=0.0,
+        min_feature_size=0.02,
+        max_evaluations=0,
+    )
 
     assert not surface.completed
     assert not surface.coverage_certified
@@ -99,11 +117,11 @@ def test_evaluation_budget_reports_an_incomplete_surface():
 
 
 def test_flat_band_at_mu_is_not_coverage_certified():
-    model = Hamiltonian(lambda _kx, _ky: np.zeros((1, 1), dtype=complex))
+    hamiltonian = lambda _kx, _ky: np.zeros((1, 1), dtype=complex)
 
-    surface = SpectralMesh(model).fermi_surface(
-        0.0,
-        0.4,
+    surface = SpectralMesh(hamiltonian).fermi_surface(
+        mu=0.0,
+        min_feature_size=0.4,
         curvature_bound=0.0,
     )
 
@@ -120,9 +138,13 @@ def test_cells_retain_their_band_identity_without_duplicates():
             complex
         )
 
-    mesh = SpectralMesh(Hamiltonian(two_affine_bands))
+    mesh = SpectralMesh(two_affine_bands)
 
-    surface = mesh.fermi_surface(0.0, 0.2, curvature_bound=0.0)
+    surface = mesh.fermi_surface(
+        mu=0.0,
+        min_feature_size=0.2,
+        curvature_bound=0.0,
+    )
 
     assert surface.coverage_certified
     assert surface.cell_bands.shape == (surface.cells.shape[0],)
@@ -140,23 +162,27 @@ def test_cells_retain_their_band_identity_without_duplicates():
 
 @pytest.mark.parametrize("mu", (np.nan, np.inf, -np.inf))
 def test_fermi_surface_requires_a_finite_chemical_potential(mu):
-    mesh = SpectralMesh(TightBinding(constant_insulator(1)))
+    mesh = SpectralMesh(constant_insulator(1))
 
     with pytest.raises(ValueError, match="mu must be finite"):
-        mesh.fermi_surface(mu, 0.1)
+        mesh.fermi_surface(mu=mu, min_feature_size=0.1)
 
 
 @pytest.mark.parametrize("feature_size", (0.0, -1.0, np.nan, np.inf))
 def test_fermi_surface_requires_a_finite_positive_feature_size(feature_size):
-    mesh = SpectralMesh(TightBinding(constant_insulator(1)))
+    mesh = SpectralMesh(constant_insulator(1))
 
     with pytest.raises(ValueError, match="min_feature_size"):
-        mesh.fermi_surface(0.0, feature_size)
+        mesh.fermi_surface(mu=0.0, min_feature_size=feature_size)
 
 
 @pytest.mark.parametrize("curvature_bound", (-1.0, np.nan, np.inf))
 def test_fermi_surface_rejects_invalid_curvature_bounds(curvature_bound):
-    mesh = SpectralMesh(TightBinding(constant_insulator(1)))
+    mesh = SpectralMesh(constant_insulator(1))
 
     with pytest.raises(ValueError, match="curvature_bound"):
-        mesh.fermi_surface(0.0, 0.1, curvature_bound=curvature_bound)
+        mesh.fermi_surface(
+            mu=0.0,
+            min_feature_size=0.1,
+            curvature_bound=curvature_bound,
+        )

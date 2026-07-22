@@ -23,7 +23,6 @@ nanobind_add_module(
   src/bindings/spectral_mesh.cpp
   src/bindings/integration_types.cpp
   src/bindings/module.cpp
-  src/bindings/tight_binding.cpp
 )
 target_compile_features(_native PRIVATE cxx_std_20)
 target_include_directories(_native PRIVATE "${CMAKE_CURRENT_SOURCE_DIR}/src/bindings")

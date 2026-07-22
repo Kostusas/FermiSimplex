@@ -21,7 +21,7 @@ from examples.quick_start import (
     CURVATURE_BOUND as SCHWARZ_P_CURVATURE_BOUND,
     hamiltonian as schwarz_p_hamiltonian,
 )
-from fermisimplex import Hamiltonian, SpectralMesh
+from fermisimplex import SpectralMesh
 
 
 ASSETS = ROOT / "docs" / "assets"
@@ -42,12 +42,12 @@ class SurfaceSnapshot:
 
 
 def refinement_snapshots() -> list[SurfaceSnapshot]:
-    mesh = SpectralMesh(Hamiltonian(schwarz_p_hamiltonian))
+    mesh = SpectralMesh(schwarz_p_hamiltonian)
     snapshots = []
     for feature_size in (0.40, 0.28, 0.20, 0.14, 0.10, 0.07):
         surface = mesh.fermi_surface(
-            0.17,
-            feature_size,
+            mu=0.17,
+            min_feature_size=feature_size,
             curvature_bound=SCHWARZ_P_CURVATURE_BOUND,
         )
         snapshots.append(
@@ -138,9 +138,9 @@ def write_refinement_gif(snapshots: list[SurfaceSnapshot]) -> None:
 
 
 def write_surface_gallery(final_snapshot: SurfaceSnapshot) -> None:
-    surface_2d = SpectralMesh(Hamiltonian(hamiltonian)).fermi_surface(
-        0.0,
-        0.01,
+    surface_2d = SpectralMesh(hamiltonian).fermi_surface(
+        mu=0.0,
+        min_feature_size=0.01,
         curvature_bound=CURVATURE_BOUND,
     )
 

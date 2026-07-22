@@ -4,7 +4,7 @@ import numpy as np
 from matplotlib import pyplot as plt
 from matplotlib.collections import LineCollection
 
-from fermisimplex import Hamiltonian, SpectralMesh
+from fermisimplex import SpectralMesh
 
 
 CURVATURE_BOUND = 2.08 * (2.0 * np.pi) ** 2
@@ -20,9 +20,8 @@ def hamiltonian(kx: float, ky: float) -> np.ndarray:
 
 
 def main() -> None:
-    model = Hamiltonian(hamiltonian)
-    surface = SpectralMesh(model).fermi_surface(
-        0.0,
+    surface = SpectralMesh(hamiltonian).fermi_surface(
+        mu=0.0,
         min_feature_size=0.01,
         # User-supplied triangle-inequality bound for the Fourier terms above.
         curvature_bound=CURVATURE_BOUND,

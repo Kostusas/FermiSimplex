@@ -9,7 +9,7 @@ from pathlib import Path
 
 import numpy as np
 
-from fermisimplex import SpectralMesh, TightBinding
+from fermisimplex import SpectralMesh
 
 
 LOW_HARMONICS = (
@@ -124,12 +124,12 @@ def run_benchmark(
     max_evaluations: int | None,
     curvature_bound: float,
 ) -> BenchmarkResult:
-    mesh = SpectralMesh(TightBinding(hoppings))
+    mesh = SpectralMesh(hoppings)
     started = time.perf_counter()
     surface = mesh.fermi_surface(
-        mu,
-        min_feature_size,
-        max_evaluations,
+        mu=mu,
+        min_feature_size=min_feature_size,
+        max_evaluations=max_evaluations,
         curvature_bound=curvature_bound,
     )
     elapsed = time.perf_counter() - started

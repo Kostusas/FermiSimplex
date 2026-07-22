@@ -7,9 +7,7 @@ from .certification import (
     SimplexCertificate,
     certify_simplex,
 )
-from .hamiltonian import Hamiltonian, TightBinding
 from .mesh import (
-    AdaptiveOptions,
     ChargeResult,
     DensityMatrixResult,
     FermiSurfaceResult,
@@ -19,18 +17,15 @@ from .mesh import (
 )
 
 __all__ = [
-    "AdaptiveOptions",
     "CertificateStatus",
     "ChargeResult",
     "DensityMatrixResult",
     "FermiSurfaceResult",
     "FermiSurfaceStats",
-    "Hamiltonian",
     "IntegrationStats",
     "MuInterval",
     "OccupationBounds",
     "SimplexCertificate",
     "SpectralMesh",
-    "TightBinding",
     "certify_simplex",
 ]

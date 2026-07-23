@@ -48,7 +48,10 @@ inline std::size_t occupation_width(const SimplexCertificate &certificate) {
 }
 
 SimplexCertificate certify_simplex(
-    // One sorted spectrum and one column-major orthonormal eigenbasis per vertex.
+    // Preconditions: each vertex supplies finite eigenvalues in ascending
+    // order and a finite, column-major orthonormal eigenbasis. These numerical
+    // preconditions are not checked; violating them invalidates the
+    // certificate. Container dimensions are checked for safe access.
     std::span<const std::span<const double>> eigenvalues,
     std::span<const std::span<const std::complex<double>>> eigenvectors,
     double mu,

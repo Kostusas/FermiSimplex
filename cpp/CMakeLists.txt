@@ -228,6 +228,39 @@ if(FERMISIMPLEX_BUILD_TESTING)
 endif()
 
 if(FERMISIMPLEX_BUILD_BENCHMARKS)
+  find_package(Git QUIET)
+  set(_fs_benchmark_git_commit "unknown")
+  set(_fs_benchmark_git_dirty "unknown")
+  if(Git_FOUND)
+    execute_process(
+      COMMAND "${GIT_EXECUTABLE}" rev-parse --short=12 HEAD
+      WORKING_DIRECTORY "${CMAKE_SOURCE_DIR}"
+      RESULT_VARIABLE _fs_benchmark_git_result
+      OUTPUT_VARIABLE _fs_benchmark_git_output
+      OUTPUT_STRIP_TRAILING_WHITESPACE
+      ERROR_QUIET
+    )
+    if(_fs_benchmark_git_result EQUAL 0)
+      set(_fs_benchmark_git_commit "${_fs_benchmark_git_output}")
+    endif()
+    execute_process(
+      COMMAND "${GIT_EXECUTABLE}" status --porcelain
+      WORKING_DIRECTORY "${CMAKE_SOURCE_DIR}"
+      RESULT_VARIABLE _fs_benchmark_status_result
+      OUTPUT_VARIABLE _fs_benchmark_status_output
+      OUTPUT_STRIP_TRAILING_WHITESPACE
+      ERROR_QUIET
+    )
+    if(_fs_benchmark_status_result EQUAL 0)
+      if(_fs_benchmark_status_output)
+        set(_fs_benchmark_git_dirty "true")
+      else()
+        set(_fs_benchmark_git_dirty "false")
+      endif()
+    endif()
+  endif()
+  string(REPLACE ";" "|" _fs_benchmark_lapack "${LAPACK_LIBRARIES}")
+
   add_executable(
     fermisimplex_occupation_bounds_benchmark
     tools/benchmark_occupation_bounds.cpp
@@ -240,6 +273,47 @@ if(FERMISIMPLEX_BUILD_BENCHMARKS)
   target_link_libraries(
     fermisimplex_occupation_bounds_benchmark PRIVATE
     fermisimplex::core
+  )
+
+  add_executable(
+    fermisimplex_performance_benchmark
+    tools/benchmark_performance.cpp
+  )
+  target_compile_features(fermisimplex_performance_benchmark PRIVATE cxx_std_20)
+  target_include_directories(
+    fermisimplex_performance_benchmark PRIVATE
+    "${CMAKE_CURRENT_SOURCE_DIR}/src"
+  )
+  target_compile_definitions(
+    fermisimplex_performance_benchmark PRIVATE
+    FERMISIMPLEX_LAPACK_ZHEEVD=${FERMISIMPLEX_LAPACK_ZHEEVD_SYMBOL}
+    FERMISIMPLEX_BENCHMARK_GIT_COMMIT="${_fs_benchmark_git_commit}"
+    FERMISIMPLEX_BENCHMARK_GIT_DIRTY="${_fs_benchmark_git_dirty}"
+    FERMISIMPLEX_BENCHMARK_COMPILER="${CMAKE_CXX_COMPILER_ID}-${CMAKE_CXX_COMPILER_VERSION}"
+    FERMISIMPLEX_BENCHMARK_BUILD_TYPE="$<CONFIG>"
+    FERMISIMPLEX_BENCHMARK_SYSTEM="${CMAKE_SYSTEM_NAME}-${CMAKE_SYSTEM_PROCESSOR}"
+    FERMISIMPLEX_BENCHMARK_LAPACK="${_fs_benchmark_lapack}"
+  )
+  target_link_libraries(
+    fermisimplex_performance_benchmark PRIVATE
+    fermisimplex::core
+    LAPACK::LAPACK
+  )
+
+  add_custom_target(
+    fermisimplex_run_performance_benchmark
+    COMMAND
+      "${CMAKE_COMMAND}" -E env
+      OMP_NUM_THREADS=1
+      OPENBLAS_NUM_THREADS=1
+      MKL_NUM_THREADS=1
+      VECLIB_MAXIMUM_THREADS=1
+      "$<TARGET_FILE:fermisimplex_performance_benchmark>"
+      --preset ci
+      --output "${CMAKE_BINARY_DIR}/benchmarks/fermisimplex-performance.json"
+    DEPENDS fermisimplex_performance_benchmark
+    USES_TERMINAL
+    VERBATIM
   )
 endif()
 

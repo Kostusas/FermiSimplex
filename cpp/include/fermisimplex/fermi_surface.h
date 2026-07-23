@@ -10,6 +10,8 @@ class SpectralMesh;
 
 struct FermiSurfaceStats {
     std::uint64_t evaluations = 0;
+    std::uint64_t simplex_visits = 0;
+    std::uint64_t refinements = 0;
     std::int64_t terminal_visible_simplices = 0;
     std::int64_t terminal_inconclusive_simplices = 0;
 };

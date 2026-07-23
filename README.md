@@ -128,7 +128,10 @@ The guarantee assumes a valid `curvature_bound`. Omitting it, `None`, and
 
 - `SpectralMesh`: accept a callable or tight-binding dictionary and own the
   adaptive geometry and cached eigensystems.
-- `certify_simplex`: certify supplied vertex eigenpairs directly.
+- `certify_simplex`: certify supplied vertex eigenpairs directly; eigenvalues
+  must be finite and ascending, and eigenvector columns must be finite and
+  orthonormal. These performance-sensitive numerical preconditions are not
+  rechecked.
 - `mesh.integrate_charge`: adaptive filling and $dQ/d\mu$.
 - `mesh.integrate_density_matrix`: real-space density-matrix components.
 - `mesh.fermi_surface`: band-labelled points and cells in reduced coordinates.

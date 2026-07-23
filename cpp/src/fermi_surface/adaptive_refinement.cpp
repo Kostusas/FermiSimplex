@@ -75,7 +75,8 @@ private:
         result_.stats.evaluations += static_cast<std::uint64_t>(missing.size());
     }
 
-    SimplexClassification classify_frontier_simplices() const {
+    SimplexClassification classify_frontier_simplices() {
+        result_.stats.simplex_visits += frontier_.size();
         return classify_frontier(
             mesh_,
             frontier_,
@@ -98,6 +99,7 @@ private:
     }
 
     void refine_requested_simplices(const SimplexClassification &classification) {
+        result_.stats.refinements += classification.refine.size();
         frontier_ = mesh_.geometry().refine_active(
             classification.refine,
             1

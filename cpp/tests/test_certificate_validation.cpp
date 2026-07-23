@@ -81,7 +81,7 @@ void test_invalid_linearization_error_bound_throws() {
     expect(rejected_error, "negative linearization error should throw");
 }
 
-void test_nonfinite_parameters_and_invalid_eigenvalues_throw() {
+void test_nonfinite_parameters_throw() {
     const auto valid = std::vector<fermisimplex::Eigensystem>{
         diagonal_spectra({-1.0, 1.0}),
     };
@@ -114,55 +114,45 @@ void test_nonfinite_parameters_and_invalid_eigenvalues_throw() {
         rejected_nonfinite_tolerance = true;
     }
     expect(rejected_nonfinite_tolerance, "non-finite tolerance should throw");
-
-    auto rejected_nonfinite_eigenvalue = false;
-    try {
-        (void)certify_direct({diagonal_spectra({
-            -1.0,
-            std::numeric_limits<double>::infinity(),
-        })});
-    } catch (const std::runtime_error &) {
-        rejected_nonfinite_eigenvalue = true;
-    }
-    expect(rejected_nonfinite_eigenvalue, "non-finite eigenvalues should throw");
-
-    auto rejected_unsorted_eigenvalues = false;
-    try {
-        (void)certify_direct({diagonal_spectra({1.0, -1.0})});
-    } catch (const std::runtime_error &) {
-        rejected_unsorted_eigenvalues = true;
-    }
-    expect(rejected_unsorted_eigenvalues, "decreasing eigenvalues should throw");
 }
 
-void test_invalid_eigenvectors_throw() {
-    auto nonfinite = diagonal_spectra({-1.0, 1.0});
-    nonfinite.eigenvectors[0] = Complex{
-        1.0,
-        std::numeric_limits<double>::quiet_NaN(),
+void test_invalid_spectrum_shapes_throw() {
+    const auto values = std::vector<double>{-1.0, 1.0};
+    const auto vectors = std::vector<Complex>(4, Complex{0.0, 0.0});
+    const auto value_spans = std::vector<std::span<const double>>{
+        std::span<const double>{values},
     };
-    auto rejected_nonfinite = false;
-    try {
-        (void)certify_direct({nonfinite});
-    } catch (const std::runtime_error &) {
-        rejected_nonfinite = true;
-    }
-    expect(rejected_nonfinite, "non-finite eigenvector entries should throw");
 
-    auto nonorthonormal = diagonal_spectra({-1.0, 1.0});
-    nonorthonormal.eigenvectors = {
-        Complex{1.0, 0.0},
-        Complex{0.0, 0.0},
-        Complex{1.0, 0.0},
-        Complex{0.0, 0.0},
-    };
-    auto rejected_nonorthonormal = false;
+    auto rejected_vertex_count = false;
     try {
-        (void)certify_direct({nonorthonormal});
+        (void)certificate::certify_simplex(
+            value_spans,
+            std::span<const std::span<const Complex>>{},
+            0.0,
+            0.0
+        );
     } catch (const std::runtime_error &) {
-        rejected_nonorthonormal = true;
+        rejected_vertex_count = true;
     }
-    expect(rejected_nonorthonormal, "non-orthonormal eigenvector columns should throw");
+    expect(rejected_vertex_count, "mismatched vertex counts should throw");
+
+    const auto short_vectors = std::vector<Complex>(3, Complex{0.0, 0.0});
+    const auto short_vector_spans =
+        std::vector<std::span<const Complex>>{
+            std::span<const Complex>{short_vectors},
+        };
+    auto rejected_vector_shape = false;
+    try {
+        (void)certificate::certify_simplex(
+            value_spans,
+            short_vector_spans,
+            0.0,
+            0.0
+        );
+    } catch (const std::runtime_error &) {
+        rejected_vector_shape = true;
+    }
+    expect(rejected_vector_shape, "invalid eigenvector dimensions should throw");
 }
 
 }  // namespace
@@ -172,8 +162,8 @@ int main() {
         test_zero_width_mu_bounds_are_valid_only_at_the_endpoint();
         test_empty_simplex_spectra_throws();
         test_invalid_linearization_error_bound_throws();
-        test_nonfinite_parameters_and_invalid_eigenvalues_throw();
-        test_invalid_eigenvectors_throw();
+        test_nonfinite_parameters_throw();
+        test_invalid_spectrum_shapes_throw();
     } catch (const std::exception &error) {
         std::cerr << error.what() << "\n";
         return 1;

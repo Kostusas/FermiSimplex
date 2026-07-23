@@ -1,5 +1,8 @@
 # Development and architecture
 
+See [Performance measurement](performance.md) for the C++ benchmark suite and
+CI artifact format.
+
 FermiSimplex keeps the reusable numerical library and Python interface in
 separate source trees:
 

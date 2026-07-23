@@ -14,6 +14,8 @@ namespace fermisimplex {
 struct IntegrationStats {
     // Eigensystems newly added to the shared cache by this operation.
     std::int64_t evaluations = 0;
+    // Total simplex-rule calls, including coarse and preview contributions.
+    std::int64_t simplex_visits = 0;
     std::int64_t refinements = 0;
     std::size_t cached_vertices = 0;
     std::int64_t active_simplices = 0;

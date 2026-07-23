@@ -56,3 +56,6 @@ build-cpp-tests = { cmd = "cmake --build build/cpp-tests", depends-on = ["config
 test-cpp = { cmd = "ctest --test-dir build/cpp-tests --output-on-failure", depends-on = ["build-cpp-tests"] }
 test-python = { cmd = "pytest", depends-on = ["install-editable"] }
 test = { depends-on = ["test-cpp", "test-python"] }
+configure-cpp-benchmarks = "cmake -S . -B build/cpp-benchmarks -G Ninja -DCMAKE_BUILD_TYPE=Release -DFERMISIMPLEX_BUILD_PYTHON=OFF -DFERMISIMPLEX_BUILD_TESTING=OFF -DFERMISIMPLEX_BUILD_BENCHMARKS=ON"
+build-cpp-benchmarks = { cmd = "cmake --build build/cpp-benchmarks --target fermisimplex_performance_benchmark", depends-on = ["configure-cpp-benchmarks"] }
+benchmark-cpp = { cmd = "cmake --build build/cpp-benchmarks --target fermisimplex_run_performance_benchmark", depends-on = ["configure-cpp-benchmarks"] }

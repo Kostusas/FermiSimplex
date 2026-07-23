@@ -19,6 +19,12 @@ def certify_simplex(
     mu: float = 0.0,
     tolerance: float = 1e-14,
 ) -> SimplexCertificate:
+    """Certify a simplex from trusted vertex eigensystems.
+
+    ``eigenvalues`` must be finite and sorted in ascending order at every
+    vertex. The columns of each ``eigenvectors`` matrix must form a finite
+    orthonormal basis. These numerical preconditions are not checked.
+    """
     values = np.ascontiguousarray(np.asarray(eigenvalues, dtype=np.float64))
     vectors = np.ascontiguousarray(np.asarray(eigenvectors, dtype=np.complex128))
     return _certify_simplex(

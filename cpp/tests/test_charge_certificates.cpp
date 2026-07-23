@@ -2,6 +2,7 @@
 #include "test_helpers.h"
 
 #include <fermisimplex/integration.h>
+#include <fermisimplex/fermi_surface.h>
 
 #include <adaptivesimplex/adaptive/types.h>
 
@@ -77,6 +78,21 @@ void test_constant_insulator_charge_is_certified() {
         kTol,
         "constant insulator certificate"
     );
+    expect_eq(result.stats.evaluations, 5, "charge vertex evaluations");
+    expect_eq(
+        result.stats.simplex_visits,
+        6,
+        "charge must count coarse and preview simplex visits"
+    );
+}
+
+void test_fermi_surface_counts_work() {
+    auto mesh = SpectralMesh(constant_insulator());
+    const auto result = fermi_surface(mesh, 0.0, 0.1);
+
+    expect_eq(result.stats.evaluations, 3, "surface vertex evaluations");
+    expect_eq(result.stats.simplex_visits, 2, "surface simplex visits");
+    expect_eq(result.stats.refinements, 0, "gapped surface refinement count");
 }
 
 void test_default_curvature_bound_is_zero() {
@@ -202,6 +218,7 @@ void test_integration_rejects_nonfinite_mu() {
 int main() {
     try {
         test_constant_insulator_charge_is_certified();
+        test_fermi_surface_counts_work();
         test_default_curvature_bound_is_zero();
         test_curvature_prevents_false_certification_of_aliased_band();
         test_charge_derivative_handles_repeated_vertex_energies();

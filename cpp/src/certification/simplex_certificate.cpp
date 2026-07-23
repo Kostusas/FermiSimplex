@@ -20,47 +20,7 @@ OccupationBounds exact_occupation(size_t occupation) {
     return OccupationBounds{.lower = occupation, .upper = occupation};
 }
 
-bool is_finite(std::complex<double> value) {
-    return std::isfinite(value.real()) && std::isfinite(value.imag());
-}
-
-void validate_orthonormal_columns(
-    std::span<const std::complex<double>> eigenvectors,
-    size_t ndof
-) {
-    // LAPACK's backward error grows with the matrix dimension.  The generous
-    // constant accommodates that roundoff without accepting visibly malformed
-    // bases; a unitary matrix has unit scale in every Gram-matrix entry.
-    const auto tolerance =
-        128.0L * static_cast<long double>(ndof) *
-        static_cast<long double>(std::numeric_limits<double>::epsilon());
-
-    for (size_t column = 0; column < ndof; ++column) {
-        for (size_t other = 0; other <= column; ++other) {
-            auto inner_product = std::complex<long double>{0.0L, 0.0L};
-            for (size_t row = 0; row < ndof; ++row) {
-                const auto left = eigenvectors[other * ndof + row];
-                const auto right = eigenvectors[column * ndof + row];
-                inner_product +=
-                    std::conj(std::complex<long double>{left.real(), left.imag()}) *
-                    std::complex<long double>{right.real(), right.imag()};
-            }
-
-            const auto expected = other == column
-                ? std::complex<long double>{1.0L, 0.0L}
-                : std::complex<long double>{0.0L, 0.0L};
-            if (!std::isfinite(inner_product.real()) ||
-                !std::isfinite(inner_product.imag()) ||
-                std::abs(inner_product - expected) > tolerance) {
-                throw std::runtime_error(
-                    "certify_simplex: eigenvector columns must be orthonormal"
-                );
-            }
-        }
-    }
-}
-
-void validate_simplex_spectra(
+void validate_simplex_structure(
     std::span<const std::span<const double>> eigenvalues,
     std::span<const std::span<const std::complex<double>>> eigenvectors
 ) {
@@ -83,26 +43,6 @@ void validate_simplex_spectra(
             throw std::runtime_error(
                 "certify_simplex: each eigenvector block must have size ndof * ndof"
             );
-        }
-        for (const auto value : eigenvectors[vertex]) {
-            if (!is_finite(value)) {
-                throw std::runtime_error(
-                    "certify_simplex: eigenvector entries must be finite"
-                );
-            }
-        }
-        validate_orthonormal_columns(eigenvectors[vertex], ndof);
-        for (size_t band = 0; band < ndof; ++band) {
-            if (!std::isfinite(eigenvalues[vertex][band])) {
-                throw std::runtime_error(
-                    "certify_simplex: eigenvalues must be finite"
-                );
-            }
-            if (band > 0 && eigenvalues[vertex][band] < eigenvalues[vertex][band - 1]) {
-                throw std::runtime_error(
-                    "certify_simplex: eigenvalues must be nondecreasing"
-                );
-            }
         }
     }
 }
@@ -131,7 +71,7 @@ SimplexCertificate certify_simplex(
             "certify_simplex: tolerance must be finite and non-negative"
         );
     }
-    validate_simplex_spectra(eigenvalues, eigenvectors);
+    validate_simplex_structure(eigenvalues, eigenvectors);
 
     const auto analysis = analyze_vertex_spectra(mu, eigenvalues, tolerance);
     const auto &anchor_selection = analysis.anchor;

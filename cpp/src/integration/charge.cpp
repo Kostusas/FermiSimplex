@@ -137,9 +137,9 @@ double projected_charge_error(
         occupation_bounds.upper
     );
 
-    // R = H_actual - H_linear. A positive residual raises actual energies and
-    // reduces guaranteed occupation; a negative residual lowers them and
-    // increases possible occupation. The asymmetric pairing is therefore:
+    // A positive projected spectral difference raises actual energies relative
+    // to the interpolated bands and reduces occupation; a negative difference
+    // lowers them and increases occupation. The asymmetric pairing is:
     const auto guaranteed_occupation_mu = mu - residual.positive_estimate;
     const auto possible_occupation_mu = mu + residual.negative_estimate;
 

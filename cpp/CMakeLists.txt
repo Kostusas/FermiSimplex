@@ -24,6 +24,11 @@ option(
   OFF
 )
 option(
+  FERMISIMPLEX_BUILD_EXPERIMENTS
+  "Build explicitly non-production FermiSimplex analysis programs"
+  OFF
+)
+option(
   FERMISIMPLEX_INSTALL_CPP
   "Install the FermiSimplex C++ library and package metadata"
   "${FERMISIMPLEX_CPP_TOP_LEVEL}"
@@ -314,6 +319,24 @@ if(FERMISIMPLEX_BUILD_BENCHMARKS)
     DEPENDS fermisimplex_performance_benchmark
     USES_TERMINAL
     VERBATIM
+  )
+endif()
+
+if(FERMISIMPLEX_BUILD_EXPERIMENTS)
+  add_executable(
+    fermisimplex_projected_error_ablation
+    ../experiments/projected_error/ablation.cpp
+  )
+  target_compile_features(
+    fermisimplex_projected_error_ablation PRIVATE cxx_std_20
+  )
+  target_include_directories(
+    fermisimplex_projected_error_ablation PRIVATE
+    "${CMAKE_CURRENT_SOURCE_DIR}/src"
+  )
+  target_link_libraries(
+    fermisimplex_projected_error_ablation PRIVATE
+    fermisimplex::core
   )
 endif()
 

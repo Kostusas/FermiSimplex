@@ -4,7 +4,10 @@
 
 #include <fermisimplex/integration.h>
 
+#include <array>
 #include <exception>
+#include <cmath>
+#include <complex>
 #include <iostream>
 #include <memory>
 #include <span>
@@ -33,6 +36,30 @@ public:
 private:
     double sign_ = 1.0;
     mutable std::size_t evaluation_count_ = 0;
+};
+
+class EmbeddedAvoidedCrossingModel final : public HamiltonianModel {
+public:
+    std::size_t ndim() const noexcept override { return 1; }
+    std::size_t ndof() const noexcept override { return 8; }
+
+    std::vector<Complex> evaluate(std::span<const double> point) const override {
+        constexpr auto coupling = 0.05;
+        const auto z = point[0] - 0.5;
+        auto result =
+            std::vector<Complex>(ndof() * ndof(), Complex{0.0, 0.0});
+        constexpr auto diagonal =
+            std::array<double, 8>{-9.0, -6.0, -3.0, 0.0, 0.0, 3.0, 6.0, 9.0};
+        for (std::size_t index = 0; index < ndof(); ++index) {
+            result[index + index * ndof()] =
+                Complex{diagonal[index], 0.0};
+        }
+        result[3 + 3 * ndof()] = Complex{z, 0.0};
+        result[4 + 4 * ndof()] = Complex{-z, 0.0};
+        result[3 + 4 * ndof()] = Complex{coupling, 0.0};
+        result[4 + 3 * ndof()] = Complex{coupling, 0.0};
+        return result;
+    }
 };
 
 void fill_simplex(SpectralMesh &mesh, core::SimplexId simplex_id) {
@@ -119,12 +146,89 @@ void test_projected_residual_signs_match_actual_minus_linear() {
     );
 }
 
+void multiply_cached_band_by_phase(
+    SpectralMesh &mesh,
+    core::SimplexId simplex_id,
+    std::size_t band
+) {
+    const auto &simplex = mesh.geometry().simplices().simplex(simplex_id);
+    for (std::size_t vertex = 0; vertex < simplex.vertex_ids.size(); ++vertex) {
+        auto eigensystem = mesh.eigensystems().get(simplex.vertex_ids[vertex]);
+        const auto angle = 0.37 + 0.81 * static_cast<double>(vertex);
+        const auto phase = std::polar(1.0, angle);
+        for (std::size_t row = 0; row < mesh.ndof(); ++row) {
+            eigensystem.eigenvectors[row + band * mesh.ndof()] *= phase;
+        }
+        mesh.eigensystems().insert(
+            simplex.vertex_ids[vertex],
+            std::move(eigensystem)
+        );
+    }
+}
+
+void test_interpolated_projector_tracks_a_rotating_isolated_band() {
+    auto mesh = SpectralMesh(
+        std::make_shared<EmbeddedAvoidedCrossingModel>(),
+        kTol,
+        0
+    );
+    const auto simplex_id = first_active_simplex(mesh.geometry());
+    fill_simplex(mesh, simplex_id);
+
+    const auto estimate = estimate_projected_residual(
+        mesh,
+        simplex_id,
+        4,
+        5
+    );
+    expect_eq(
+        estimate.union_dimension,
+        3,
+        "guarded avoided-crossing union should remain a partial subspace"
+    );
+    constexpr auto coupling = 0.05;
+    const auto endpoint_energy = std::hypot(0.5, coupling);
+    expect_near(
+        estimate.negative_estimate,
+        endpoint_energy - coupling,
+        1e-12,
+        "interpolated projector should recover the midpoint upper band"
+    );
+    expect_near(
+        estimate.positive_estimate,
+        endpoint_energy - coupling,
+        1e-12,
+        "partial-union estimate should preserve both possible shift signs"
+    );
+
+    multiply_cached_band_by_phase(mesh, simplex_id, 4);
+    const auto gauged = estimate_projected_residual(
+        mesh,
+        simplex_id,
+        4,
+        5
+    );
+    expect_near(
+        gauged.negative_estimate,
+        estimate.negative_estimate,
+        1e-12,
+        "projector interpolation must be invariant under vertex phases"
+    );
+    expect_near(
+        gauged.positive_estimate,
+        estimate.positive_estimate,
+        1e-12,
+        "projector interpolation positive shift must be gauge invariant"
+    );
+}
+
 }  // namespace
 
 int main() {
     try {
         test_supplied_curvature_reports_a_certified_bound();
         test_projected_residual_signs_match_actual_minus_linear();
+        test_interpolated_projector_tracks_a_rotating_isolated_band();
     } catch (const std::exception &error) {
         std::cerr << error.what() << "\n";
         return 1;

@@ -50,7 +50,7 @@ adaptive::Options fixed_options(double target_error) {
     return adaptive::Options{
         .target_error = target_error,
         .max_refinements = 0,
-        .preview_depth = 1,
+        .preview_depth = 0,
         .min_refinement_batch_size = 1,
         .max_refinement_batch_size = 100,
     };
@@ -78,11 +78,11 @@ void test_constant_insulator_charge_is_certified() {
         kTol,
         "constant insulator certificate"
     );
-    expect_eq(result.stats.evaluations, 5, "charge vertex evaluations");
+    expect_eq(result.stats.evaluations, 3, "charge vertex evaluations");
     expect_eq(
         result.stats.simplex_visits,
-        6,
-        "charge must count coarse and preview simplex visits"
+        2,
+        "previewless charge must visit each active simplex once"
     );
 }
 
@@ -106,7 +106,7 @@ void test_default_curvature_bound_is_zero() {
         mesh,
         0.0,
         3.0,
-        1,
+        0,
         0.0
     );
 
@@ -124,7 +124,7 @@ void test_curvature_prevents_false_certification_of_aliased_band() {
         mesh,
         0.0,
         0.0,
-        1,
+        0,
         256.0 * std::numbers::pi_v<double> * std::numbers::pi_v<double>
     );
 
@@ -196,6 +196,12 @@ void test_integration_rejects_nonfinite_mu() {
     }
 
     expect_runtime_error(
+        [&] { (void)integrate_density_matrix(mesh, 0.0, {{0}}, options); },
+        "preview_depth",
+        "density integration should require a positive preview depth"
+    );
+
+    expect_runtime_error(
         [&] {
             (void)estimate_charge_on_current_mesh(
                 mesh,
@@ -206,10 +212,11 @@ void test_integration_rejects_nonfinite_mu() {
         "target_error",
         "fixed-mesh charge should reject a non-finite target error"
     );
-    expect_runtime_error(
-        [&] { (void)estimate_charge_on_current_mesh(mesh, 0.0, 1.0, 0); },
-        "preview_depth",
-        "fixed-mesh charge should reject a zero preview depth"
+    const auto previewless = estimate_charge_on_current_mesh(mesh, 0.0, 1.0, 0);
+    expect_eq(
+        previewless.stats.simplex_visits,
+        previewless.stats.active_simplices,
+        "zero preview depth should visit each active simplex once"
     );
 }
 

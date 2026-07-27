@@ -14,7 +14,7 @@ namespace fermisimplex {
 struct IntegrationStats {
     // Eigensystems newly added to the shared cache by this operation.
     std::int64_t evaluations = 0;
-    // Total simplex-rule calls, including coarse and preview contributions.
+    // Total simplex-rule calls, including optional preview contributions.
     std::int64_t simplex_visits = 0;
     std::int64_t refinements = 0;
     std::size_t cached_vertices = 0;
@@ -25,7 +25,7 @@ struct IntegrationStats {
 
 struct ChargeResult {
     double value = 0.0;
-    // Projected-residual and adaptive-preview estimate used for refinement.
+    // Sampled projected-error estimate used for refinement.
     double stopping_error = 0.0;
     // Rigorous occupation-width bound derived from the supplied curvature.
     double certified_error_bound = 0.0;
@@ -56,7 +56,7 @@ ChargeResult estimate_charge_on_current_mesh(
     SpectralMesh &mesh,
     double mu,
     double target_error,
-    std::uint32_t preview_depth = 1,
+    std::uint32_t preview_depth = 0,
     double curvature_bound = 0.0
 );
 

@@ -10,6 +10,7 @@
 #include <algorithm>
 #include <cmath>
 #include <cstdint>
+#include <memory>
 #include <span>
 #include <stdexcept>
 #include <utility>
@@ -33,9 +34,6 @@ void validate_options(const adaptive::Options &options) {
     validate_target_error(options.target_error);
     if (options.max_refinements < -1) {
         throw std::runtime_error("max_refinements must be -1 or non-negative");
-    }
-    if (options.preview_depth == 0) {
-        throw std::runtime_error("preview_depth must be positive");
     }
     if (options.min_refinement_batch_size == 0) {
         throw std::runtime_error("min_refinement_batch_size must be positive");
@@ -127,12 +125,14 @@ auto charge_integrand(
     double curvature_bound,
     std::int64_t &simplex_visits
 ) {
+    auto projected_error_cache =
+        std::make_shared<ProjectedErrorCache>();
     return adaptive::simplex_integrand(
         mesh.eigensystems(),
         [&mesh](std::span<const double> point) {
             return mesh.spectrum(point);
         },
-        [&mesh, mu, curvature_bound, &simplex_visits](
+        [&mesh, mu, curvature_bound, &simplex_visits, projected_error_cache](
             const core::Geometry &geometry,
             core::SimplexId simplex_id,
             EigensystemCache &
@@ -143,7 +143,8 @@ auto charge_integrand(
                 mesh,
                 geometry,
                 simplex_id,
-                curvature_bound
+                curvature_bound,
+                projected_error_cache.get()
             );
         },
         adaptive::estimation_policies<
@@ -290,9 +291,6 @@ ChargeResult estimate_charge_on_current_mesh(
 ) {
     validate_mu(mu);
     validate_target_error(target_error);
-    if (preview_depth == 0) {
-        throw std::runtime_error("preview_depth must be positive");
-    }
     validate_curvature_bound(curvature_bound);
     auto simplex_visits = std::int64_t{0};
     auto integrand = charge_integrand(mesh, mu, curvature_bound, simplex_visits);
@@ -313,6 +311,11 @@ DensityMatrixResult integrate_density_matrix(
 ) {
     validate_mu(mu);
     validate_options(options);
+    if (options.preview_depth == 0) {
+        throw std::runtime_error(
+            "density-matrix preview_depth must be positive"
+        );
+    }
     auto rule = DensityMatrixRule(
         mesh.ndim(),
         mesh.ndof(),

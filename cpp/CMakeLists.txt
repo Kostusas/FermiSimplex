@@ -24,11 +24,6 @@ option(
   OFF
 )
 option(
-  FERMISIMPLEX_BUILD_EXPERIMENTS
-  "Build explicitly non-production FermiSimplex analysis programs"
-  OFF
-)
-option(
   FERMISIMPLEX_INSTALL_CPP
   "Install the FermiSimplex C++ library and package metadata"
   "${FERMISIMPLEX_CPP_TOP_LEVEL}"
@@ -52,7 +47,7 @@ if(NOT TARGET adaptivesimplex::adaptive)
   FetchContent_Declare(
     adaptivesimplex
     GIT_REPOSITORY https://gitlab.kwant-project.org/qt/adaptivesimplex.git
-    GIT_TAG d1e898190300f051e344f549d68534c059fd486b
+    GIT_TAG f1a430979e04c93964c754d7fd0b096be642c648
     ${_fs_adaptivesimplex_fetch_options}
   )
   FetchContent_MakeAvailable(adaptivesimplex)
@@ -84,6 +79,9 @@ _fermisimplex_find_fortran_symbol(
   FERMISIMPLEX_LAPACK_ZHEEVD_SYMBOL LAPACK_ZHEEVD zheevd_ zheevd ZHEEVD
 )
 _fermisimplex_find_fortran_symbol(
+  FERMISIMPLEX_LAPACK_ZGESVD_SYMBOL LAPACK_ZGESVD zgesvd_ zgesvd ZGESVD
+)
+_fermisimplex_find_fortran_symbol(
   FERMISIMPLEX_LAPACK_ZPOTRF_SYMBOL LAPACK_ZPOTRF zpotrf_ zpotrf ZPOTRF
 )
 _fermisimplex_find_fortran_symbol(
@@ -100,6 +98,9 @@ set(CMAKE_REQUIRED_LINK_OPTIONS "${_fs_check_required_link_options}")
 
 if(NOT FERMISIMPLEX_LAPACK_ZHEEVD_SYMBOL)
   message(FATAL_ERROR "Could not find a callable LAPACK zheevd symbol")
+endif()
+if(NOT FERMISIMPLEX_LAPACK_ZGESVD_SYMBOL)
+  message(FATAL_ERROR "Could not find a callable LAPACK zgesvd symbol")
 endif()
 if(NOT FERMISIMPLEX_LAPACK_ZPOTRF_SYMBOL)
   message(FATAL_ERROR "Could not find a callable LAPACK zpotrf symbol")
@@ -167,6 +168,7 @@ target_link_libraries(
 target_compile_definitions(
   fermisimplex_core PRIVATE
   FERMISIMPLEX_LAPACK_ZHEEVD=${FERMISIMPLEX_LAPACK_ZHEEVD_SYMBOL}
+  FERMISIMPLEX_LAPACK_ZGESVD=${FERMISIMPLEX_LAPACK_ZGESVD_SYMBOL}
   FERMISIMPLEX_LAPACK_ZPOTRF=${FERMISIMPLEX_LAPACK_ZPOTRF_SYMBOL}
   FERMISIMPLEX_BLAS_ZGEMM=${FERMISIMPLEX_BLAS_ZGEMM_SYMBOL}
   FERMISIMPLEX_BLAS_ZHER2K=${FERMISIMPLEX_BLAS_ZHER2K_SYMBOL}
@@ -319,24 +321,6 @@ if(FERMISIMPLEX_BUILD_BENCHMARKS)
     DEPENDS fermisimplex_performance_benchmark
     USES_TERMINAL
     VERBATIM
-  )
-endif()
-
-if(FERMISIMPLEX_BUILD_EXPERIMENTS)
-  add_executable(
-    fermisimplex_projected_error_ablation
-    ../experiments/projected_error/ablation.cpp
-  )
-  target_compile_features(
-    fermisimplex_projected_error_ablation PRIVATE cxx_std_20
-  )
-  target_include_directories(
-    fermisimplex_projected_error_ablation PRIVATE
-    "${CMAKE_CURRENT_SOURCE_DIR}/src"
-  )
-  target_link_libraries(
-    fermisimplex_projected_error_ablation PRIVATE
-    fermisimplex::core
   )
 endif()
 

@@ -6,11 +6,15 @@
 #include "certification/mesh_certificate.h"
 #include "fermi_surface/simplex_classification.h"
 #include "integration/charge.h"
+#include "integration/projected_error.h"
 #include "linalg/blas_lapack.h"
 
+#include <adaptivesimplex/adaptive/adaptive_loop.h>
+#include <adaptivesimplex/adaptive/simplex_integrand.h>
 #include <adaptivesimplex/core/types.h>
 
 #include <algorithm>
+#include <array>
 #include <chrono>
 #include <cmath>
 #include <complex>
@@ -85,6 +89,7 @@ namespace {
 using Clock = std::chrono::steady_clock;
 using Complex = std::complex<double>;
 using Matrix = std::vector<Complex>;
+namespace adaptive = adaptivesimplex::adaptive;
 namespace cert = fermisimplex::certification;
 namespace core = adaptivesimplex::core;
 namespace fsdetail = fermisimplex::fermi_surface_detail;
@@ -94,10 +99,11 @@ volatile double benchmark_sink = 0.0;
 
 struct Config {
     std::string preset = "ci";
+    std::string only;
     std::size_t samples = 7;
     std::vector<std::size_t> matrix_sizes{2, 4, 8, 16, 32, 60};
     std::vector<std::size_t> tight_binding_terms{1, 5, 17};
-    std::vector<std::size_t> simplex_matrix_sizes{2, 8, 32, 60};
+    std::vector<std::size_t> simplex_matrix_sizes{2, 4, 8, 16, 32, 60};
     std::filesystem::path output;
 };
 
@@ -115,6 +121,7 @@ struct Result {
     std::size_t ndim = 0;
     std::size_t ndof = 0;
     std::size_t hopping_terms = 0;
+    std::size_t target_bands = 0;
     std::uint32_t root_level = 0;
     std::size_t vertices = 0;
     std::size_t simplices = 0;
@@ -124,6 +131,11 @@ struct Result {
     double min_feature_size = 0.0;
     double curvature_bound = 0.0;
     std::uint32_t preview_depth = 0;
+    double stopping_error = 0.0;
+    double certified_error_bound = 0.0;
+    std::size_t visible_gapless_simplices = 0;
+    std::size_t inconclusive_simplices = 0;
+    bool target_reached = false;
     std::size_t operations_per_sample = 0;
     std::size_t samples = 0;
     Summary timing;
@@ -311,6 +323,42 @@ private:
     std::size_t ndim_ = 0;
     std::size_t ndof_ = 0;
     Matrix matrix_;
+};
+
+class AffineProjectedErrorModel final
+    : public fermisimplex::HamiltonianModel {
+public:
+    explicit AffineProjectedErrorModel(std::size_t ndof)
+        : ndof_(ndof), constant_(dense_hermitian(ndof)) {
+        for (std::size_t axis = 0; axis < directions_.size(); ++axis) {
+            directions_[axis].resize(ndof_);
+            for (std::size_t band = 0; band < ndof_; ++band) {
+                directions_[axis][band] = 0.18 * std::sin(
+                    static_cast<double>((axis + 2) * (band + 1))
+                );
+            }
+        }
+    }
+
+    std::size_t ndim() const noexcept override { return 3; }
+    std::size_t ndof() const noexcept override { return ndof_; }
+
+    Matrix evaluate(std::span<const double> point) const override {
+        auto result = constant_;
+        for (std::size_t axis = 0; axis < directions_.size(); ++axis) {
+            const auto coordinate = point[axis] - 0.5;
+            for (std::size_t band = 0; band < ndof_; ++band) {
+                result[column_major_index(band, band, ndof_)] +=
+                    coordinate * directions_[axis][band];
+            }
+        }
+        return result;
+    }
+
+private:
+    std::size_t ndof_ = 0;
+    Matrix constant_;
+    std::array<std::vector<double>, 3> directions_;
 };
 
 class CrossingDenseModel final : public fermisimplex::HamiltonianModel {
@@ -679,7 +727,7 @@ double benchmark_vertex_pipeline(
         0, 0, 0, iterations, config.samples, reference, lapack_ns
     ));
 
-    const auto model = fixed_model(2, ndof);
+    const auto model = crossing_model(ndof);
     auto point = std::vector<double>{0.25, 0.75};
     const auto model_evaluation = measure(
         config.samples, evaluation_iterations, [&](std::size_t sample) {
@@ -855,20 +903,28 @@ void benchmark_charge_total(
 ) {
     constexpr auto ndim = std::size_t{2};
     constexpr auto root_level = std::uint32_t{2};
+    constexpr auto target_error = 0.02;
+    constexpr auto curvature_bound =
+        4.0 * std::numbers::pi_v<double> * std::numbers::pi_v<double>;
     auto vertices = std::size_t{0};
     auto simplices = std::size_t{0};
     auto simplex_visits = std::size_t{0};
+    auto visible_gapless_simplices = std::size_t{0};
+    auto inconclusive_simplices = std::size_t{0};
+    auto stopping_error = 0.0;
+    auto certified_error_bound = 0.0;
+    auto target_reached = false;
     const auto timing = measure(config.samples, 1, [&](std::size_t) {
         auto mesh = fermisimplex::SpectralMesh(
-            fixed_model(ndim, ndof), 1e-14, root_level
+            crossing_model(ndof), 1e-14, root_level
         );
         const auto started = Clock::now();
         const auto charge = fermisimplex::estimate_charge_on_current_mesh(
             mesh,
             0.0,
-            0.0,
-            1,
-            0.0
+            target_error,
+            0,
+            curvature_bound
         );
         const auto finished = Clock::now();
         require_stable_count(
@@ -886,6 +942,26 @@ void benchmark_charge_total(
             static_cast<std::size_t>(charge.stats.simplex_visits),
             "charge simplex-visit count"
         );
+        require_stable_count(
+            visible_gapless_simplices,
+            static_cast<std::size_t>(charge.visible_gapless_simplices),
+            "charge visible-gapless count"
+        );
+        require_stable_count(
+            inconclusive_simplices,
+            static_cast<std::size_t>(charge.inconclusive_simplices),
+            "charge inconclusive count"
+        );
+        if (charge.stopping_error <= 0.0 ||
+            charge.visible_gapless_simplices + charge.inconclusive_simplices !=
+                charge.stats.simplex_visits) {
+            throw std::runtime_error(
+                "charge benchmark did not exercise projected-error estimation"
+            );
+        }
+        stopping_error = charge.stopping_error;
+        certified_error_bound = charge.certified_error_bound;
+        target_reached = charge.stats.target_reached;
         benchmark_sink = charge.value + charge.stopping_error;
         return elapsed_ns(started, finished);
     });
@@ -902,9 +978,14 @@ void benchmark_charge_total(
         timing,
         lapack_ns
     );
-    result.target_error = 0.0;
-    result.curvature_bound = 0.0;
-    result.preview_depth = 1;
+    result.target_error = target_error;
+    result.curvature_bound = curvature_bound;
+    result.preview_depth = 0;
+    result.stopping_error = stopping_error;
+    result.certified_error_bound = certified_error_bound;
+    result.visible_gapless_simplices = visible_gapless_simplices;
+    result.inconclusive_simplices = inconclusive_simplices;
+    result.target_reached = target_reached;
     results.push_back(std::move(result));
 }
 
@@ -979,6 +1060,225 @@ void benchmark_fermi_surface_total(
     results.push_back(std::move(result));
 }
 
+struct AdaptiveChargeProfile {
+    double vertex_ns = 0.0;
+    double certificate_ns = 0.0;
+    double sampled_error_ns = 0.0;
+    double occupation_shell_ns = 0.0;
+    double band_charge_ns = 0.0;
+    std::size_t maximum_target_bands = 0;
+};
+
+struct ProfiledChargeSimplexError {
+    template <class Estimate> double operator()(const Estimate &estimate) const {
+        return estimate.preview.projected_error +
+               std::abs(estimate.correction.value);
+    }
+};
+
+template <class SimplexError>
+struct ProfiledSumSimplexErrors {
+    SimplexError simplex_error;
+    template <class Value> using state_type = double;
+
+    template <class Value> state_type<Value> zero() const { return 0.0; }
+
+    template <class Value>
+    state_type<Value> contribution(
+        const adaptive::SimplexEstimate<Value> &estimate
+    ) const {
+        return simplex_error(estimate);
+    }
+
+    template <class Value>
+    void add(state_type<Value> &state, const state_type<Value> &value) const {
+        state += value;
+    }
+
+    template <class Value>
+    void remove(state_type<Value> &state, const state_type<Value> &value) const {
+        state -= value;
+    }
+
+    template <class Value> double error(const state_type<Value> &state) const {
+        return std::max(0.0, state);
+    }
+};
+
+void benchmark_adaptive_charge_phases(
+    std::size_t ndof,
+    const Config &config,
+    double lapack_ns,
+    std::vector<Result> &results
+) {
+    constexpr auto ndim = std::size_t{2};
+    constexpr auto root_level = std::uint32_t{1};
+    constexpr auto curvature_bound =
+        4.0 * std::numbers::pi_v<double> * std::numbers::pi_v<double>;
+    const auto options = adaptive::Options{
+        .target_error = 0.02,
+        .max_refinements = -1,
+        .preview_depth = 0,
+        .min_refinement_batch_size = 1,
+        .max_refinement_batch_size = 100,
+    };
+
+    auto vertex_timings = std::vector<double>{};
+    auto certificate_timings = std::vector<double>{};
+    auto sampled_error_timings = std::vector<double>{};
+    auto occupation_shell_timings = std::vector<double>{};
+    auto band_charge_timings = std::vector<double>{};
+    auto framework_timings = std::vector<double>{};
+    auto profiled_total_timings = std::vector<double>{};
+    auto maximum_target_bands = std::size_t{0};
+    for (std::size_t sample = 0; sample < config.samples; ++sample) {
+        auto mesh = fermisimplex::SpectralMesh(
+            crossing_model(ndof), 1e-14, root_level
+        );
+        auto profile = AdaptiveChargeProfile{};
+        auto projected_error_cache =
+            std::make_shared<fermisimplex::ProjectedErrorCache>();
+        auto integrand = adaptive::simplex_integrand(
+            mesh.eigensystems(),
+            [&mesh, &profile](std::span<const double> point) {
+                const auto started = Clock::now();
+                auto spectrum = mesh.spectrum(point);
+                const auto finished = Clock::now();
+                profile.vertex_ns += elapsed_ns(started, finished);
+                return spectrum;
+            },
+            [&mesh, &profile, projected_error_cache](
+                const core::Geometry &geometry,
+                core::SimplexId simplex_id,
+                fermisimplex::EigensystemCache &
+            ) {
+                const auto &simplex = geometry.simplices().simplex(simplex_id);
+                auto result = integration::ChargeContribution{};
+
+                const auto certificate_started = Clock::now();
+                const auto certificate = cert::certify_mesh_simplex(
+                    mesh,
+                    simplex_id,
+                    0.0,
+                    mesh.linearization_error_bound(
+                        simplex_id, curvature_bound
+                    ),
+                    mesh.tolerance()
+                );
+                const auto certificate_finished = Clock::now();
+                profile.certificate_ns += elapsed_ns(
+                    certificate_started, certificate_finished
+                );
+                const auto occupation_bounds = certificate.occupation_bounds;
+                profile.maximum_target_bands = std::max(
+                    profile.maximum_target_bands,
+                    occupation_bounds.upper - occupation_bounds.lower
+                );
+                result.certified_error_bound =
+                    static_cast<double>(cert::occupation_width(certificate)) *
+                    simplex.volume;
+                if (certificate.status ==
+                    cert::SimplexCertificateStatus::VisibleGapless) {
+                    result.visible_gapless_simplices = 1;
+                } else if (certificate.status ==
+                           cert::SimplexCertificateStatus::Inconclusive) {
+                    result.inconclusive_simplices = 1;
+                }
+
+                if (occupation_bounds.lower < occupation_bounds.upper) {
+                    const auto sampled_started = Clock::now();
+                    const auto estimate = fermisimplex::estimate_projected_error(
+                        mesh,
+                        simplex_id,
+                        occupation_bounds.lower,
+                        occupation_bounds.upper,
+                        projected_error_cache.get()
+                    );
+                    const auto sampled_finished = Clock::now();
+                    profile.sampled_error_ns += elapsed_ns(
+                        sampled_started, sampled_finished
+                    );
+
+                    const auto shell_started = Clock::now();
+                    result.projected_error =
+                        integration::projected_occupation_shell(
+                            0.0,
+                            mesh,
+                            geometry,
+                            simplex_id,
+                            occupation_bounds,
+                            estimate
+                        );
+                    const auto shell_finished = Clock::now();
+                    profile.occupation_shell_ns += elapsed_ns(
+                        shell_started, shell_finished
+                    );
+                }
+
+                const auto band_started = Clock::now();
+                result += integration::band_charge_on_simplex(
+                    0.0, mesh, geometry, simplex_id
+                );
+                const auto band_finished = Clock::now();
+                profile.band_charge_ns += elapsed_ns(
+                    band_started, band_finished
+                );
+                return result;
+            },
+            adaptive::estimation_policies<
+                ProfiledSumSimplexErrors<ProfiledChargeSimplexError>,
+                ProfiledChargeSimplexError
+            >{}
+        );
+        const auto profiled_started = Clock::now();
+        const auto raw = adaptive::run(mesh.geometry(), integrand, options);
+        const auto profiled_finished = Clock::now();
+        const auto profiled_total_ns = elapsed_ns(
+            profiled_started, profiled_finished
+        );
+        if (!raw.converged || raw.stopping_error > options.target_error) {
+            throw std::runtime_error(
+                "profiled adaptive charge did not reach its error target"
+            );
+        }
+        vertex_timings.push_back(profile.vertex_ns);
+        certificate_timings.push_back(profile.certificate_ns);
+        sampled_error_timings.push_back(profile.sampled_error_ns);
+        occupation_shell_timings.push_back(profile.occupation_shell_ns);
+        band_charge_timings.push_back(profile.band_charge_ns);
+        const auto measured_phase_ns =
+            profile.vertex_ns + profile.certificate_ns +
+            profile.sampled_error_ns + profile.occupation_shell_ns +
+            profile.band_charge_ns;
+        framework_timings.push_back(profiled_total_ns - measured_phase_ns);
+        profiled_total_timings.push_back(profiled_total_ns);
+        maximum_target_bands = std::max(
+            maximum_target_bands, profile.maximum_target_bands
+        );
+    }
+
+    const auto append = [&](std::string name, Summary timing) -> Result & {
+        results.push_back(make_result(
+            std::move(name), "adaptive_charge_phase", "run", ndim, ndof, 0,
+            root_level, 27, 26, 1, config.samples, timing, lapack_ns
+        ));
+        return results.back();
+    };
+    append("adaptive_vertex_eigensystems", summarize(vertex_timings));
+    append("adaptive_simplex_certificates", summarize(certificate_timings));
+    auto &sampled = append(
+        "adaptive_sampled_projected_error", summarize(sampled_error_timings)
+    );
+    sampled.target_bands = maximum_target_bands;
+    append(
+        "adaptive_projected_occupation_shell",
+        summarize(occupation_shell_timings)
+    );
+    append("adaptive_band_charge", summarize(band_charge_timings));
+    append("adaptive_framework", summarize(framework_timings));
+    append("adaptive_profiled_total", summarize(profiled_total_timings));
+}
+
 void benchmark_adaptive_charge_total(
     std::size_t ndof,
     const Config &config,
@@ -992,7 +1292,7 @@ void benchmark_adaptive_charge_total(
     const auto options = adaptivesimplex::adaptive::Options{
         .target_error = 0.02,
         .max_refinements = -1,
-        .preview_depth = 1,
+        .preview_depth = 0,
         .min_refinement_batch_size = 1,
         .max_refinement_batch_size = 100,
     };
@@ -1000,6 +1300,11 @@ void benchmark_adaptive_charge_total(
     auto simplices = std::size_t{0};
     auto simplex_visits = std::size_t{0};
     auto refinements = std::size_t{0};
+    auto visible_gapless_simplices = std::size_t{0};
+    auto inconclusive_simplices = std::size_t{0};
+    auto stopping_error = 0.0;
+    auto certified_error_bound = 0.0;
+    auto target_reached = false;
     const auto timing = measure(config.samples, 1, [&](std::size_t) {
         auto mesh = fermisimplex::SpectralMesh(
             crossing_model(ndof), 1e-14, root_level
@@ -1032,6 +1337,25 @@ void benchmark_adaptive_charge_total(
             static_cast<std::size_t>(charge.stats.refinements),
             "adaptive-charge refinement count"
         );
+        require_stable_count(
+            visible_gapless_simplices,
+            static_cast<std::size_t>(charge.visible_gapless_simplices),
+            "adaptive-charge visible-gapless count"
+        );
+        require_stable_count(
+            inconclusive_simplices,
+            static_cast<std::size_t>(charge.inconclusive_simplices),
+            "adaptive-charge inconclusive count"
+        );
+        if (!charge.stats.target_reached ||
+            charge.stopping_error > options.target_error) {
+            throw std::runtime_error(
+                "adaptive-charge benchmark did not reach its error target"
+            );
+        }
+        stopping_error = charge.stopping_error;
+        certified_error_bound = charge.certified_error_bound;
+        target_reached = charge.stats.target_reached;
         benchmark_sink = charge.value + charge.stopping_error;
         return elapsed_ns(started, finished);
     });
@@ -1051,7 +1375,53 @@ void benchmark_adaptive_charge_total(
     result.target_error = options.target_error;
     result.curvature_bound = curvature_bound;
     result.preview_depth = options.preview_depth;
+    result.stopping_error = stopping_error;
+    result.certified_error_bound = certified_error_bound;
+    result.visible_gapless_simplices = visible_gapless_simplices;
+    result.inconclusive_simplices = inconclusive_simplices;
+    result.target_reached = target_reached;
     results.push_back(std::move(result));
+}
+
+double benchmark_exact_center_check(
+    const fermisimplex::SpectralMesh &mesh,
+    core::SimplexId simplex_id,
+    cert::OccupationBounds occupation_bounds
+) {
+    if (occupation_bounds.lower == occupation_bounds.upper) {
+        return 0.0;
+    }
+
+    const auto &geometry = mesh.geometry();
+    const auto &simplex = geometry.simplices().simplex(simplex_id);
+    auto point = std::vector<double>(geometry.ndim(), 0.0);
+    const auto weight = 1.0 /
+        static_cast<double>(simplex.vertex_ids.size());
+    for (const auto vertex_id : simplex.vertex_ids) {
+        const auto vertex_point =
+            geometry.vertices().dyadic_vertex(vertex_id).to_point();
+        for (std::size_t axis = 0; axis < geometry.ndim(); ++axis) {
+            point[axis] += weight * vertex_point[axis];
+        }
+    }
+
+    auto hamiltonian = mesh.hamiltonian(point);
+    auto eigenvalues = std::vector<double>{};
+    fermisimplex::linalg::diagonalize_hermitian_in_place(
+        hamiltonian,
+        eigenvalues,
+        mesh.ndof(),
+        false,
+        "benchmark exact center"
+    );
+
+    auto checksum = 0.0;
+    for (auto band = occupation_bounds.lower;
+         band < occupation_bounds.upper;
+         ++band) {
+        checksum += eigenvalues[band];
+    }
+    return checksum;
 }
 
 void benchmark_simplex_pipeline(
@@ -1062,10 +1432,40 @@ void benchmark_simplex_pipeline(
 ) {
     constexpr auto ndim = std::size_t{2};
     constexpr auto root_level = std::uint32_t{2};
-    auto mesh = fermisimplex::SpectralMesh(fixed_model(ndim, ndof), 1e-14, root_level);
+    constexpr auto curvature_bound =
+        4.0 * std::numbers::pi_v<double> * std::numbers::pi_v<double>;
+    auto mesh = fermisimplex::SpectralMesh(
+        crossing_model(ndof), 1e-14, root_level
+    );
     const auto simplices = active_simplices(mesh);
     const auto missing = missing_active_vertices(mesh, simplices);
     benchmark_sink = fill_vertices(mesh, missing);
+    auto occupation_bounds = std::vector<cert::OccupationBounds>{};
+    occupation_bounds.reserve(simplices.size());
+    auto maximum_target_bands = std::size_t{0};
+    for (const auto simplex_id : simplices) {
+        const auto certificate = cert::certify_mesh_simplex(
+            mesh, simplex_id, 0.0,
+            mesh.linearization_error_bound(simplex_id, curvature_bound),
+            mesh.tolerance()
+        );
+        occupation_bounds.push_back(certificate.occupation_bounds);
+        maximum_target_bands = std::max(
+            maximum_target_bands,
+            certificate.occupation_bounds.upper -
+                certificate.occupation_bounds.lower
+        );
+    }
+    auto projected_estimates = std::vector<fermisimplex::ProjectedErrorEstimate>{};
+    projected_estimates.reserve(simplices.size());
+    for (std::size_t index = 0; index < simplices.size(); ++index) {
+        projected_estimates.push_back(fermisimplex::estimate_projected_error(
+            mesh,
+            simplices[index],
+            occupation_bounds[index].lower,
+            occupation_bounds[index].upper
+        ));
+    }
 
     const auto target_operations = std::max<std::size_t>(
         simplices.size(),
@@ -1084,7 +1484,11 @@ void benchmark_simplex_pipeline(
             for (std::size_t pass = 0; pass < passes; ++pass) {
                 for (const auto simplex_id : simplices) {
                     const auto certificate = cert::certify_mesh_simplex(
-                        mesh, simplex_id, 0.0, 0.0, mesh.tolerance()
+                        mesh, simplex_id, 0.0,
+                        mesh.linearization_error_bound(
+                            simplex_id, curvature_bound
+                        ),
+                        mesh.tolerance()
                     );
                     checksum += static_cast<double>(
                         certificate.occupation_bounds.lower +
@@ -1103,6 +1507,139 @@ void benchmark_simplex_pipeline(
         config.samples, certificates, lapack_ns
     ));
 
+    const auto exact_center = measure(
+        config.samples, operations, [&](std::size_t) {
+            auto checksum = 0.0;
+            const auto started = Clock::now();
+            for (std::size_t pass = 0; pass < passes; ++pass) {
+                for (std::size_t index = 0; index < simplices.size(); ++index) {
+                    checksum += benchmark_exact_center_check(
+                        mesh, simplices[index], occupation_bounds[index]
+                    );
+                }
+            }
+            const auto finished = Clock::now();
+            benchmark_sink = checksum;
+            return elapsed_ns(started, finished);
+        }
+    );
+    auto exact_center_result = make_result(
+        "projected_error_exact_center_simplex", "charge_phase", "simplex",
+        ndim, ndof, 0, root_level, missing.size(), simplices.size(), operations,
+        config.samples, exact_center, lapack_ns
+    );
+    exact_center_result.target_bands = maximum_target_bands;
+    results.push_back(std::move(exact_center_result));
+
+    const auto sampled_projected_error = measure(
+        config.samples, operations, [&](std::size_t) {
+            auto checksum = 0.0;
+            const auto started = Clock::now();
+            for (std::size_t pass = 0; pass < passes; ++pass) {
+                for (std::size_t index = 0; index < simplices.size(); ++index) {
+                    const auto estimate = fermisimplex::estimate_projected_error(
+                        mesh,
+                        simplices[index],
+                        occupation_bounds[index].lower,
+                        occupation_bounds[index].upper
+                    );
+                    checksum += estimate.negative_estimate +
+                        estimate.positive_estimate;
+                }
+            }
+            const auto finished = Clock::now();
+            benchmark_sink = checksum;
+            return elapsed_ns(started, finished);
+        }
+    );
+    auto sampled_projected_error_result = make_result(
+        "projected_error_sampled_simplex", "charge_phase", "simplex",
+        ndim, ndof, 0, root_level, missing.size(), simplices.size(), operations,
+        config.samples, sampled_projected_error, lapack_ns
+    );
+    sampled_projected_error_result.target_bands = maximum_target_bands;
+    results.push_back(std::move(sampled_projected_error_result));
+
+    const auto projected_charge_error = measure(
+        config.samples, operations, [&](std::size_t) {
+            auto checksum = 0.0;
+            const auto started = Clock::now();
+            for (std::size_t pass = 0; pass < passes; ++pass) {
+                for (std::size_t index = 0; index < simplices.size(); ++index) {
+                    checksum += integration::projected_charge_error(
+                        0.0,
+                        mesh,
+                        mesh.geometry(),
+                        simplices[index],
+                        occupation_bounds[index]
+                    );
+                }
+            }
+            const auto finished = Clock::now();
+            benchmark_sink = checksum;
+            return elapsed_ns(started, finished);
+        }
+    );
+    auto projected_charge_error_result = make_result(
+        "projected_charge_error_simplex", "charge_phase", "simplex",
+        ndim, ndof, 0, root_level, missing.size(), simplices.size(), operations,
+        config.samples, projected_charge_error, lapack_ns
+    );
+    projected_charge_error_result.target_bands = maximum_target_bands;
+    results.push_back(std::move(projected_charge_error_result));
+
+    const auto occupation_shell = measure(
+        config.samples, operations, [&](std::size_t) {
+            auto checksum = 0.0;
+            const auto started = Clock::now();
+            for (std::size_t pass = 0; pass < passes; ++pass) {
+                for (std::size_t index = 0; index < simplices.size(); ++index) {
+                    checksum += integration::projected_occupation_shell(
+                        0.0,
+                        mesh,
+                        mesh.geometry(),
+                        simplices[index],
+                        occupation_bounds[index],
+                        projected_estimates[index]
+                    );
+                }
+            }
+            const auto finished = Clock::now();
+            benchmark_sink = checksum;
+            return elapsed_ns(started, finished);
+        }
+    );
+    auto occupation_shell_result = make_result(
+        "projected_occupation_shell_simplex", "charge_phase", "simplex",
+        ndim, ndof, 0, root_level, missing.size(), simplices.size(), operations,
+        config.samples, occupation_shell, lapack_ns
+    );
+    occupation_shell_result.target_bands = maximum_target_bands;
+    results.push_back(std::move(occupation_shell_result));
+
+    const auto band_charge = measure(
+        config.samples, operations, [&](std::size_t) {
+            auto checksum = 0.0;
+            const auto started = Clock::now();
+            for (std::size_t pass = 0; pass < passes; ++pass) {
+                for (const auto simplex_id : simplices) {
+                    const auto contribution = integration::band_charge_on_simplex(
+                        0.0, mesh, mesh.geometry(), simplex_id
+                    );
+                    checksum += contribution.value + contribution.dcharge_dmu;
+                }
+            }
+            const auto finished = Clock::now();
+            benchmark_sink = checksum;
+            return elapsed_ns(started, finished);
+        }
+    );
+    results.push_back(make_result(
+        "band_charge_simplex", "charge_phase", "simplex", ndim, ndof, 0,
+        root_level, missing.size(), simplices.size(), operations,
+        config.samples, band_charge, lapack_ns
+    ));
+
     const auto charge = measure(
         config.samples, operations, [&](std::size_t) {
             auto checksum = 0.0;
@@ -1110,7 +1647,7 @@ void benchmark_simplex_pipeline(
             for (std::size_t pass = 0; pass < passes; ++pass) {
                 for (const auto simplex_id : simplices) {
                     const auto contribution = integration::charge_on_simplex(
-                        0.0, mesh, mesh.geometry(), simplex_id, 0.0
+                        0.0, mesh, mesh.geometry(), simplex_id, curvature_bound
                     );
                     checksum += contribution.value + contribution.dcharge_dmu;
                 }
@@ -1148,6 +1685,166 @@ void benchmark_simplex_pipeline(
         root_level, missing.size(), simplices.size(), operations,
         config.samples, classification, lapack_ns
     ));
+}
+
+void benchmark_projected_error(
+    const Config &config,
+    double lapack_ns,
+    std::vector<Result> &results
+) {
+    constexpr auto ndim = std::size_t{3};
+    constexpr auto ndof = std::size_t{60};
+    constexpr auto widths = std::array<std::size_t, 10>{
+        1, 2, 4, 6, 8, 10, 12, 16, 32, 60,
+    };
+    const auto model = std::make_shared<AffineProjectedErrorModel>(ndof);
+    auto mesh = fermisimplex::SpectralMesh(model, 1e-14, 0);
+    const auto simplices = active_simplices(mesh);
+    const auto simplex_id = simplices.front();
+    const auto &simplex = mesh.geometry().simplices().simplex(simplex_id);
+    auto vertices = std::vector<core::VertexId>(
+        simplex.vertex_ids.begin(),
+        simplex.vertex_ids.end()
+    );
+    benchmark_sink = fill_vertices(mesh, vertices);
+
+    const auto iterations = config.preset == "quick"
+        ? std::size_t{8}
+        : std::size_t{24};
+    for (const auto target_bands : widths) {
+        const auto lower = (ndof - target_bands) / 2;
+        const auto upper = lower + target_bands;
+        for (std::size_t warmup = 0; warmup < 2; ++warmup) {
+            const auto estimate = fermisimplex::estimate_projected_error(
+                mesh,
+                simplex_id,
+                lower,
+                upper
+            );
+            benchmark_sink =
+                estimate.negative_estimate + estimate.positive_estimate;
+        }
+        const auto timing = measure(
+            config.samples,
+            iterations,
+            [&](std::size_t) {
+                auto checksum = 0.0;
+                const auto started = Clock::now();
+                for (std::size_t iteration = 0;
+                     iteration < iterations;
+                     ++iteration) {
+                    const auto estimate =
+                        fermisimplex::estimate_projected_error(
+                            mesh,
+                            simplex_id,
+                            lower,
+                            upper
+                        );
+                    checksum += estimate.negative_estimate +
+                        estimate.positive_estimate;
+                }
+                const auto finished = Clock::now();
+                benchmark_sink = checksum;
+                return elapsed_ns(started, finished);
+            }
+        );
+        auto result = make_result(
+            "projected_error_exact_center_projected_edges",
+            "projected_error",
+            "simplex",
+            ndim,
+            ndof,
+            0,
+            0,
+            vertices.size(),
+            1,
+            iterations,
+            config.samples,
+            timing,
+            lapack_ns
+        );
+        result.target_bands = target_bands;
+        results.push_back(std::move(result));
+    }
+}
+
+void benchmark_projected_error_fraction_scaling(
+    std::size_t ndof,
+    const Config &config,
+    double lapack_ns,
+    std::vector<Result> &results
+) {
+    constexpr auto fractions = std::array<std::size_t, 5>{1, 2, 4, 6, 8};
+    const auto model = std::make_shared<AffineProjectedErrorModel>(ndof);
+    auto mesh = fermisimplex::SpectralMesh(model, 1e-14, 0);
+    const auto simplices = active_simplices(mesh);
+    const auto vertices = missing_active_vertices(mesh, simplices);
+    benchmark_sink = fill_vertices(mesh, vertices);
+
+    const auto iterations = ndof <= 64
+        ? std::size_t{8}
+        : (ndof <= 128 ? std::size_t{3} : std::size_t{1});
+    for (const auto numerator : fractions) {
+        const auto target_bands = std::max<std::size_t>(
+            1, (ndof * numerator + 4) / 8
+        );
+        const auto lower = (ndof - target_bands) / 2;
+        const auto upper = lower + target_bands;
+        {
+            auto cache = fermisimplex::ProjectedErrorCache{};
+            auto checksum = 0.0;
+            for (const auto simplex_id : simplices) {
+                const auto estimate = fermisimplex::estimate_projected_error(
+                    mesh, simplex_id, lower, upper, &cache
+                );
+                checksum += estimate.negative_estimate +
+                    estimate.positive_estimate;
+            }
+            benchmark_sink = checksum;
+        }
+        const auto operations = iterations * simplices.size();
+        const auto timing = measure(
+            config.samples,
+            operations,
+            [&](std::size_t) {
+                auto checksum = 0.0;
+                const auto started = Clock::now();
+                for (std::size_t iteration = 0;
+                     iteration < iterations;
+                     ++iteration) {
+                    auto cache = fermisimplex::ProjectedErrorCache{};
+                    for (const auto simplex_id : simplices) {
+                        const auto estimate =
+                            fermisimplex::estimate_projected_error(
+                                mesh, simplex_id, lower, upper, &cache
+                            );
+                        checksum += estimate.negative_estimate +
+                            estimate.positive_estimate;
+                    }
+                }
+                const auto finished = Clock::now();
+                benchmark_sink = checksum;
+                return elapsed_ns(started, finished);
+            }
+        );
+        auto result = make_result(
+            "projected_error_fixed_fraction",
+            "projected_scaling",
+            "simplex",
+            3,
+            ndof,
+            0,
+            0,
+            vertices.size(),
+            simplices.size(),
+            operations,
+            config.samples,
+            timing,
+            lapack_ns
+        );
+        result.target_bands = target_bands;
+        results.push_back(std::move(result));
+    }
 }
 
 void benchmark_root_mesh_case(
@@ -1277,6 +1974,7 @@ void write_result(std::ostream &output, const Result &result, bool trailing_comm
         << "      \"ndim\": " << result.ndim << ",\n"
         << "      \"ndof\": " << result.ndof << ",\n"
         << "      \"hopping_terms\": " << result.hopping_terms << ",\n"
+        << "      \"target_bands\": " << result.target_bands << ",\n"
         << "      \"root_level\": " << result.root_level << ",\n"
         << "      \"vertices\": " << result.vertices << ",\n"
         << "      \"simplices\": " << result.simplices << ",\n"
@@ -1286,6 +1984,15 @@ void write_result(std::ostream &output, const Result &result, bool trailing_comm
         << "      \"min_feature_size\": " << result.min_feature_size << ",\n"
         << "      \"curvature_bound\": " << result.curvature_bound << ",\n"
         << "      \"preview_depth\": " << result.preview_depth << ",\n"
+        << "      \"stopping_error\": " << result.stopping_error << ",\n"
+        << "      \"certified_error_bound\": "
+        << result.certified_error_bound << ",\n"
+        << "      \"visible_gapless_simplices\": "
+        << result.visible_gapless_simplices << ",\n"
+        << "      \"inconclusive_simplices\": "
+        << result.inconclusive_simplices << ",\n"
+        << "      \"target_reached\": "
+        << (result.target_reached ? "true" : "false") << ",\n"
         << "      \"operations_per_sample\": "
         << result.operations_per_sample << ",\n"
         << "      \"samples\": " << result.samples << ",\n"
@@ -1315,7 +2022,7 @@ std::string render_json(const Config &config, const std::vector<Result> &results
     output << std::setprecision(12);
     output
         << "{\n"
-        << "  \"schema_version\": 2,\n"
+        << "  \"schema_version\": 4,\n"
         << "  \"metadata\": {\n"
         << "    \"git_commit\": \""
         << json_escape(FERMISIMPLEX_BENCHMARK_GIT_COMMIT) << "\",\n"
@@ -1367,17 +2074,23 @@ std::string render_summary(const Config &config, const std::vector<Result> &resu
                 ? std::string_view{"charge (adaptive)"}
                 : std::string_view{"Fermi surface"};
     };
-    const auto lapack_us = [&](std::size_t ndof) {
-        const auto baseline = std::find_if(
-            results.begin(), results.end(), [ndof](const Result &result) {
-                return result.name == "lapack_reference_best" &&
-                    result.ndof == ndof;
+    const auto measurement = [&results](
+        std::string_view name,
+        std::size_t ndof
+    ) -> const Result & {
+        const auto found = std::find_if(
+            results.begin(), results.end(), [&](const Result &result) {
+                return result.name == name && result.ndof == ndof;
             }
         );
-        if (baseline == results.end()) {
-            throw std::runtime_error("missing LAPACK baseline in summary");
+        if (found == results.end()) {
+            throw std::runtime_error("missing measurement in summary");
         }
-        return baseline->timing.median_ns_per_operation / 1e3;
+        return *found;
+    };
+    const auto lapack_us = [&](std::size_t ndof) {
+        return measurement("lapack_reference_best", ndof)
+            .timing.median_ns_per_operation / 1e3;
     };
 
     output
@@ -1417,6 +2130,64 @@ std::string render_summary(const Config &config, const std::vector<Result> &resu
             << '\n';
     }
 
+    output
+        << "\nCharge estimator diagnostics\n"
+        << std::left << std::setw(27) << "workload"
+        << std::right << std::setw(7) << "bands"
+        << std::setw(13) << "stop error"
+        << std::setw(13) << "cert error"
+        << std::setw(11) << "gapless"
+        << std::setw(14) << "inconclusive"
+        << std::setw(10) << "target?"
+        << '\n';
+    for (const auto &result : results) {
+        if (result.name != "charge_current_mesh_total" &&
+            result.name != "charge_adaptive_total") {
+            continue;
+        }
+        output
+            << std::left << std::setw(27) << workload_label(result)
+            << std::right << std::setw(7) << result.ndof
+            << std::setw(13) << result.stopping_error
+            << std::setw(13) << result.certified_error_bound
+            << std::setw(11) << result.visible_gapless_simplices
+            << std::setw(14) << result.inconclusive_simplices
+            << std::setw(10) << (result.target_reached ? "yes" : "no")
+            << '\n';
+    }
+
+    output
+        << "\nPer-vertex pipeline scaling (LAPACK eigensystems)\n"
+        << std::left << std::setw(9) << "bands"
+        << std::right << std::setw(12) << "LAPACK us"
+        << std::setw(13) << "model eval"
+        << std::setw(13) << "Hamiltonian"
+        << std::setw(13) << "eigensystem"
+        << std::setw(15) << "cached vertex"
+        << '\n';
+    for (const auto ndof : config.matrix_sizes) {
+        const auto &model = measurement("dense_model_evaluate", ndof);
+        const auto &validation = measurement("hamiltonian_validate", ndof);
+        const auto &spectrum = measurement("spectrum_dense_model", ndof);
+        const auto &cached = measurement("spectrum_and_cache_insert", ndof);
+        output
+            << std::left << std::setw(9) << ndof
+            << std::right << std::setw(12) << lapack_us(ndof)
+            << std::setw(13)
+            << model.lapack_equivalents_per_operation
+            << std::setw(13)
+            << validation.lapack_equivalents_per_operation
+            << std::setw(13)
+            << spectrum.lapack_equivalents_per_operation
+            << std::setw(15)
+            << cached.lapack_equivalents_per_operation
+            << '\n';
+    }
+    output
+        << "Stages are cumulative after model eval: Hamiltonian adds validation, "
+           "eigensystem adds diagonalization,\n"
+        << "and cached vertex adds eigensystem-cache insertion.\n";
+
     const auto diagnostic_ndof = *std::max_element(
         config.simplex_matrix_sizes.begin(), config.simplex_matrix_sizes.end()
     );
@@ -1448,34 +2219,165 @@ std::string render_summary(const Config &config, const std::vector<Result> &resu
     }
 
     output
-        << "\nPer-simplex phase diagnostic (" << diagnostic_ndof << " bands)\n"
-        << std::left << std::setw(27) << "phase"
-        << std::right << std::setw(12) << "us/visit"
-        << std::setw(15) << "solves/visit"
+        << "\nPer-simplex charge phase scaling (exclusive us/simplex)\n"
+        << std::left << std::setw(7) << "bands"
+        << std::right << std::setw(7) << "target"
+        << std::setw(10) << "cert"
+        << std::setw(11) << "center"
+        << std::setw(13) << "edges+setup"
+        << std::setw(11) << "occ shell"
+        << std::setw(13) << "band integ"
+        << std::setw(12) << "complete"
         << '\n';
-    const auto phase_label = [](std::string_view name) {
-        if (name == "simplex_certificate") {
-            return std::string_view{"certificate"};
-        }
-        if (name == "charge_simplex") {
-            return std::string_view{"charge rule (total)"};
-        }
-        return std::string_view{"surface classification"};
-    };
-    for (const auto &result : results) {
-        const auto selected =
-            result.name == "simplex_certificate" ||
-            result.name == "charge_simplex" ||
-            result.name == "fermi_classification";
-        if (!selected || result.ndof != diagnostic_ndof) {
-            continue;
-        }
+    for (const auto ndof : config.simplex_matrix_sizes) {
+        const auto &certificate = measurement("simplex_certificate", ndof);
+        const auto &center = measurement(
+            "projected_error_exact_center_simplex", ndof
+        );
+        const auto &sampled = measurement(
+            "projected_error_sampled_simplex", ndof
+        );
+        const auto &occupation_shell = measurement(
+            "projected_occupation_shell_simplex", ndof
+        );
+        const auto &band_charge = measurement("band_charge_simplex", ndof);
+        const auto &charge = measurement("charge_simplex", ndof);
+        const auto center_us = center.timing.median_ns_per_operation / 1e3;
+        const auto sampled_us = sampled.timing.median_ns_per_operation / 1e3;
+        const auto occupation_shell_us =
+            occupation_shell.timing.median_ns_per_operation / 1e3;
+        const auto band_charge_us =
+            band_charge.timing.median_ns_per_operation / 1e3;
+        const auto certificate_us =
+            certificate.timing.median_ns_per_operation / 1e3;
+        const auto charge_us = charge.timing.median_ns_per_operation / 1e3;
         output
-            << std::left << std::setw(27) << phase_label(result.name)
-            << std::right << std::setw(12)
-            << result.timing.median_ns_per_operation / 1e3
-            << std::setw(15) << result.lapack_equivalents_per_operation
+            << std::left << std::setw(7) << ndof
+            << std::right << std::setw(7) << sampled.target_bands
+            << std::setw(10) << certificate_us
+            << std::setw(11) << center_us
+            << std::setw(13) << std::max(0.0, sampled_us - center_us)
+            << std::setw(11) << occupation_shell_us
+            << std::setw(13) << band_charge_us
+            << std::setw(12) << charge_us
             << '\n';
+    }
+    output
+        << "Edges + setup is sampled validation minus the exact-center solve; "
+           "other phases are timed directly.\n";
+
+    output
+        << "\nAdaptive charge phases (ms/run; actual varying-width visits)\n"
+        << std::left << std::setw(7) << "bands"
+        << std::right << std::setw(9) << "max target"
+        << std::setw(11) << "vertices"
+        << std::setw(11) << "cert"
+        << std::setw(13) << "validation"
+        << std::setw(11) << "occ shell"
+        << std::setw(12) << "band integ"
+        << std::setw(11) << "framework"
+        << std::setw(12) << "profiled"
+        << '\n';
+    for (const auto ndof : config.matrix_sizes) {
+        const auto &vertices = measurement(
+            "adaptive_vertex_eigensystems", ndof
+        );
+        const auto &certificates = measurement(
+            "adaptive_simplex_certificates", ndof
+        );
+        const auto &validation = measurement(
+            "adaptive_sampled_projected_error", ndof
+        );
+        const auto &shell = measurement(
+            "adaptive_projected_occupation_shell", ndof
+        );
+        const auto &bands = measurement("adaptive_band_charge", ndof);
+        const auto &framework = measurement("adaptive_framework", ndof);
+        const auto &profiled = measurement("adaptive_profiled_total", ndof);
+        output
+            << std::left << std::setw(7) << ndof
+            << std::right << std::setw(9) << validation.target_bands
+            << std::setw(11)
+            << vertices.timing.median_ns_per_operation / 1e6
+            << std::setw(11)
+            << certificates.timing.median_ns_per_operation / 1e6
+            << std::setw(13)
+            << validation.timing.median_ns_per_operation / 1e6
+            << std::setw(11)
+            << shell.timing.median_ns_per_operation / 1e6
+            << std::setw(12)
+            << bands.timing.median_ns_per_operation / 1e6
+            << std::setw(11)
+            << framework.timing.median_ns_per_operation / 1e6
+            << std::setw(12)
+            << profiled.timing.median_ns_per_operation / 1e6
+            << '\n';
+    }
+
+    const auto has_projected_scaling = std::any_of(
+        results.begin(),
+        results.end(),
+        [](const Result &result) {
+            return result.category == "projected_scaling";
+        }
+    );
+    if (has_projected_scaling) {
+        output
+            << "\nProjected-error fixed-fraction scaling "
+               "(3D, shared edges)\n"
+            << std::left << std::setw(9) << "bands"
+            << std::right << std::setw(14) << "target bands"
+            << std::setw(12) << "fraction"
+            << std::setw(15) << "us/simplex"
+            << std::setw(18) << "solves/simplex"
+            << "\n";
+        for (const auto &result : results) {
+            if (result.category != "projected_scaling") {
+                continue;
+            }
+            output
+                << std::left << std::setw(9) << result.ndof
+                << std::right << std::setw(14) << result.target_bands
+                << std::setw(12)
+                << static_cast<double>(result.target_bands) /
+                    static_cast<double>(result.ndof)
+                << std::setw(15)
+                << result.timing.median_ns_per_operation / 1e3
+                << std::setw(18)
+                << result.lapack_equivalents_per_operation
+                << "\n";
+        }
+    }
+
+    const auto has_projected_error = std::any_of(
+        results.begin(),
+        results.end(),
+        [](const Result &result) {
+            return result.category == "projected_error";
+        }
+    );
+    if (has_projected_error) {
+        output
+            << "\nProjected-error diagnostic (60 bands)\n"
+            << std::left << std::setw(27) << "method"
+            << std::right << std::setw(14) << "target bands"
+            << std::setw(12) << "us/check"
+            << std::setw(15) << "solves/check"
+            << '\n';
+        for (const auto &result : results) {
+            if (result.category != "projected_error") {
+                continue;
+            }
+            output
+                << std::left << std::setw(27)
+                << "exact center + proj. edges"
+                << std::right << std::setw(14) << result.target_bands
+                << std::setw(12)
+                << result.timing.median_ns_per_operation / 1e3
+                << std::setw(15)
+                << result.lapack_equivalents_per_operation
+                << '\n';
+        }
     }
     output << "\nMachine-readable results: " << config.output.string() << '\n';
     return output.str();
@@ -1500,7 +2402,7 @@ Config preset(std::string name) {
             .samples = 7,
             .matrix_sizes = {2, 4, 8, 16, 32, 60, 128},
             .tight_binding_terms = {1, 5, 17, 33},
-            .simplex_matrix_sizes = {2, 8, 16, 32, 60},
+            .simplex_matrix_sizes = {2, 4, 8, 16, 32, 60},
         };
     }
     throw std::runtime_error("unknown benchmark preset: " + name);
@@ -1509,6 +2411,7 @@ Config preset(std::string name) {
 Config parse_arguments(int argc, char **argv) {
     auto preset_name = std::string{"ci"};
     auto output = std::filesystem::path{};
+    auto only = std::string{};
     auto samples_override = std::size_t{0};
     for (int index = 1; index < argc; ++index) {
         const auto argument = std::string_view{argv[index]};
@@ -1522,6 +2425,15 @@ Config parse_arguments(int argc, char **argv) {
                 throw std::runtime_error("--output requires a path");
             }
             output = argv[index];
+        } else if (argument == "--only") {
+            if (++index >= argc) {
+                throw std::runtime_error("--only requires a value");
+            }
+            only = argv[index];
+            if (only != "projected-edges" &&
+                only != "charge-scaling") {
+                throw std::runtime_error("unknown --only value: " + only);
+            }
         } else if (argument == "--samples") {
             if (++index >= argc) {
                 throw std::runtime_error("--samples requires a value");
@@ -1533,7 +2445,9 @@ Config parse_arguments(int argc, char **argv) {
         } else if (argument == "--help" || argument == "-h") {
             std::cout
                 << "Usage: fermisimplex_performance_benchmark "
-                   "[--preset quick|ci|full] [--samples N] [--output PATH]\n";
+                   "[--preset quick|ci|full] "
+                   "[--only projected-edges|charge-scaling] "
+                   "[--samples N] [--output PATH]\n";
             std::exit(0);
         } else {
             throw std::runtime_error("unknown argument: " + std::string(argument));
@@ -1541,6 +2455,14 @@ Config parse_arguments(int argc, char **argv) {
     }
     auto config = preset(std::move(preset_name));
     config.output = std::move(output);
+    config.only = std::move(only);
+    if (config.only == "charge-scaling") {
+        config.matrix_sizes = {60, 96, 128, 192, 256};
+        config.simplex_matrix_sizes = config.matrix_sizes;
+    } else if (config.only == "projected-edges") {
+        config.matrix_sizes = {60};
+        config.simplex_matrix_sizes = config.matrix_sizes;
+    }
     if (samples_override != 0) {
         config.samples = samples_override;
     }
@@ -1564,6 +2486,45 @@ std::vector<Result> run_benchmarks(const Config &config) {
     warm_up(config);
     auto results = std::vector<Result>{};
     auto lapack_baselines = std::vector<std::pair<std::size_t, double>>{};
+    if (config.only == "projected-edges") {
+        constexpr auto ndof = std::size_t{60};
+        const auto reused_lapack_ns = benchmark_reused_lapack(
+            ndof, config, results
+        );
+        const auto lapack_ns = benchmark_vertex_pipeline(
+            ndof, config, reused_lapack_ns, results
+        );
+        benchmark_charge_total(ndof, config, lapack_ns, results);
+        benchmark_adaptive_charge_total(ndof, config, lapack_ns, results);
+        benchmark_adaptive_charge_phases(ndof, config, lapack_ns, results);
+        benchmark_simplex_pipeline(ndof, config, lapack_ns, results);
+        benchmark_projected_error(config, lapack_ns, results);
+        return results;
+    }
+    if (config.only == "charge-scaling") {
+        auto scaling_baselines = std::vector<std::pair<std::size_t, double>>{};
+        for (const auto ndof : config.matrix_sizes) {
+            const auto reused_lapack_ns = benchmark_reused_lapack(
+                ndof, config, results
+            );
+            const auto lapack_ns = benchmark_vertex_pipeline(
+                ndof, config, reused_lapack_ns, results
+            );
+            scaling_baselines.emplace_back(ndof, lapack_ns);
+            benchmark_charge_total(ndof, config, lapack_ns, results);
+            benchmark_adaptive_charge_total(ndof, config, lapack_ns, results);
+            benchmark_adaptive_charge_phases(ndof, config, lapack_ns, results);
+            benchmark_projected_error_fraction_scaling(
+                ndof, config, lapack_ns, results
+            );
+        }
+        for (const auto [ndof, lapack_ns] : scaling_baselines) {
+            benchmark_simplex_pipeline(
+                ndof, config, lapack_ns, results
+            );
+        }
+        return results;
+    }
     for (const auto ndof : config.matrix_sizes) {
         const auto reused_lapack_ns = benchmark_reused_lapack(ndof, config, results);
         const auto lapack_ns = benchmark_vertex_pipeline(
@@ -1577,6 +2538,7 @@ std::vector<Result> run_benchmarks(const Config &config) {
         }
         benchmark_charge_total(ndof, config, lapack_ns, results);
         benchmark_adaptive_charge_total(ndof, config, lapack_ns, results);
+        benchmark_adaptive_charge_phases(ndof, config, lapack_ns, results);
         benchmark_fermi_surface_total(ndof, config, lapack_ns, results);
     }
 
@@ -1590,6 +2552,17 @@ std::vector<Result> run_benchmarks(const Config &config) {
         }
         benchmark_simplex_pipeline(
             ndof, config, baseline->second, results
+        );
+    }
+
+    constexpr auto projected_error_ndof = std::size_t{60};
+    const auto projected_error_baseline = std::find_if(
+        lapack_baselines.begin(), lapack_baselines.end(),
+        [](const auto &entry) { return entry.first == projected_error_ndof; }
+    );
+    if (projected_error_baseline != lapack_baselines.end()) {
+        benchmark_projected_error(
+            config, projected_error_baseline->second, results
         );
     }
 

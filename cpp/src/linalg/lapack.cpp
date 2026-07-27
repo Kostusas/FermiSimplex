@@ -10,6 +10,10 @@
 #define FERMISIMPLEX_LAPACK_ZHEEVD zheevd_
 #endif
 
+#ifndef FERMISIMPLEX_LAPACK_ZGESVD
+#define FERMISIMPLEX_LAPACK_ZGESVD zgesvd_
+#endif
+
 #ifndef FERMISIMPLEX_LAPACK_ZPOTRF
 #define FERMISIMPLEX_LAPACK_ZPOTRF zpotrf_
 #endif
@@ -28,6 +32,24 @@ void FERMISIMPLEX_LAPACK_ZHEEVD(
     const int *lrwork,
     int *iwork,
     const int *liwork,
+    int *info
+);
+
+void FERMISIMPLEX_LAPACK_ZGESVD(
+    const char *jobu,
+    const char *jobvt,
+    const int *m,
+    const int *n,
+    std::complex<double> *a,
+    const int *lda,
+    double *s,
+    std::complex<double> *u,
+    const int *ldu,
+    std::complex<double> *vt,
+    const int *ldvt,
+    std::complex<double> *work,
+    const int *lwork,
+    double *rwork,
     int *info
 );
 
@@ -158,6 +180,91 @@ void diagonalize_hermitian_in_place(
     if (info != 0) {
         throw std::runtime_error(prefix + "zheevd failed with info=" + std::to_string(info));
     }
+}
+
+void singular_value_decompose_in_place(
+    std::vector<Complex> &matrix,
+    std::vector<double> &singular_values,
+    std::vector<Complex> &right_adjoint,
+    size_t rows,
+    size_t columns,
+    const char *context
+) {
+    const auto prefix = error_prefix(context);
+    if (rows != 0 && (
+        matrix.size() / rows != columns ||
+        matrix.size() != rows * columns
+    )) {
+        throw std::runtime_error(prefix + "matrix shape mismatch");
+    }
+    const auto minimum = std::min(rows, columns);
+    singular_values.resize(minimum);
+    right_adjoint.resize(minimum * columns);
+    if (minimum == 0) {
+        matrix.clear();
+        return;
+    }
+
+    const char thin_vectors = 'S';
+    const auto m = lapack_dimension(rows);
+    const auto n = lapack_dimension(columns);
+    const auto lda = std::max(1, m);
+    const auto ldu = std::max(1, m);
+    const auto ldvt = std::max(1, lapack_dimension(minimum));
+    auto left = std::vector<Complex>(rows * minimum);
+    auto rwork = std::vector<double>(5 * minimum);
+    auto lwork = -1;
+    Complex work_query = 0.0;
+    auto info = 0;
+    FERMISIMPLEX_LAPACK_ZGESVD(
+        &thin_vectors,
+        &thin_vectors,
+        &m,
+        &n,
+        matrix.data(),
+        &lda,
+        singular_values.data(),
+        left.data(),
+        &ldu,
+        right_adjoint.data(),
+        &ldvt,
+        &work_query,
+        &lwork,
+        rwork.data(),
+        &info
+    );
+    if (info != 0) {
+        throw std::runtime_error(
+            prefix + "zgesvd workspace query failed with info=" +
+            std::to_string(info)
+        );
+    }
+
+    lwork = workspace_size(std::real(work_query), prefix);
+    auto work = std::vector<Complex>(static_cast<size_t>(lwork));
+    FERMISIMPLEX_LAPACK_ZGESVD(
+        &thin_vectors,
+        &thin_vectors,
+        &m,
+        &n,
+        matrix.data(),
+        &lda,
+        singular_values.data(),
+        left.data(),
+        &ldu,
+        right_adjoint.data(),
+        &ldvt,
+        work.data(),
+        &lwork,
+        rwork.data(),
+        &info
+    );
+    if (info != 0) {
+        throw std::runtime_error(
+            prefix + "zgesvd failed with info=" + std::to_string(info)
+        );
+    }
+    matrix = std::move(left);
 }
 
 }  // namespace fermisimplex::linalg

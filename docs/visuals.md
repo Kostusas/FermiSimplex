@@ -20,3 +20,32 @@ two-band example uses a conservative Fourier triangle-inequality bound.
 
 Only the optimized GIF and PNG under `docs/assets/` are committed. Temporary
 rendering data belongs under the ignored `docs/generated/` directory.
+
+## Presentation showcase
+
+The [visual Python tour][showcase] uses one quick-start plot and three
+additional animations:
+
+- `showcase_graphene_2d.png` is the direct output of the compact graphene
+  walkthrough;
+- `showcase_adaptive_2d.gif` retains every sampled vertex while asymmetric
+  density-wave pockets and a tiny Lifshitz pocket sharpen over successive
+  resolutions;
+- `showcase_multiband_2d.gif` applies the same process to two-band Rashba and
+  three-orbital Kagome Hamiltonians;
+- `showcase_noble_metal_3d.gif` loops through adaptive refinement and a full
+  orbit of an fcc-like noble-metal surface with diagonal necks and open face
+  directions.
+
+Regenerate them with
+
+```bash
+pixi run python -m docs.tools.generate_showcase_assets
+```
+
+The colored surface cells and callback locations come from the public Python
+API. The pale 2D sampling triangulation is reconstructed from the cumulative
+callback coordinates only to make their adaptive spatial distribution clear.
+
+
+[showcase]: https://github.com/Kostusas/FermiSimplex/blob/main/docs/showcase.md

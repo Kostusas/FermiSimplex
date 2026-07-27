@@ -15,15 +15,20 @@ this simplex, or should we look more closely?*
 
 ![Adaptive Fermi-surface refinement](docs/assets/fermi_surface_refinement.gif)
 
-- 🛡️ **Occupation certificates** prove gapped simplices and rigorous charge
-  bounds from vertex eigensystems and a user-supplied curvature bound.
+See the [visual Python tour][visual-tour] for a presentation-ready
+introduction with real adaptive sampling traces, multiband examples, and a
+rotating noble-metal-inspired three-dimensional surface.
+
+- 🛡️ **Gapped-region proofs** combine cached eigensystems with rigorous spectral
+  bounds to exclude a Fermi-level crossing throughout a simplex and to bound
+  the remaining charge.
 - ⚡ **Adaptive sampling**, built on
   [AdaptiveSimplex](https://gitlab.kwant-project.org/qt/adaptivesimplex),
   concentrates diagonalizations near unresolved Fermi surfaces instead of
   refining the entire Brillouin zone uniformly.
-- 🚀 **Efficient by design:** adaptive refinement, shared spectral caching, and
-  low-level C++20/BLAS/LAPACK kernels reduce redundant work, memory use, and
-  runtime overhead.
+- 🚀 **Numerical efficiency by design:** adaptive refinement, shared spectral
+  caching, and the compiled numerical core avoid repeated work as the Fermi
+  surface becomes progressively sharper.
 - 🎯 **Projected charge estimates** compare sampled projected eigenvalues with
   vertex-linear interpolation only in the bands whose occupation is still
   ambiguous.
@@ -123,7 +128,7 @@ Density matrices currently use adaptive estimates instead.
 
 The guarantee assumes a valid `curvature_bound`. Omitting it, `None`, and
 `0.0` all assert zero curvature; none disables certification. See the
-[mathematics guide](docs/mathematics.md) for the proof and error bounds.
+[mathematics guide][mathematics] for the proof and error bounds.
 
 ## API at a glance
 
@@ -144,10 +149,11 @@ them—there is no separate options object. Charge calculations default to
 refinement intrinsically; positive depths are intended for explicit
 diagnostic comparisons.
 
-See the runnable [quick start](examples/quick_start.py) and
-[two-band plotting example](examples/fermi_surface.py), the
-[visual-generation notes](docs/visuals.md), and the
-[build and architecture guide](docs/development.md).
+See the [visual Python tour][visual-tour], runnable
+[quick start][quick-start], and
+[two-band plotting example][fermi-example], the
+[visual-generation notes][visuals], and the
+[build and architecture guide][development].
 
 ## Development
 
@@ -161,4 +167,13 @@ pixi run test
 
 This builds the standalone C++ library, verifies an installed downstream CMake
 consumer, rebuilds the Python extension, and runs the Python tests. The dense
-60-band stress case lives in [benchmarks/fermi_surface_60.py](benchmarks/fermi_surface_60.py).
+60-band stress case lives in [benchmarks/fermi_surface_60.py][stress-benchmark].
+
+
+[visual-tour]: https://github.com/Kostusas/FermiSimplex/blob/main/docs/showcase.md
+[mathematics]: https://github.com/Kostusas/FermiSimplex/blob/main/docs/mathematics.md
+[quick-start]: https://github.com/Kostusas/FermiSimplex/blob/main/examples/quick_start.py
+[fermi-example]: https://github.com/Kostusas/FermiSimplex/blob/main/examples/fermi_surface.py
+[visuals]: https://github.com/Kostusas/FermiSimplex/blob/main/docs/visuals.md
+[development]: https://github.com/Kostusas/FermiSimplex/blob/main/docs/development.md
+[stress-benchmark]: https://github.com/Kostusas/FermiSimplex/blob/main/benchmarks/fermi_surface_60.py

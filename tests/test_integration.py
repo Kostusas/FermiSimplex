@@ -15,7 +15,7 @@ from .helpers import constant_insulator, dense_reference, dimerized_chain
         ({"target_error": np.inf}, "target_error"),
         ({"target_error": np.nan}, "target_error"),
         ({"target_error": 1.0, "max_refinements": -2}, "max_refinements"),
-        ({"target_error": 1.0, "preview_depth": 0}, "preview_depth"),
+        ({"target_error": 1.0, "preview_depth": -1}, "preview_depth"),
         (
             {"target_error": 1.0, "min_refinement_batch_size": 0},
             "min_refinement_batch_size",
@@ -50,6 +50,18 @@ def test_integration_requires_a_finite_chemical_potential(mu):
             lattice_vectors=[(0,)],
             target_error=1.0,
             max_refinements=0,
+        )
+
+
+def test_density_matrix_requires_a_positive_preview_depth():
+    mesh = SpectralMesh(constant_insulator(1))
+
+    with pytest.raises(ValueError, match="preview_depth"):
+        mesh.integrate_density_matrix(
+            mu=0.0,
+            lattice_vectors=[(0,)],
+            target_error=1.0,
+            preview_depth=0,
         )
 
 

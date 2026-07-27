@@ -256,54 +256,117 @@ if the occupation remains ambiguous.
 
 ## The projected charge estimator
 
-Only bands $J=\{L,\ldots,U-1\}$ can change the local occupation. The estimator
-chooses a vertex whose ambiguous block is well isolated and fixes its
-eigenvectors $V_J$. At every edge midpoint and at the simplex barycenter it
-samples
+Let the occupation certificate select exactly the half-open band interval
+$J=[L,U)$, with width $m=U-L$. No neighboring guard bands are added. At vertex
+$k_i$, write the selected eigenvalues as
 
 $$
-R_J(k)=V_J^\dagger
-\left[H(k)-H_{\mathrm{lin}}(k)\right]V_J.
+\varepsilon_{i,r}=\varepsilon_{L+r}(k_i),
+\qquad r=0,\ldots,m-1,
 $$
 
-It records the largest sampled shifts in each direction,
+and collect their orthonormal eigenvectors in the frame
+$V_i\in\mathbb C^{N\times m}$.
+
+At the simplex barycenter $k_c$, compute the complete ordered spectrum using
+an eigenvalues-only Hermitian solve,
 
 $$
-\rho_\uparrow=\max_k\max(0,\lambda_{\max}(R_J(k))),
+\eta_{c,0}\le\cdots\le\eta_{c,N-1},
+\qquad \theta_{c,r}=\eta_{c,L+r}.
+$$
+
+For the midpoint of edge $(i,j)$, compute the principal-angle SVD
+
+$$
+V_i^\dagger V_j=A\Sigma C^\dagger
+$$
+
+and use the aligned midpoint frame
+
+$$
+Q_{ij}=(V_iA+V_jC)(2I+2\Sigma)^{-1/2}.
+$$
+
+This construction depends only on the endpoint subspaces, not on phase or
+unitary gauge choices within their selected frames.
+
+At each edge midpoint, diagonalize only the projected matrix
+
+$$
+H_{ij}^{\mathrm{proj}}=Q_{ij}^\dagger H(k_{ij})Q_{ij}
+$$
+
+for its $m$ ordered eigenvalues $\theta_{ij,r}$. Thus the center is exact at
+its sampled point while the edges use $m$-dimensional Rayleigh--Ritz values.
+Compare both kinds of ordered values with the vertex-linear band interpolation
+
+$$
+\ell_{p,r}=\sum_i\lambda_i(k_p)\varepsilon_{i,r},
 \qquad
-\rho_\downarrow=\max_k\max(0,-\lambda_{\min}(R_J(k))).
+\delta_{p,r}=\theta_{p,r}-\ell_{p,r}.
 $$
 
-Because the residual is **actual minus linear**, the asymmetric thresholds are
+The directional estimates are
 
 $$
-\boxed{\mu_{\mathrm{low}}=\mu-\rho_\uparrow},
+\rho_+=\max_{p,r}[\delta_{p,r}]_+,
 \qquad
-\boxed{\mu_{\mathrm{high}}=\mu+\rho_\downarrow}.
+\rho_-=\max_{p,r}[-\delta_{p,r}]_+.
 $$
 
-A positive residual raises actual energies and reduces occupation; a negative
-residual lowers them and increases occupation. The local shell estimate is
+The probes are the barycenter and every edge midpoint, after removing
+duplicates: one point in 1D, the center plus three edges in 2D, and the center
+plus six edges in 3D. Edge midpoints are mathematically natural because the
+error of scalar linear interpolation of a quadratic along an edge is
+proportional to $t(1-t)$ and therefore has its largest magnitude at the
+midpoint. The edge midpoints together with the vertices are the standard
+quadratic interpolation nodes. The barycenter adds a symmetric interior
+probe, although the estimator does not construct a quadratic interpolant.
+
+A positive difference raises the sampled energy relative to its
+linear interpolation and can reduce occupation; a negative difference can
+increase it. The existing occupation-volume shell therefore uses
 
 $$
-E_{\mathrm{proj},S}=
-\sum_{n=L}^{U-1}
-\left[
-V_{n,S}(\mu+\rho_\downarrow)
--V_{n,S}(\mu-\rho_\uparrow)
-\right]_+,
+E_{\mathrm{proj},S}=\sum_{n=L}^{U-1}
+\left[V_{n,S}(\mu+\rho_-)-V_{n,S}(\mu-\rho_+)\right]_+,
 $$
 
 where $V_{n,S}(a)$ is the occupied cut volume of interpolated band $n$ at
 level $a$.
 
-This is a sampled, projected estimate—not a proof. It can miss unsampled
-residual extrema and coupling outside the fixed ambiguous subspace.
+This is a sampled estimate—not a proof. It can miss unsampled extrema, and the
+edge values can miss errors caused by components outside their projected
+subspaces. The exact center also removes any accidental inflation that a
+projected center's Ritz error could have supplied. Consequently,
+`target_reached` means that the sampled stopping criterion was met; it is not a
+continuous interpolation-error certificate.
 
-## Adaptive preview and stopping
+## Adaptive stopping and optional preview
 
-For an active simplex $S$, let $\mathcal P_p(S)$ be its depth-$p$ preview
-leaves. The coarse value, preview value, and correction are
+Production charge calculations use `preview_depth=0`. In that case the
+AdaptiveSimplex preview value is the coarse value and its correction vanishes:
+
+$$
+Q_S^{\mathrm{preview}}=Q_S^{\mathrm{coarse}}=\widetilde Q_S,
+\qquad \Delta Q_S=0.
+$$
+
+The local and global stopping estimates are therefore
+
+$$
+\boxed{E_S=E_{\mathrm{proj},S}},
+\qquad
+E_{\mathrm{stop}}=\sum_S E_S.
+$$
+
+The same local projected-error estimate prioritizes refinement. This avoids
+an additional refined evaluation because the charge rule already measures its
+own sampled interpolation error.
+
+A positive `preview_depth=p` remains available for tests and diagnostics. Let
+$\mathcal P_p(S)$ be its depth-$p$ preview leaves. Then
 
 $$
 Q_S^{\mathrm{coarse}}=\widetilde Q_S,
@@ -321,11 +384,11 @@ $$
 +|\Delta Q_S|},
 $$
 
-and the global estimate is $E_{\mathrm{stop}}=\sum_S E_S$. The returned charge
-is the preview value, and the same local quantity prioritizes refinement.
-`stats.target_reached` only says that this estimated error met the target.
+The returned charge is the preview value. With the production depth zero this
+is exactly the current-mesh charge. `stats.target_reached` only says that the
+sampled estimate met the target.
 
-Increasing $M$ increases $\epsilon_S$, which can widen $[L,U]$, enlarge both
+Increasing $M$ increases $\epsilon_S$, which can widen $[L,U)$, enlarge both
 reported errors, and require more refinement. Refinement reduces the curvature
 term quadratically through $D_S^2$.
 

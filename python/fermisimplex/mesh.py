@@ -109,7 +109,7 @@ def _adaptive_parameters(
     return (
         _nonnegative_float(target_error, "target_error"),
         refinement_limit,
-        _positive_integer(preview_depth, "preview_depth"),
+        _nonnegative_integer(preview_depth, "preview_depth"),
         minimum_batch,
         maximum_batch,
     )
@@ -198,7 +198,7 @@ class SpectralMesh:
         target_error: float,
         curvature_bound: float | None = None,
         max_refinements: int | None = None,
-        preview_depth: int = 1,
+        preview_depth: int = 0,
         min_refinement_batch_size: int = 1,
         max_refinement_batch_size: int = 100,
     ) -> ChargeResult:
@@ -217,7 +217,9 @@ class SpectralMesh:
         max_refinements
             Maximum number of simplex refinements, or ``None`` for no limit.
         preview_depth
-            Refinement depth used to estimate each simplex correction.
+            Optional refinement depth used to add a conventional preview
+            correction. The default ``0`` uses only the intrinsic sampled
+            projected-error estimate.
         min_refinement_batch_size, max_refinement_batch_size
             Bounds on the number of simplices refined in one adaptive step.
 
@@ -245,17 +247,16 @@ class SpectralMesh:
         *,
         mu: float,
         target_error: float,
-        preview_depth: int = 1,
+        preview_depth: int = 0,
         curvature_bound: float | None = None,
     ) -> ChargeResult:
         """Estimate charge without committing further mesh refinement.
 
-        Preview vertices may still be evaluated and added to the shared
-        eigensystem cache.
+        With the default ``preview_depth=0``, only active-mesh vertices are
+        evaluated. A positive diagnostic depth may also evaluate preview
+        vertices and add them to the shared eigensystem cache.
         """
         depth = _nonnegative_integer(preview_depth, "preview_depth")
-        if depth == 0:
-            raise ValueError("preview_depth must be positive")
         return self._native.estimate_charge_on_current_mesh(
             _finite_float(mu, "mu"),
             _nonnegative_float(target_error, "target_error"),
@@ -301,7 +302,7 @@ class SpectralMesh:
         adaptive = _adaptive_parameters(
             target_error,
             max_refinements,
-            preview_depth,
+            _positive_integer(preview_depth, "preview_depth"),
             min_refinement_batch_size,
             max_refinement_batch_size,
         )

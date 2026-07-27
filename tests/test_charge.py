@@ -12,7 +12,6 @@ def _adaptive_arguments(target_error: float = 1e-12) -> dict[str, object]:
     return {
         "target_error": target_error,
         "max_refinements": 0,
-        "preview_depth": 1,
     }
 
 
@@ -31,6 +30,7 @@ def test_integrates_certified_charge_on_a_tight_binding_model():
     assert result.dcharge_dmu == pytest.approx(0.0)
     assert result.stats.target_reached
     assert result.stats.refinements == 0
+    assert result.stats.evaluations == result.stats.active_vertices
 
 
 def test_evaluates_charge_without_refining_the_mesh():
@@ -50,15 +50,15 @@ def test_current_mesh_charge_requires_a_finite_nonnegative_target(target_error):
         mesh.estimate_charge_on_current_mesh(mu=0.0, target_error=target_error)
 
 
-def test_current_mesh_charge_requires_a_positive_preview_depth():
+def test_current_mesh_charge_uses_no_preview_by_default():
     mesh = SpectralMesh(constant_insulator(1))
 
-    with pytest.raises(ValueError, match="preview_depth"):
-        mesh.estimate_charge_on_current_mesh(
-            mu=0.0,
-            target_error=1.0,
-            preview_depth=0,
-        )
+    result = mesh.estimate_charge_on_current_mesh(
+        mu=0.0,
+        target_error=1.0,
+    )
+
+    assert result.stats.evaluations == result.stats.active_vertices
 
 
 def test_callable_hamiltonian_is_evaluated_with_separate_coordinates():

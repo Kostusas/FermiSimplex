@@ -34,6 +34,14 @@ build/cpp-benchmarks/cpp/fermisimplex_performance_benchmark \
   --output result.json
 ```
 
+Use the focused larger-matrix charge benchmark when only end-to-end charge
+scaling and its phase breakdown are needed:
+
+```sh
+build/cpp-benchmarks/cpp/fermisimplex_performance_benchmark \
+  --preset ci --only charge-scaling --output charge-scaling.json
+```
+
 Available presets are `quick`, `ci`, and `full`. Use `quick` only as a smoke
 test. The `ci` preset has stable cases and sample counts intended for version
 tracking. `full` adds larger matrices and more tight-binding terms.
@@ -53,21 +61,26 @@ excludes `SpectralMesh` construction. The target is therefore stated directly:
 `total_lapack_equivalents_per_vertex <= 2`.
 
 The secondary metric divides the same total time by actual simplex visits.
-For charge, visits include coarse and preview contributions. For Fermi
-surfaces, visits count every classified frontier simplex. Neither metric uses
-the final active-simplex count as a proxy for work.
+Production charge cases use preview depth zero, so each estimate visits an
+active simplex once. Explicit diagnostic cases with positive preview depth
+also count preview contributions. For Fermi surfaces, visits count every
+classified frontier simplex. Neither metric uses the final active-simplex
+count as a proxy for work.
 
 The terminal summary puts the primary metric first, reports the measured
 LAPACK time beside it, and marks whether each case meets the two-solve target.
-It shows per-simplex timings only as a secondary diagnostic for the largest
-simplex matrix size in the selected preset.
+It also prints per-vertex pipeline and per-simplex phase scaling across every
+matrix size in the selected preset. Visit counts and refinement diagnostics
+are shown separately for the largest simplex matrix size.
 
 The end-to-end workloads are:
 
-- `charge_current_mesh_total`: one complete charge estimate on a fixed 2D
-  mesh with preview depth one;
-- `charge_adaptive_total`: converged adaptive charge integration of a crossing
-  dense model;
+- `charge_current_mesh_total`: one complete previewless charge estimate on a
+  fixed level-2 mesh of the nonlinear crossing model. Every active simplex is
+  certificate-selected for projected-error estimation, so this includes the
+  exact center solve, edge projections, and occupation-shell conversion;
+- `charge_adaptive_total`: converged previewless integration of the same
+  crossing model from level 1 to the requested sampled stopping error;
 - `fermi_surface_total`: adaptive 2D Fermi-surface refinement of a crossing
   dense model down to the requested feature size.
 
@@ -80,11 +93,33 @@ Supporting diagnostic measurements report:
   per-call workspace query and allocations;
 - `lapack_reference_best`: the faster of those two measured LAPACK paths for
   the current matrix size and LAPACK provider;
-- model evaluation, Hamiltonian validation, spectrum construction, and cache
-  insertion per vertex;
-- certification, charge integration, and Fermi classification per simplex;
+- cumulative vertex-pipeline stages: model evaluation, evaluated-and-validated
+  Hamiltonian, complete eigensystem, and eigensystem-cache insertion. Subtract
+  adjacent stages when an isolated incremental cost is needed;
+- direct per-simplex timings for certification, the eigenvalues-only exact
+  center, complete sampled projected error, occupation-shell conversion,
+  ordinary band integration, and complete charge integration, using the same
+  nonlinear crossing model and curvature as the overall charge workload;
+- a profiled adaptive charge run that records vertex eigensystems,
+  certificates, sampled projected error, occupation-shell conversion, band
+  integration, and adaptive-framework time over the actual varying-width
+  simplex visits. The terminal table also reports the maximum certificate-
+  selected width encountered;
+- Fermi classification per simplex;
 - controlled root-mesh evaluation and classification with deterministic
-  vertex and simplex counts.
+  vertex and simplex counts;
+- the complete 3D projected-error estimator for a 60-band Hamiltonian and
+  selected widths $m=1,2,4,6,8,10,12,16,32,60$, including the eigenvalues-only
+  exact center and all six principal-angle projected edge-midpoint probes.
+  `--only projected-edges` runs just this focused diagnostic.
+
+Within one charge integration, projected edge estimates are memoized by the
+two endpoint vertex IDs and the selected band interval. Neighboring simplices
+therefore reuse a shared edge calculation. When the selected interval is the
+full $N$-band space, the edge projection is unitarily equivalent to the full
+Hamiltonian, so the implementation skips frame construction and directly
+performs an eigenvalues-only $N\times N$ solve. Both paths are mathematically
+identical to the estimator described in [Mathematics](mathematics.md).
 
 Diagnostic results include `lapack_equivalents_per_operation`, normalized to
 `lapack_reference_best`. End-to-end results additionally include total time,
@@ -94,6 +129,7 @@ the output because small-matrix behavior can depend on the LAPACK provider.
 
 The JSON schema uses stable benchmark names and records the commit, dirty-tree
 state, compiler, build type, system, LAPACK linkage, thread settings, counts,
+charge stopping and certified errors, certificate-status counts, target status,
 median, range, and median absolute deviation. Compare
 `median_ns_per_operation` only between runs on the same runner. The
 LAPACK-equivalent ratios are more portable, but still require the same LAPACK
@@ -110,7 +146,8 @@ For each revision:
 1. build in `Release` mode;
 2. run `fermisimplex_run_performance_benchmark`;
 3. retain the JSON file as a CI artifact;
-4. compare cases by the tuple `(name, ndim, ndof, hopping_terms, root_level)`;
+4. compare cases by the tuple
+   `(name, ndim, ndof, hopping_terms, root_level, target_bands)`;
 5. graph `total_lapack_equivalents_per_vertex` for end-to-end workloads;
 6. use per-simplex and phase timings to diagnose changes;
 7. flag a regression only when it exceeds both a relative threshold and the

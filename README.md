@@ -24,8 +24,9 @@ this simplex, or should we look more closely?*
 - 🚀 **Efficient by design:** adaptive refinement, shared spectral caching, and
   low-level C++20/BLAS/LAPACK kernels reduce redundant work, memory use, and
   runtime overhead.
-- 🎯 **Projected charge estimates** inspect the nonlinear Hamiltonian residual
-  only in the bands whose occupation is still ambiguous.
+- 🎯 **Projected charge estimates** compare sampled projected eigenvalues with
+  vertex-linear interpolation only in the bands whose occupation is still
+  ambiguous.
 - 🧩 **Python and C++** share one numerical core; models can be dense callables
   or translation-invariant tight-binding Hamiltonians.
 
@@ -138,7 +139,10 @@ The guarantee assumes a valid `curvature_bound`. Omitting it, `None`, and
 
 Adaptive controls such as `target_error`, `max_refinements`, and
 `preview_depth` are ordinary keyword arguments on the calculation that uses
-them—there is no separate options object.
+them—there is no separate options object. Charge calculations default to
+`preview_depth=0` because their sampled projected-error estimate drives
+refinement intrinsically; positive depths are intended for explicit
+diagnostic comparisons.
 
 See the runnable [quick start](examples/quick_start.py) and
 [two-band plotting example](examples/fermi_surface.py), the

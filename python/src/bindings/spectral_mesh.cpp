@@ -331,7 +331,7 @@ void bind_spectral_mesh(nb::module_ &module) {
             },
             "mu"_a,
             "target_error"_a,
-            "preview_depth"_a = 1,
+            "preview_depth"_a = 0,
             "curvature_bound"_a = 0.0,
             nb::call_guard<nb::gil_scoped_release>()
         )

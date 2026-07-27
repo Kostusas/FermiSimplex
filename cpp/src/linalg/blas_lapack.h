@@ -62,4 +62,13 @@ void diagonalize_hermitian_in_place(
     const char *context
 );
 
+void singular_value_decompose_in_place(
+    std::vector<Complex> &matrix,
+    std::vector<double> &singular_values,
+    std::vector<Complex> &right_adjoint,
+    size_t rows,
+    size_t columns,
+    const char *context
+);
+
 }  // namespace fermisimplex::linalg

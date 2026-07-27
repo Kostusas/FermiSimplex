@@ -1,4 +1,4 @@
-# FermiSimplex
+# Adaptive Fermi surfaces
 
 > Adaptive spectral calculations that spend work where the physics can change.
 
@@ -160,7 +160,7 @@ The generator uses the public Python API and writes the presentation assets to
 mkdir -p docs/generated
 pandoc docs/showcase.md --standalone --embed-resources \
   --resource-path=docs --css docs/assets/showcase.css \
-  --metadata title="FermiSimplex — visual tour" \
+  --metadata pagetitle="FermiSimplex — visual tour" \
   -o docs/generated/showcase-preview.html
 ```
 

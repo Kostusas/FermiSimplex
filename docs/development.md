@@ -51,9 +51,11 @@ pixi run ci-package
 The optional plotting dependencies are declared as `examples` extras in
 `pyproject.toml`.
 
-Both GitLab CI and GitHub Actions run the locked Pixi tasks above. The provider
-files contain runner and artifact configuration only; test and benchmark
-commands stay in `pixi.toml`.
+GitLab CI and GitHub Actions independently run the same locked test, package,
+benchmark, and wheel-smoke checks; mirroring does not suppress either pipeline.
+The provider files contain only runner and artifact configuration, while the
+shared commands stay in `pixi.toml`. GitHub covers Linux, macOS, and Windows;
+the available GitLab runner covers Linux AMD64.
 
 See [Release process](release.md) for wheel builds, TestPyPI, and tag-based
 publishing.

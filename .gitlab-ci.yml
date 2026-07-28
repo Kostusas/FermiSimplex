@@ -2,6 +2,12 @@ stages:
   - test
   - verify
 
+workflow:
+  rules:
+    - if: '$CI_PIPELINE_SOURCE == "merge_request_event"'
+    - if: '$CI_COMMIT_BRANCH == $CI_DEFAULT_BRANCH'
+    - when: never
+
 variables:
   PIXI_FROZEN: "true"
   XDG_CACHE_HOME: "$CI_PROJECT_DIR/.cache"
@@ -48,6 +54,34 @@ source-distribution:
     name: "fermisimplex-sdist-$CI_COMMIT_SHORT_SHA"
     paths:
       - dist/*.tar.gz
+    expire_in: 30 days
+
+wheel-linux-x86_64:
+  stage: verify
+  image: python:3.13-slim
+  services:
+    - name: docker:27-dind
+      alias: docker
+      command:
+        - "--tls=false"
+  variables:
+    DOCKER_HOST: "tcp://docker:2375"
+    DOCKER_TLS_CERTDIR: ""
+    CIBW_ARCHS: "x86_64"
+    CIBW_BUILD: "cp313-*"
+  needs:
+    - job: source-distribution
+      artifacts: true
+  before_script:
+    - apt-get update
+    - apt-get install -y --no-install-recommends docker.io
+  script:
+    - python -m pip install --no-cache-dir cibuildwheel==4.1.1
+    - python -m cibuildwheel --platform linux --output-dir wheelhouse dist/*.tar.gz
+  artifacts:
+    name: "fermisimplex-wheel-linux-x86_64-$CI_COMMIT_SHORT_SHA"
+    paths:
+      - wheelhouse/*.whl
     expire_in: 30 days
 
 benchmark:

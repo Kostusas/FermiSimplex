@@ -12,9 +12,9 @@ Release tags use `vX.Y.Z`. The tag must match the version in `pyproject.toml`,
 ## Automation
 
 GitLab is the upstream repository. Its push mirror copies branches and tags to
-GitHub. Both providers run the same locked Pixi test and benchmark tasks.
-GitHub additionally builds portable Linux, macOS, and Windows wheels through
-the reusable distribution workflow.
+GitHub, and both providers independently run the same test, source-package,
+wheel-smoke, and benchmark checks. GitLab covers Linux AMD64; GitHub runs the
+same checks across its available Linux, macOS, and Windows runners.
 
 The GitHub release workflow has two entry points:
 

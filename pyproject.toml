@@ -59,6 +59,9 @@ sdist.include = [
     "CITATION.cff",
     "LICENSE",
 ]
+sdist.exclude = [
+    "docs/assets/**",
+]
 
 [tool.scikit-build.cmake.define]
 FERMISIMPLEX_BUILD_TESTING = "OFF"

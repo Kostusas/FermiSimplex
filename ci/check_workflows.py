@@ -10,9 +10,43 @@ WORKFLOWS = [
     ROOT / ".gitlab-ci.yml",
     *sorted((ROOT / ".github" / "workflows").glob("*.yml")),
 ]
+PIXI_VERSION = "v0.70.2"
+SHARED_TASKS = ("ci-test", "ci-package", "ci-benchmark")
 
 for path in WORKFLOWS:
     parsed = yaml.safe_load(path.read_text())
     if not isinstance(parsed, dict):
         raise SystemExit(f"{path.relative_to(ROOT)} is not a YAML mapping")
     print(f"parsed {path.relative_to(ROOT)}")
+
+gitlab = (ROOT / ".gitlab-ci.yml").read_text()
+github = "\n".join(
+    path.read_text() for path in sorted((ROOT / ".github" / "workflows").glob("*.yml"))
+)
+
+for task in SHARED_TASKS:
+    command = f"pixi run --frozen {task}"
+    for provider, workflows in (("GitLab", gitlab), ("GitHub", github)):
+        if command not in workflows:
+            raise SystemExit(f"{provider} CI does not run shared task: {command}")
+
+if f"/download/{PIXI_VERSION}/" not in gitlab:
+    raise SystemExit(f"GitLab CI does not install Pixi {PIXI_VERSION}")
+
+github_pixi_versions = [
+    line.split(":", 1)[1].strip()
+    for line in github.splitlines()
+    if line.strip().startswith("pixi-version:")
+]
+if not github_pixi_versions or any(
+    version != PIXI_VERSION for version in github_pixi_versions
+):
+    raise SystemExit(
+        f"every GitHub setup-pixi step must use pixi-version: {PIXI_VERSION}"
+    )
+
+for provider, workflows in (("GitLab", gitlab), ("GitHub", github)):
+    if "cp313-*" not in workflows or "cibuildwheel" not in workflows:
+        raise SystemExit(f"{provider} CI does not run the CPython 3.13 wheel smoke build")
+
+print("GitLab and GitHub CI share the same test, package, benchmark, and wheel checks")

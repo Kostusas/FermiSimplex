@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import sys
 from importlib.metadata import version
 from pathlib import Path
 
@@ -28,8 +29,13 @@ def test_installed_distribution_runs_a_native_surface_calculation():
     assert set(surface.cell_bands.tolist()) == {0, 1}
 
 
-def test_bundled_openblas_notice_is_installed():
+def test_bundled_openblas_notice_matches_platform_backend():
     package_dir = Path(fermisimplex.__file__).resolve().parent
     notice = package_dir / "licenses" / "scipy-openblas32.txt"
+
+    if sys.platform == "darwin":
+        assert not notice.exists()
+        return
+
     assert notice.is_file()
     assert "OpenBLAS" in notice.read_text()

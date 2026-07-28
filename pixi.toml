@@ -52,8 +52,10 @@ matplotlib = ">=3.8"
 [target.linux-64.dependencies]
 cxx-compiler = ">=1.11"
 
-[target.win-64.tasks]
-configure-cpp-tests = "cmake -S . -B build/cpp-tests -G Ninja -DFERMISIMPLEX_BUILD_PYTHON=OFF -DFERMISIMPLEX_INSTALL_CPP=ON -DBLA_VENDOR=Intel10_64_dyn"
+[target.win-64.dependencies]
+blas-devel = { version = "*", build = "*_openblas" }
+libblas = { version = "*", build = "*_openblas" }
+liblapack = { version = "*", build = "*_openblas" }
 
 [tasks]
 install-editable = { cmd = "python -m pip install -v --no-build-isolation -e . --config-settings=cmake.args=-DFETCHCONTENT_SOURCE_DIR_ADAPTIVESIMPLEX=$PIXI_PROJECT_ROOT/build/cpp-tests/_deps/adaptivesimplex-src", depends-on = ["configure-cpp-tests"] }

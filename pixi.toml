@@ -54,6 +54,7 @@ cxx-compiler = ">=1.11"
 
 [target.win-64.dependencies]
 blas-devel = { version = "*", build = "*_openblas" }
+cxx-compiler = ">=1.11"
 libblas = { version = "*", build = "*_openblas" }
 liblapack = { version = "*", build = "*_openblas" }
 

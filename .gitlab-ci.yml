@@ -47,22 +47,13 @@ tests:
 
 distributions-linux-x86_64:
   stage: verify
-  image: python:3.13-slim
-  services:
-    - name: docker:27-dind
-      alias: docker
-      command:
-        - "--tls=false"
+  image:
+    name: quay.io/pypa/manylinux_2_28_x86_64@sha256:a61875a2f84cab7df8de222ff12cabc08ff86eb4ad402ac90ba7bdaed9600cca
+    entrypoint: [""]
   variables:
-    DOCKER_HOST: "tcp://docker:2375"
-    DOCKER_TLS_CERTDIR: ""
-    CIBW_ARCHS: "x86_64"
-    CIBW_BUILD: "cp313-*"
     PIXI_HOME: "/tmp/fermisimplex-pixi-home"
     XDG_CACHE_HOME: "/tmp/fermisimplex-cache"
   before_script:
-    - apt-get update
-    - apt-get install -y --no-install-recommends ca-certificates curl docker.io
     - curl --fail --location --silent --show-error --output /tmp/pixi.tar.gz https://github.com/prefix-dev/pixi/releases/download/v0.70.2/pixi-x86_64-unknown-linux-musl.tar.gz
     - echo "9d0d72fc1fa1a8f87bfde943cf25d3575cb352cb516795d4dab21898bd98adea  /tmp/pixi.tar.gz" | sha256sum --check
     - tar --extract --gzip --file /tmp/pixi.tar.gz --directory /usr/local/bin
@@ -70,8 +61,11 @@ distributions-linux-x86_64:
     - pixi --version
   script:
     - pixi run --frozen ci-package
-    - python -m pip install --no-cache-dir cibuildwheel==4.1.1
-    - python -m cibuildwheel --platform linux --output-dir wheelhouse dist/*.tar.gz
+    - /opt/python/cp313-cp313/bin/python -m pip wheel --no-deps --wheel-dir built-wheel dist/*.tar.gz
+    - auditwheel repair --wheel-dir wheelhouse built-wheel/*.whl
+    - /opt/python/cp313-cp313/bin/python -m venv /tmp/fermisimplex-wheel-test
+    - /tmp/fermisimplex-wheel-test/bin/python -m pip install wheelhouse/*.whl "pytest>=8"
+    - /tmp/fermisimplex-wheel-test/bin/python -m pytest ci/test_wheel.py
 
 benchmark:
   extends: .default-pixi

@@ -57,7 +57,10 @@ The provider files contain only runner and artifact configuration, while the
 shared commands stay in `pixi.toml`. GitHub covers Linux, macOS, and Windows;
 the available GitLab runner covers Linux AMD64. GitLab validates the source
 archive and builds its wheel in one job so the wheel consumes that exact
-archive without relying on the server's restricted artifact uploads.
+archive without relying on the server's restricted artifact uploads. Its
+runner cannot launch nested Docker, so that job runs directly in the same
+pinned manylinux image used by cibuildwheel, repairs the wheel with
+`auditwheel`, and executes the same installed-wheel smoke test.
 
 See [Release process](release.md) for wheel builds, TestPyPI, and tag-based
 publishing.

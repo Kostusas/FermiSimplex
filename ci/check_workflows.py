@@ -45,8 +45,16 @@ if not github_pixi_versions or any(
         f"every GitHub setup-pixi step must use pixi-version: {PIXI_VERSION}"
     )
 
-for provider, workflows in (("GitLab", gitlab), ("GitHub", github)):
-    if "cp313-*" not in workflows or "cibuildwheel" not in workflows:
-        raise SystemExit(f"{provider} CI does not run the CPython 3.13 wheel smoke build")
+if "cp313-*" not in github or "cibuildwheel" not in github:
+    raise SystemExit("GitHub CI does not run the CPython 3.13 wheel smoke build")
 
-print("GitLab and GitHub CI share the same test, package, benchmark, and wheel checks")
+gitlab_wheel_markers = (
+    "/opt/python/cp313-cp313/bin/python",
+    "pip wheel",
+    "auditwheel repair",
+    "pytest ci/test_wheel.py",
+)
+if any(marker not in gitlab for marker in gitlab_wheel_markers):
+    raise SystemExit("GitLab CI does not run the CPython 3.13 wheel smoke build")
+
+print("GitLab and GitHub CI share equivalent test, package, benchmark, and wheel checks")

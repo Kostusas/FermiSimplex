@@ -29,14 +29,14 @@ option(
   "${FERMISIMPLEX_CPP_TOP_LEVEL}"
 )
 
-# Isolated Python builds use SciPy's redistributable OpenBLAS wheel. This gives
-# every platform the same LP64 BLAS/LAPACK ABI and supplies the runtime libraries
-# that are installed beside the extension. Standalone C++ builds keep using the
-# LAPACK provider selected by the host system.
+# Isolated Linux and Windows Python builds use SciPy's redistributable OpenBLAS
+# wheel. macOS uses the system Accelerate framework, which already provides the
+# required LP64 ABI without wheel-bundled runtime libraries. Standalone C++
+# builds keep using the LAPACK provider selected by the host system.
 set(_fs_blas_symbol_prefix "")
 set(FERMISIMPLEX_SCIPY_OPENBLAS_RUNTIME_LIBRARIES "" CACHE INTERNAL "" FORCE)
 set(FERMISIMPLEX_SCIPY_OPENBLAS_LICENSE "" CACHE INTERNAL "" FORCE)
-if(FERMISIMPLEX_BUILD_PYTHON)
+if(FERMISIMPLEX_BUILD_PYTHON AND NOT APPLE)
   find_package(Python COMPONENTS Interpreter REQUIRED)
   execute_process(
     COMMAND
@@ -142,30 +142,52 @@ function(_fermisimplex_find_fortran_symbol output check_name)
   endforeach()
 endfunction()
 
-_fermisimplex_find_fortran_symbol(
-  FERMISIMPLEX_LAPACK_ZHEEVD_SYMBOL LAPACK_ZHEEVD
-  ${_fs_blas_symbol_prefix}zheevd_ zheevd_ zheevd ZHEEVD
-)
-_fermisimplex_find_fortran_symbol(
-  FERMISIMPLEX_LAPACK_ZGESVD_SYMBOL LAPACK_ZGESVD
-  ${_fs_blas_symbol_prefix}zgesvd_ zgesvd_ zgesvd ZGESVD
-)
-_fermisimplex_find_fortran_symbol(
-  FERMISIMPLEX_LAPACK_ZPOTRF_SYMBOL LAPACK_ZPOTRF
-  ${_fs_blas_symbol_prefix}zpotrf_ zpotrf_ zpotrf ZPOTRF
-)
-_fermisimplex_find_fortran_symbol(
-  FERMISIMPLEX_BLAS_ZGEMM_SYMBOL BLAS_ZGEMM
-  ${_fs_blas_symbol_prefix}zgemm_ zgemm_ zgemm ZGEMM
-)
-_fermisimplex_find_fortran_symbol(
-  FERMISIMPLEX_BLAS_ZHER2K_SYMBOL BLAS_ZHER2K
-  ${_fs_blas_symbol_prefix}zher2k_ zher2k_ zher2k ZHER2K
-)
-_fermisimplex_find_fortran_symbol(
-  FERMISIMPLEX_BLAS_ZHEMM_SYMBOL BLAS_ZHEMM
-  ${_fs_blas_symbol_prefix}zhemm_ zhemm_ zhemm ZHEMM
-)
+if(_fs_blas_symbol_prefix)
+  # scipy-openblas32 deliberately exports this stable, prefixed Fortran ABI.
+  # Using the known names avoids unreliable try-link probes in isolated wheel
+  # build environments; the extension link still verifies every symbol.
+  set(FERMISIMPLEX_LAPACK_ZHEEVD_SYMBOL scipy_zheevd_)
+  set(FERMISIMPLEX_LAPACK_ZGESVD_SYMBOL scipy_zgesvd_)
+  set(FERMISIMPLEX_LAPACK_ZPOTRF_SYMBOL scipy_zpotrf_)
+  set(FERMISIMPLEX_BLAS_ZGEMM_SYMBOL scipy_zgemm_)
+  set(FERMISIMPLEX_BLAS_ZHER2K_SYMBOL scipy_zher2k_)
+  set(FERMISIMPLEX_BLAS_ZHEMM_SYMBOL scipy_zhemm_)
+elseif(APPLE)
+  # Accelerate exposes the conventional LP64 Fortran symbols. Older macOS
+  # SDKs can reject CMake's isolated symbol probes even though normal targets
+  # link successfully, so use the provider's documented ABI directly.
+  set(FERMISIMPLEX_LAPACK_ZHEEVD_SYMBOL zheevd_)
+  set(FERMISIMPLEX_LAPACK_ZGESVD_SYMBOL zgesvd_)
+  set(FERMISIMPLEX_LAPACK_ZPOTRF_SYMBOL zpotrf_)
+  set(FERMISIMPLEX_BLAS_ZGEMM_SYMBOL zgemm_)
+  set(FERMISIMPLEX_BLAS_ZHER2K_SYMBOL zher2k_)
+  set(FERMISIMPLEX_BLAS_ZHEMM_SYMBOL zhemm_)
+else()
+  _fermisimplex_find_fortran_symbol(
+    FERMISIMPLEX_LAPACK_ZHEEVD_SYMBOL LAPACK_ZHEEVD
+    zheevd_ zheevd ZHEEVD
+  )
+  _fermisimplex_find_fortran_symbol(
+    FERMISIMPLEX_LAPACK_ZGESVD_SYMBOL LAPACK_ZGESVD
+    zgesvd_ zgesvd ZGESVD
+  )
+  _fermisimplex_find_fortran_symbol(
+    FERMISIMPLEX_LAPACK_ZPOTRF_SYMBOL LAPACK_ZPOTRF
+    zpotrf_ zpotrf ZPOTRF
+  )
+  _fermisimplex_find_fortran_symbol(
+    FERMISIMPLEX_BLAS_ZGEMM_SYMBOL BLAS_ZGEMM
+    zgemm_ zgemm ZGEMM
+  )
+  _fermisimplex_find_fortran_symbol(
+    FERMISIMPLEX_BLAS_ZHER2K_SYMBOL BLAS_ZHER2K
+    zher2k_ zher2k ZHER2K
+  )
+  _fermisimplex_find_fortran_symbol(
+    FERMISIMPLEX_BLAS_ZHEMM_SYMBOL BLAS_ZHEMM
+    zhemm_ zhemm ZHEMM
+  )
+endif()
 set(CMAKE_REQUIRED_LIBRARIES "${_fs_check_required_libraries}")
 set(CMAKE_REQUIRED_LINK_OPTIONS "${_fs_check_required_link_options}")
 

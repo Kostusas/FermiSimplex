@@ -60,7 +60,18 @@ sdist.include = [
     "LICENSE",
 ]
 sdist.exclude = [
-    "docs/assets/**",
+    ".github/**",
+    ".gitlab-ci.yml",
+    "benchmarks/**",
+    "ci/check_metadata.py",
+    "ci/check_workflows.py",
+    "cpp/tests/**",
+    "cpp/tools/**",
+    "docs/**",
+    "examples/**",
+    "pixi.lock",
+    "pixi.toml",
+    "tests/**",
 ]
 
 [tool.scikit-build.cmake.define]
@@ -82,3 +93,8 @@ manylinux-x86_64-image = "manylinux_2_28"
 
 [tool.cibuildwheel.macos]
 environment = { MACOSX_DEPLOYMENT_TARGET = "11.0" }
+
+[tool.cibuildwheel.windows]
+# scipy-openblas32's DLL is deliberately installed beside the extension.
+# delvewheel does not search that already-bundled location during repair.
+repair-wheel-command = ""

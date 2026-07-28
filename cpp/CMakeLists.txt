@@ -29,7 +29,74 @@ option(
   "${FERMISIMPLEX_CPP_TOP_LEVEL}"
 )
 
-find_package(LAPACK REQUIRED)
+# Isolated Python builds use SciPy's redistributable OpenBLAS wheel. This gives
+# every platform the same LP64 BLAS/LAPACK ABI and supplies the runtime libraries
+# that are installed beside the extension. Standalone C++ builds keep using the
+# LAPACK provider selected by the host system.
+set(_fs_blas_symbol_prefix "")
+set(FERMISIMPLEX_SCIPY_OPENBLAS_RUNTIME_LIBRARIES "" CACHE INTERNAL "" FORCE)
+set(FERMISIMPLEX_SCIPY_OPENBLAS_LICENSE "" CACHE INTERNAL "" FORCE)
+if(FERMISIMPLEX_BUILD_PYTHON)
+  find_package(Python COMPONENTS Interpreter REQUIRED)
+  execute_process(
+    COMMAND
+      "${Python_EXECUTABLE}" -c
+      "import scipy_openblas32 as openblas; print(openblas.get_lib_dir())"
+    RESULT_VARIABLE _fs_scipy_openblas_result
+    OUTPUT_VARIABLE _fs_scipy_openblas_lib_dir
+    OUTPUT_STRIP_TRAILING_WHITESPACE
+    ERROR_QUIET
+  )
+  if(_fs_scipy_openblas_result EQUAL 0)
+    find_package(
+      OpenBLAS CONFIG REQUIRED
+      PATHS "${_fs_scipy_openblas_lib_dir}/cmake/openblas"
+      NO_DEFAULT_PATH
+    )
+    add_library(LAPACK::LAPACK INTERFACE IMPORTED)
+    set_property(
+      TARGET LAPACK::LAPACK PROPERTY
+      INTERFACE_LINK_LIBRARIES "${OpenBLAS_LIBRARIES}"
+    )
+    set(LAPACK_LIBRARIES "${OpenBLAS_LIBRARIES}")
+    set(_fs_blas_symbol_prefix "scipy_")
+
+    file(
+      GLOB _fs_scipy_openblas_runtime_libraries
+      LIST_DIRECTORIES FALSE
+      "${_fs_scipy_openblas_lib_dir}/*.dll"
+      "${_fs_scipy_openblas_lib_dir}/*.dylib"
+      "${_fs_scipy_openblas_lib_dir}/*.so*"
+    )
+    file(
+      GLOB _fs_scipy_openblas_licenses
+      LIST_DIRECTORIES FALSE
+      "${_fs_scipy_openblas_lib_dir}/../../scipy_openblas32-*.dist-info/licenses/LICENSE.txt"
+    )
+    list(LENGTH _fs_scipy_openblas_licenses _fs_scipy_openblas_license_count)
+    if(NOT _fs_scipy_openblas_runtime_libraries)
+      message(FATAL_ERROR "scipy-openblas32 did not provide runtime libraries")
+    endif()
+    if(NOT _fs_scipy_openblas_license_count EQUAL 1)
+      message(FATAL_ERROR "scipy-openblas32 did not provide one license file")
+    endif()
+    list(GET _fs_scipy_openblas_licenses 0 _fs_scipy_openblas_license)
+    set(
+      FERMISIMPLEX_SCIPY_OPENBLAS_RUNTIME_LIBRARIES
+      "${_fs_scipy_openblas_runtime_libraries}"
+      CACHE INTERNAL "" FORCE
+    )
+    set(
+      FERMISIMPLEX_SCIPY_OPENBLAS_LICENSE
+      "${_fs_scipy_openblas_license}"
+      CACHE INTERNAL "" FORCE
+    )
+  endif()
+endif()
+if(NOT TARGET LAPACK::LAPACK)
+  find_package(LAPACK REQUIRED)
+endif()
+
 if(NOT TARGET adaptivesimplex::adaptive)
   find_package(adaptivesimplex CONFIG QUIET)
 endif()
@@ -76,22 +143,28 @@ function(_fermisimplex_find_fortran_symbol output check_name)
 endfunction()
 
 _fermisimplex_find_fortran_symbol(
-  FERMISIMPLEX_LAPACK_ZHEEVD_SYMBOL LAPACK_ZHEEVD zheevd_ zheevd ZHEEVD
+  FERMISIMPLEX_LAPACK_ZHEEVD_SYMBOL LAPACK_ZHEEVD
+  ${_fs_blas_symbol_prefix}zheevd_ zheevd_ zheevd ZHEEVD
 )
 _fermisimplex_find_fortran_symbol(
-  FERMISIMPLEX_LAPACK_ZGESVD_SYMBOL LAPACK_ZGESVD zgesvd_ zgesvd ZGESVD
+  FERMISIMPLEX_LAPACK_ZGESVD_SYMBOL LAPACK_ZGESVD
+  ${_fs_blas_symbol_prefix}zgesvd_ zgesvd_ zgesvd ZGESVD
 )
 _fermisimplex_find_fortran_symbol(
-  FERMISIMPLEX_LAPACK_ZPOTRF_SYMBOL LAPACK_ZPOTRF zpotrf_ zpotrf ZPOTRF
+  FERMISIMPLEX_LAPACK_ZPOTRF_SYMBOL LAPACK_ZPOTRF
+  ${_fs_blas_symbol_prefix}zpotrf_ zpotrf_ zpotrf ZPOTRF
 )
 _fermisimplex_find_fortran_symbol(
-  FERMISIMPLEX_BLAS_ZGEMM_SYMBOL BLAS_ZGEMM zgemm_ zgemm ZGEMM
+  FERMISIMPLEX_BLAS_ZGEMM_SYMBOL BLAS_ZGEMM
+  ${_fs_blas_symbol_prefix}zgemm_ zgemm_ zgemm ZGEMM
 )
 _fermisimplex_find_fortran_symbol(
-  FERMISIMPLEX_BLAS_ZHER2K_SYMBOL BLAS_ZHER2K zher2k_ zher2k ZHER2K
+  FERMISIMPLEX_BLAS_ZHER2K_SYMBOL BLAS_ZHER2K
+  ${_fs_blas_symbol_prefix}zher2k_ zher2k_ zher2k ZHER2K
 )
 _fermisimplex_find_fortran_symbol(
-  FERMISIMPLEX_BLAS_ZHEMM_SYMBOL BLAS_ZHEMM zhemm_ zhemm ZHEMM
+  FERMISIMPLEX_BLAS_ZHEMM_SYMBOL BLAS_ZHEMM
+  ${_fs_blas_symbol_prefix}zhemm_ zhemm_ zhemm ZHEMM
 )
 set(CMAKE_REQUIRED_LIBRARIES "${_fs_check_required_libraries}")
 set(CMAKE_REQUIRED_LINK_OPTIONS "${_fs_check_required_link_options}")

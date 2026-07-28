@@ -3,6 +3,11 @@
 See [Performance measurement](performance.md) for the C++ benchmark suite and
 CI artifact format.
 
+The upstream repository is
+[GitLab](https://gitlab.kwant-project.org/qt/lineartetrahedron). GitHub is a
+public mirror used for cross-platform wheel builds and trusted PyPI
+publishing.
+
 FermiSimplex keeps the reusable numerical library and Python interface in
 separate source trees:
 
@@ -40,10 +45,18 @@ pixi run test-cpp
 pixi run test-python
 pixi run smoke-test
 pixi run build-package
+pixi run ci-package
 ```
 
 The optional plotting dependencies are declared as `examples` extras in
 `pyproject.toml`.
+
+Both GitLab CI and GitHub Actions run the locked Pixi tasks above. The provider
+files contain runner and artifact configuration only; test and benchmark
+commands stay in `pixi.toml`.
+
+See [Release process](release.md) for wheel builds, TestPyPI, and tag-based
+publishing.
 
 ## Standalone C++ library
 

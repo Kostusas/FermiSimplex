@@ -34,12 +34,17 @@ liblapack = "*"
 [dependencies]
 cmake = ">=3.28"
 ninja = ">=1.11"
+git = ">=2.45"
 numpy = ">=2.0"
 pip = "*"
 python = ">=3.11,<3.14"
 pytest = ">=8"
 scikit-build-core = ">=0.10"
 nanobind = ">=2.2"
+actionlint = ">=1.7"
+pyyaml = ">=6"
+python-build = ">=1.3"
+twine = ">=6"
 libblas = "*"
 liblapack = "*"
 matplotlib = ">=3.8"
@@ -59,3 +64,13 @@ test = { depends-on = ["test-cpp", "test-python"] }
 configure-cpp-benchmarks = "cmake -S . -B build/cpp-benchmarks -G Ninja -DCMAKE_BUILD_TYPE=Release -DFERMISIMPLEX_BUILD_PYTHON=OFF -DFERMISIMPLEX_BUILD_TESTING=OFF -DFERMISIMPLEX_BUILD_BENCHMARKS=ON"
 build-cpp-benchmarks = { cmd = "cmake --build build/cpp-benchmarks --target fermisimplex_performance_benchmark", depends-on = ["configure-cpp-benchmarks"] }
 benchmark-cpp = { cmd = "cmake --build build/cpp-benchmarks --target fermisimplex_run_performance_benchmark", depends-on = ["configure-cpp-benchmarks"] }
+
+check-metadata = "python ci/check_metadata.py"
+parse-workflows = "python ci/check_workflows.py"
+lint-github-workflows = "actionlint"
+check-workflows = { depends-on = ["parse-workflows", "lint-github-workflows"] }
+ci-test = { depends-on = ["check-metadata", "check-workflows", "test", "smoke-test"] }
+ci-benchmark = { depends-on = ["benchmark-cpp"] }
+build-sdist = { cmd = "python -m build --sdist --outdir dist", depends-on = ["check-metadata"] }
+check-sdist = { cmd = "python -m twine check dist/*.tar.gz", depends-on = ["build-sdist"] }
+ci-package = { depends-on = ["check-sdist"] }

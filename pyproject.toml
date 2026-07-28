@@ -1,7 +1,8 @@
 [build-system]
 requires = [
-    "nanobind>=2.2",
-    "scikit-build-core>=0.10",
+    "nanobind==2.12.0",
+    "scikit-build-core==0.12.1",
+    "scipy-openblas32==0.3.34.0.0",
 ]
 build-backend = "scikit_build_core.build"
 
@@ -10,10 +11,40 @@ name = "FermiSimplex"
 version = "0.1.0"
 description = "Adaptive spectral calculations with simplex occupation certification"
 readme = "README.md"
-requires-python = ">=3.11"
+requires-python = ">=3.11,<3.14"
+authors = [
+    { name = "Kostas Vilkelis" },
+]
+license = "BSD-3-Clause"
+license-files = ["LICENSE"]
+keywords = [
+    "adaptive mesh",
+    "electronic structure",
+    "Fermi surface",
+    "scientific computing",
+]
+classifiers = [
+    "Development Status :: 3 - Alpha",
+    "Intended Audience :: Science/Research",
+    "Operating System :: MacOS",
+    "Operating System :: Microsoft :: Windows",
+    "Operating System :: POSIX :: Linux",
+    "Programming Language :: C++",
+    "Programming Language :: Python :: 3",
+    "Programming Language :: Python :: 3.11",
+    "Programming Language :: Python :: 3.12",
+    "Programming Language :: Python :: 3.13",
+    "Topic :: Scientific/Engineering :: Physics",
+]
 dependencies = [
     "numpy>=2.0",
 ]
+
+[project.urls]
+Repository = "https://gitlab.kwant-project.org/qt/lineartetrahedron"
+Mirror = "https://github.com/Kostusas/FermiSimplex"
+Documentation = "https://github.com/Kostusas/FermiSimplex/blob/main/docs/showcase.md"
+Changelog = "https://github.com/Kostusas/FermiSimplex/blob/main/CHANGELOG.md"
 
 [project.optional-dependencies]
 examples = [
@@ -23,9 +54,28 @@ examples = [
 [tool.scikit-build]
 wheel.packages = ["python/fermisimplex"]
 cmake.source-dir = "."
+sdist.include = [
+    "CHANGELOG.md",
+    "CITATION.cff",
+    "LICENSE",
+]
 
 [tool.scikit-build.cmake.define]
 FERMISIMPLEX_BUILD_TESTING = "OFF"
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]
+
+
+[tool.cibuildwheel]
+build = "cp311-* cp312-* cp313-*"
+skip = "*-musllinux_* *-manylinux_i686 *-win32"
+build-verbosity = 1
+test-command = "python -m pytest {project}/ci/test_wheel.py"
+test-requires = ["pytest>=8"]
+
+[tool.cibuildwheel.linux]
+manylinux-x86_64-image = "manylinux_2_28"
+
+[tool.cibuildwheel.macos]
+environment = { MACOSX_DEPLOYMENT_TARGET = "11.0" }

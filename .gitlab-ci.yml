@@ -1,0 +1,62 @@
+stages:
+  - test
+  - verify
+
+variables:
+  PIXI_FROZEN: "true"
+  XDG_CACHE_HOME: "$CI_PROJECT_DIR/.cache"
+
+.default-pixi:
+  image:
+    name: ubuntu:24.04@sha256:4fbb8e6a8395de5a7550b33509421a2bafbc0aab6c06ba2cef9ebffbc7092d90
+  before_script:
+    - apt-get update
+    - apt-get install -y --no-install-recommends ca-certificates curl
+    - curl --fail --location --silent --show-error --output /tmp/pixi.tar.gz https://github.com/prefix-dev/pixi/releases/download/v0.70.2/pixi-x86_64-unknown-linux-musl.tar.gz
+    - echo "9d0d72fc1fa1a8f87bfde943cf25d3575cb352cb516795d4dab21898bd98adea  /tmp/pixi.tar.gz" | sha256sum --check
+    - tar --extract --gzip --file /tmp/pixi.tar.gz --directory /usr/local/bin
+    - pixi --version
+  cache:
+    key:
+      files:
+        - pixi.lock
+    paths:
+      - .cache/rattler/
+      - .pixi/envs/
+    policy: pull
+
+tests:
+  extends: .default-pixi
+  stage: test
+  cache:
+    key:
+      files:
+        - pixi.lock
+    paths:
+      - .cache/rattler/
+      - .pixi/envs/
+    policy: pull-push
+  script:
+    - pixi run --frozen ci-test
+
+source-distribution:
+  extends: .default-pixi
+  stage: verify
+  script:
+    - pixi run --frozen ci-package
+  artifacts:
+    name: "fermisimplex-sdist-$CI_COMMIT_SHORT_SHA"
+    paths:
+      - dist/*.tar.gz
+    expire_in: 30 days
+
+benchmark:
+  extends: .default-pixi
+  stage: verify
+  script:
+    - pixi run --frozen ci-benchmark
+  artifacts:
+    name: "fermisimplex-benchmark-$CI_COMMIT_SHORT_SHA"
+    paths:
+      - build/cpp-benchmarks/benchmarks/fermisimplex-performance.json
+    expire_in: 90 days

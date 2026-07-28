@@ -28,4 +28,21 @@ target_compile_features(_native PRIVATE cxx_std_20)
 target_include_directories(_native PRIVATE "${CMAKE_CURRENT_SOURCE_DIR}/src/bindings")
 target_link_libraries(_native PRIVATE fermisimplex::core)
 
+if(FERMISIMPLEX_SCIPY_OPENBLAS_RUNTIME_LIBRARIES)
+  if(APPLE)
+    set_target_properties(_native PROPERTIES INSTALL_RPATH "@loader_path")
+  elseif(UNIX)
+    set_target_properties(_native PROPERTIES INSTALL_RPATH "\$ORIGIN")
+  endif()
+  install(
+    FILES ${FERMISIMPLEX_SCIPY_OPENBLAS_RUNTIME_LIBRARIES}
+    DESTINATION fermisimplex
+  )
+  install(
+    FILES "${FERMISIMPLEX_SCIPY_OPENBLAS_LICENSE}"
+    DESTINATION fermisimplex/licenses
+    RENAME scipy-openblas32.txt
+  )
+endif()
+
 install(TARGETS _native LIBRARY DESTINATION fermisimplex)

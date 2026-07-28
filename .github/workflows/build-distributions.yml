@@ -1,0 +1,96 @@
+name: Build distributions
+
+on:
+  workflow_call:
+    inputs:
+      build-selector:
+        description: cibuildwheel selector
+        required: true
+        type: string
+      release-tag:
+        description: Optional vX.Y.Z tag checked against package metadata
+        required: false
+        default: ""
+        type: string
+
+permissions:
+  contents: read
+
+jobs:
+  sdist:
+    name: Source distribution
+    runs-on: ubuntu-24.04
+    outputs:
+      filename: ${{ steps.filename.outputs.value }}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      - uses: prefix-dev/setup-pixi@a09b6247153796b190642a2b53fac4241043cf6f # v0.10.0
+        with:
+          pixi-version: 0.70.2
+          cache: true
+          frozen: true
+
+      - name: Check release metadata
+        env:
+          FERMISIMPLEX_RELEASE_TAG: ${{ inputs.release-tag }}
+        run: pixi run --frozen check-metadata
+
+      - name: Build and check source distribution
+        run: pixi run --frozen ci-package
+
+      - name: Record source distribution filename
+        id: filename
+        shell: bash
+        run: echo "value=$(basename dist/fermisimplex-*.tar.gz)" >> "$GITHUB_OUTPUT"
+
+      - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: distribution-sdist
+          path: dist/*.tar.gz
+          if-no-files-found: error
+
+  wheels:
+    name: Wheel / ${{ matrix.name }}
+    needs: sdist
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - name: linux-x86_64
+            os: ubuntu-24.04
+            arch: x86_64
+          - name: macos-x86_64
+            os: macos-15-intel
+            arch: x86_64
+          - name: macos-arm64
+            os: macos-14
+            arch: arm64
+          - name: windows-amd64
+            os: windows-2025
+            arch: AMD64
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      - uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
+        with:
+          name: distribution-sdist
+          path: dist
+
+      - uses: pypa/cibuildwheel@4726cd35bb13f7bde50cf2761f2499ac7b3aa32c # v4.1.1
+        env:
+          CIBW_ARCHS: ${{ matrix.arch }}
+          CIBW_BUILD: ${{ inputs.build-selector }}
+        with:
+          package-dir: dist/${{ needs.sdist.outputs.filename }}
+
+      - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: distribution-wheel-${{ matrix.name }}
+          path: wheelhouse/*.whl
+          if-no-files-found: error

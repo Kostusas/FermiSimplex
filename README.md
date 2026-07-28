@@ -13,7 +13,12 @@ $$
 and its central question is simple: *can the occupation be proved constant on
 this simplex, or should we look more closely?*
 
-![Adaptive Fermi-surface refinement](docs/assets/fermi_surface_refinement.gif)
+The upstream development repository is
+[GitLab](https://gitlab.kwant-project.org/qt/lineartetrahedron); the
+[GitHub repository](https://github.com/Kostusas/FermiSimplex) is a public
+mirror.
+
+![Adaptive Fermi-surface refinement](https://raw.githubusercontent.com/Kostusas/FermiSimplex/main/docs/assets/fermi_surface_refinement.gif)
 
 See the [visual Python tour][visual-tour] for a presentation-ready
 introduction with real adaptive sampling traces, multiband examples, and a
@@ -74,7 +79,7 @@ Hamiltonian. `SpectralMesh` infers the momentum-space dimension from the
 callable arguments and the matrix dimension by evaluating it at the origin.
 Callables receive separate coordinates: `hamiltonian(kx, ky, ...)`.
 
-![Two- and three-dimensional Fermi surfaces](docs/assets/fermi_surface_gallery.png)
+![Two- and three-dimensional Fermi surfaces](https://raw.githubusercontent.com/Kostusas/FermiSimplex/main/docs/assets/fermi_surface_gallery.png)
 
 The same `SpectralMesh` can drive the other observables and reuse every
 eigensystem it has already computed:
@@ -169,6 +174,9 @@ This builds the standalone C++ library, verifies an installed downstream CMake
 consumer, rebuilds the Python extension, and runs the Python tests. The dense
 60-band stress case lives in [benchmarks/fermi_surface_60.py][stress-benchmark].
 
+FermiSimplex is licensed under the BSD 3-Clause license. If you use it in
+research, please cite the metadata in [CITATION.cff][citation].
+
 
 [visual-tour]: https://github.com/Kostusas/FermiSimplex/blob/main/docs/showcase.md
 [mathematics]: https://github.com/Kostusas/FermiSimplex/blob/main/docs/mathematics.md
@@ -177,3 +185,4 @@ consumer, rebuilds the Python extension, and runs the Python tests. The dense
 [visuals]: https://github.com/Kostusas/FermiSimplex/blob/main/docs/visuals.md
 [development]: https://github.com/Kostusas/FermiSimplex/blob/main/docs/development.md
 [stress-benchmark]: https://github.com/Kostusas/FermiSimplex/blob/main/benchmarks/fermi_surface_60.py
+[citation]: https://github.com/Kostusas/FermiSimplex/blob/main/CITATION.cff

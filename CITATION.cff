@@ -1,0 +1,10 @@
+cff-version: 1.2.0
+message: "If you use FermiSimplex, please cite it using this metadata."
+title: "FermiSimplex"
+version: "0.1.0"
+date-released: "2026-07-28"
+authors:
+  - family-names: "Vilkelis"
+    given-names: "Kostas"
+license: "BSD-3-Clause"
+repository-code: "https://gitlab.kwant-project.org/qt/lineartetrahedron"

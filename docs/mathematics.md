@@ -1,43 +1,485 @@
 # Mathematics
 
-FermiSimplex combines two ideas:
+FermiSimplex separates two different mathematical tasks:
 
-1. certify how many states are occupied throughout a simplex;
-2. integrate the piecewise-linear bands and refine where their error appears
-   largest.
+1. **Certification:** prove whether the number of states below a chemical
+   potential can change inside a simplex.
+2. **Approximation:** linearly interpolate the vertex eigenvalues to construct
+   a Fermi surface or integrate the charge.
 
-The first statement is rigorous when the supplied curvature bound is valid.
-The projected charge estimator is deliberately cheaper and is not itself a
-certificate.
+The certification problem is a matrix-sign problem. It does not require
+tracking individual eigenvalue curves through the simplex. Curvature enters
+only afterward, as one possible way to bound the difference between the true
+Hamiltonian and its affine interpolation.
 
-## Problem and notation
+The charge stopping criterion is different again: it is a sampled estimate of
+the eigenvalue-interpolation error. It guides adaptive integration, but it is
+not part of the rigorous occupation proof.
+
+## Occupation is the inertia of a shifted Hamiltonian
 
 Let
 
 $$
-S=\mathrm{conv}\{k_0,\ldots,k_d\}
+T=\operatorname{conv}\{k_0,\ldots,k_d\}
 $$
 
-be a simplex with barycentric coordinates $\lambda_i(k)$, volume $|S|$, and
-diameter $D_S$. The vertex-linear Hamiltonian and its residual are
+be a simplex in reduced momentum coordinates, and let
+$H(k)\in\mathbb C^{N\times N}$ be Hermitian. At chemical potential $\mu$,
+define
 
 $$
-H_{\mathrm{lin}}(k)=\sum_i\lambda_i(k)H(k_i),
+A(k;\mu)=H(k)-\mu I.
+$$
+
+The inertia of a Hermitian matrix is the triple
+
+$$
+\operatorname{In} A=(n_-(A),n_0(A),n_+(A)),
+$$
+
+counting its negative, zero, and positive eigenvalues. Away from an exact
+contact with $\mu$, the local occupation is simply
+
+$$
+\nu(k;\mu)=n_-\!\left(A(k;\mu)\right).
+$$
+
+A Fermi-level contact occurs precisely when $A(k;\mu)$ is singular. Thus the
+relevant question on a simplex is not “how far can every eigenvalue move?” but
+
+> Can the inertia of $A(k;\mu)$ change anywhere in $T$?
+
+This formulation automatically ignores crossings between two occupied bands
+or two unoccupied bands. Only a change of sign relative to $\mu$ matters.
+
+### The fixed-subspace criterion
+
+Suppose there are fixed, full-rank frames
+
+$$
+F_o\in\mathbb C^{N\times r_o},
 \qquad
+F_u\in\mathbb C^{N\times r_u}
+$$
+
+such that
+
+$$
+F_o^\dagger A(k;\mu)F_o\prec0,
+\qquad
+F_u^\dagger A(k;\mu)F_u\succ0.
+$$
+
+The first inequality proves that $A(k;\mu)$ has at least $r_o$ negative
+eigenvalues; the second proves that it has at least $r_u$ positive
+eigenvalues. This is the variational characterization of the positive and
+negative indices of inertia.
+
+Consequently,
+
+$$
+r_o\leq \nu(k;\mu)\leq N-r_u.
+$$
+
+If the two dimensions fill the Hilbert space,
+
+$$
+r_o+r_u=N,
+$$
+
+then $A(k;\mu)$ has exactly $r_o$ negative eigenvalues, exactly $r_u$
+positive eigenvalues, and no zero eigenvalue. Therefore
+
+$$
+\boxed{
+F_o^\dagger A(k;\mu)F_o\prec0,\quad
+F_u^\dagger A(k;\mu)F_u\succ0,\quad
+r_o+r_u=N
+\Longrightarrow
+\nu(k;\mu)=r_o.
+}
+$$
+
+This is the core certificate used by FermiSimplex. The remaining problem is to
+construct useful fixed frames and prove their signs everywhere in a simplex
+using only vertex eigensystems.
+
+## Why vertex tests extend across a simplex
+
+Let $\lambda_i(k)$ be the barycentric coordinates of $k\in T$. Define the
+vertex-affine Hamiltonian
+
+$$
+H_{\mathrm{lin}}(k)=\sum_{i=0}^d\lambda_i(k)H(k_i)
+$$
+
+and the non-affine residual
+
+$$
 R(k)=H(k)-H_{\mathrm{lin}}(k).
 $$
 
-At chemical potential $\mu$, the exact local occupation is
+Assume that a valid uniform bound is available:
 
 $$
-N(k; \mu)=\mathrm{Tr}\left[\Theta\left(\mu I-H(k)\right)\right].
+\boxed{
+\sup_{k\in T}\lVert R(k)\rVert_2\leq\epsilon_T.
+}
 $$
 
-All coordinates used by the package are reduced coordinates in $[0,1]^d$.
+The direct `certify_simplex` interface accepts $\epsilon_T$ itself. The mesh
+API currently obtains it from `curvature_bound`; that conversion is derived
+later.
 
-## From curvature to a simplex error bound
+For any fixed frame $F$,
 
-The user supplies a global directional-curvature bound
+$$
+F^\dagger\!\left(H_{\mathrm{lin}}(k)-\mu I\right)F
+=
+\sum_i\lambda_i(k)
+F^\dagger\!\left(H(k_i)-\mu I\right)F.
+$$
+
+The cone of positive-definite matrices is convex. Therefore, if a fixed
+restricted block is positive definite at every vertex, its affine
+interpolation is positive definite throughout the simplex.
+
+The residual is controlled in the metric of the frame. If
+
+$$
+G_F=F^\dagger F,
+$$
+
+then
+
+$$
+-\epsilon_TG_F
+\preceq
+F^\dagger R(k)F
+\preceq
+\epsilon_TG_F.
+$$
+
+It is therefore sufficient to find fixed frames $F_o,F_u$ for which every
+vertex satisfies
+
+$$
+\boxed{
+-F_o^\dagger A_iF_o-\epsilon_TG_o\succ0,
+\qquad
+F_u^\dagger A_iF_u-\epsilon_TG_u\succ0,
+}
+$$
+
+where
+
+$$
+A_i=H(k_i)-\mu I,
+\qquad
+G_o=F_o^\dagger F_o,
+\qquad
+G_u=F_u^\dagger F_u.
+$$
+
+Indeed, barycentric averaging preserves the strict inequalities for
+$H_{\mathrm{lin}}$, and the $\epsilon_TG$ terms absorb the worst possible
+residual. The implementation additionally requires the restricted blocks to
+exceed the numerical margin
+
+$$
+\eta=\max(10^{-10},\text{tolerance})
+$$
+
+and verifies positive definiteness by Cholesky factorization.
+
+This is why a simplex is special: one finite set of vertex inequalities proves
+a continuum of matrix inequalities in its interior.
+
+## Constructing the signed trial subspaces
+
+### Vertex analysis and anchor selection
+
+FermiSimplex begins with the cached eigensystem at every vertex:
+
+$$
+H(k_i)=U_i\operatorname{diag}
+\left(\varepsilon_{i,0},\ldots,\varepsilon_{i,N-1}\right)U_i^\dagger,
+$$
+
+with the eigenvalues in ascending order.
+
+At each vertex it counts eigenvalues strictly below $\mu$, outside the
+numerical tolerance. The vertex data are marked `VisibleGapless` if
+
+- an eigenvalue lies within the tolerance of $\mu$, or
+- different vertices have different occupation counts.
+
+In the second case continuity already forces a Fermi-level contact somewhere
+between the vertices. In either case, the algorithm chooses as anchor the
+vertex with the largest minimum spectral distance from $\mu$:
+
+$$
+a=\arg\max_i\min_n|\varepsilon_{i,n}-\mu|.
+$$
+
+This uses an eigensystem that is already part of the mesh. Certification does
+not diagonalize the Hamiltonian at the simplex center. When the vertex data
+are not visibly gapless, every vertex has the same occupation $n_o$ and the
+full graph-subspace proof below is attempted. Visibly gapless simplices skip
+that full proof, but still use the anchor frame to obtain partial occupation
+bounds.
+
+### All vertices in one spectral frame
+
+Split the anchor eigenbasis into occupied and unoccupied columns,
+
+$$
+Q=[Q_o,Q_u].
+$$
+
+In this fixed basis, write every shifted vertex Hamiltonian as
+
+$$
+Q^\dagger A_iQ
+=
+\begin{pmatrix}
+O_i & C_i^\dagger\\
+C_i & U_i
+\end{pmatrix}.
+$$
+
+At the anchor,
+
+$$
+O_a=-D_o,\qquad U_a=D_u,\qquad C_a=0,
+$$
+
+where $D_o$ and $D_u$ are positive diagonal matrices containing the occupied
+and unoccupied distances from $\mu$.
+
+A naive choice would keep the anchor sectors $Q_o$ and $Q_u$ fixed. That can
+fail when the spectral subspaces rotate appreciably across the simplex, even
+though the gap never closes. FermiSimplex therefore constructs a pair of graph
+subspaces that can absorb occupied--unoccupied mixing.
+
+Let
+
+$$
+\overline C=\frac{1}{d+1}\sum_{i=0}^d C_i.
+$$
+
+The rotation matrix $X\in\mathbb C^{n_u\times n_o}$ is
+
+$$
+X_{\alpha j}
+=
+\frac{\overline C_{\alpha j}}
+{(D_u)_{\alpha\alpha}+(D_o)_{jj}}.
+$$
+
+Equivalently, $X$ is the elementwise solution of the Sylvester equation
+
+$$
+D_uX+XD_o=\overline C.
+$$
+
+It is a first-order guess for the average rotation of the occupied and
+unoccupied spaces. In the original Hilbert space, define
+
+$$
+F_o=
+Q\begin{pmatrix}
+I\\-X
+\end{pmatrix}
+=Q_o-Q_uX,
+\qquad
+F_u=
+Q\begin{pmatrix}
+X^\dagger\\I
+\end{pmatrix}
+=Q_oX^\dagger+Q_u.
+$$
+
+These frames are orthogonal and complementary:
+
+$$
+F_o^\dagger F_u=0,
+\qquad
+\dim F_o+\dim F_u=N.
+$$
+
+Their Gram matrices are
+
+$$
+G_o=I+X^\dagger X,
+\qquad
+G_u=I+XX^\dagger.
+$$
+
+At vertex $i$, their exact restricted quadratic forms are
+
+$$
+F_u^\dagger A_iF_u
+=
+U_i+C_iX^\dagger+XC_i^\dagger+XO_iX^\dagger,
+$$
+
+and
+
+$$
+-F_o^\dagger A_iF_o
+=
+-O_i+C_i^\dagger X+X^\dagger C_i-X^\dagger U_iX.
+$$
+
+FermiSimplex tests
+
+$$
+F_u^\dagger A_iF_u-\epsilon_TG_u\succ\eta I
+$$
+
+and
+
+$$
+-F_o^\dagger A_iF_o-\epsilon_TG_o\succ\eta I
+$$
+
+at every vertex. If both pass, the fixed-subspace argument proves that
+
+$$
+\operatorname{In}A(k;\mu)=(n_o,0,N-n_o)
+\qquad\text{for every }k\in T.
+$$
+
+The formula for $X$ is only a proof-search heuristic. The validity of the
+result comes from the final positive-definiteness tests, not from perturbation
+theory. A poor rotation can cause a valid gap to remain unproved, but it cannot
+produce a false certificate.
+
+## Partial occupation bounds
+
+The full graph-subspace proof is deliberately sufficient rather than
+necessary. If it fails, FermiSimplex still asks how many common negative and
+positive directions can be proved.
+
+It searches within the unrotated anchor sectors. Suppose it finds fixed
+orthonormal frames
+
+$$
+P_o\subseteq Q_o,
+\qquad
+P_u\subseteq Q_u,
+$$
+
+of dimensions $r_o$ and $r_u$, such that at every vertex
+
+$$
+-P_o^\dagger A_iP_o-\epsilon_TI\succ\eta I,
+$$
+
+$$
+P_u^\dagger A_iP_u-\epsilon_TI\succ\eta I.
+$$
+
+The same barycentric and residual argument proves these signs throughout the
+simplex. Hence
+
+$$
+\boxed{
+r_o\leq \nu(k;\mu)\leq N-r_u
+\qquad(k\in T).
+}
+$$
+
+The returned occupation bounds are
+
+$$
+[L,U]=[r_o,N-r_u].
+$$
+
+Internally, anchor directions are ordered by their worst diagonal margin over
+all vertices. Cholesky factorizations then find a common passing leading
+subspace. This deterministic ordering is not guaranteed to find the largest
+possible subspace; it affects the tightness of $[L,U]$, not its validity.
+
+The half-open band interval
+
+$$
+[L,U)
+$$
+
+has a useful interpretation. Bands below $L$ are proved occupied throughout
+the simplex, bands at or above $U$ are proved unoccupied, and only the $U-L$
+intervening ordered bands can affect the occupation uncertainty.
+
+If $L=U$, the occupation is exact even if the graph-subspace search failed.
+
+### Certificate statuses
+
+- `CertifiedGapped`: constant occupation was proved, either by the
+  complementary graph frames or by matching partial bounds after an otherwise
+  inconclusive full proof.
+- `VisibleGapless`: the sampled vertices already show a contact or an
+  occupation change.
+- `Inconclusive`: neither a crossing nor a constant occupation was proved.
+
+`Inconclusive` is not evidence of a Fermi surface. It means that refinement is
+needed before the available sufficient conditions can decide.
+
+## Why this is sharper than a single Weyl radius
+
+A direct Weyl argument would choose one reference point $k_0$, define its
+smallest distance from $\mu$,
+
+$$
+g_\mu(k_0)=\min_n|\varepsilon_n(k_0)-\mu|,
+$$
+
+and try to prove
+
+$$
+\sup_{k\in T}\lVert H(k)-H(k_0)\rVert_2<g_\mu(k_0).
+$$
+
+This compresses the entire matrix motion into one norm and compares it with
+one smallest gap. A rapidly moving remote band or harmless
+occupied--unoccupied mixing can dominate that norm.
+
+FermiSimplex instead separates the Hamiltonian into
+
+$$
+H(k)=H_{\mathrm{lin}}(k)+R(k).
+$$
+
+The possibly large vertex-to-vertex motion in $H_{\mathrm{lin}}$ is handled
+explicitly through signed restricted blocks. Only the genuinely unsampled
+part $R(k)$ is replaced by a scalar norm bound. Thus:
+
+- affine matrix variation is treated exactly, no matter how large it is;
+- positive and negative sectors are tested separately;
+- motion away from $\mu$ strengthens rather than weakens a restricted block;
+- occupied--unoccupied mixing can be absorbed by the graph rotation;
+- remote bands enter through the actual block matrices instead of sharing one
+  global smallest-gap comparison.
+
+For a smooth Hamiltonian on a simplex of diameter $h$, vertex-to-vertex motion
+is generally $O(h)$, while the residual of affine interpolation is $O(h^2)$.
+This is the main reason to certify the affine matrix structure first and bound
+only what remains.
+
+## Obtaining the residual bound
+
+The certificate itself requires only a valid $\epsilon_T$ satisfying
+
+$$
+\lVert H(k)-H_{\mathrm{lin}}(k)\rVert_2\leq\epsilon_T.
+$$
+
+`curvature_bound` is the current mesh API's way to construct this quantity; it
+is not a bound on an individual band's curvature.
+
+Assume that $H$ is twice differentiable and that
 
 $$
 M\geq
@@ -45,362 +487,411 @@ M\geq
 \left\lVert D_v^2H(k)\right\rVert_2.
 $$
 
-Barycentric interpolation then gives
+Taylor expansion of $H(k_i)$ around an interior point $k$ gives a first-order
+term proportional to $k_i-k$ and a remainder bounded by
+
+$$
+\frac{M}{2}\lVert k_i-k\rVert_2^2.
+$$
+
+The barycentric identity
+
+$$
+\sum_i\lambda_i(k)(k_i-k)=0
+$$
+
+cancels all first-order terms. Therefore
 
 $$
 \lVert R(k)\rVert_2
-\leq \frac{M}{2}\sum_i\lambda_i(k)\lVert k_i-k\rVert_2^2
-\leq \frac{M D_S^2}{2}.
+\leq
+\frac{M}{2}
+\sum_i\lambda_i(k)\lVert k_i-k\rVert_2^2
+\leq
+\frac{M D_T^2}{2},
 $$
 
-The certificate therefore receives the scalar
+where $D_T$ is the simplex diameter. FermiSimplex consequently uses
 
 $$
-\boxed{\epsilon_S=\frac12 M D_S^2}.
+\boxed{
+\epsilon_T=\frac12\,M D_T^2.
+}
 $$
 
-For a tight-binding Hamiltonian
+Refinement reduces this residual allowance quadratically with the simplex
+diameter.
+
+### Tight-binding Hamiltonians
+
+For reduced coordinates and
 
 $$
-H(k)=\sum_R H_R e^{-2\pi i k\cdot R},
+H(k)=\sum_R H_Re^{-2\pi i k\cdot R},
 $$
 
-one simple, usually conservative, choice is
+the second directional derivative is
 
 $$
-M=(2\pi)^2\sum_R\lVert H_R\rVert_F\lVert R\rVert_2^2.
+D_v^2H(k)
+=
+-(2\pi)^2
+\sum_R(v\cdot R)^2H_Re^{-2\pi i k\cdot R}.
 $$
 
-Certification always runs. Omitting `curvature_bound`, passing `None`, or
-passing `0` all mean $M=0$: the caller is asserting that the Hamiltonian is
-affine. The package cannot verify $M$, so every rigorous conclusion below is
-conditional on that assertion being true.
-
-## Occupation certification
-
-### Vertex analysis
-
-At every vertex, the algorithm counts eigenvalues strictly below $\mu$. A
-simplex is visibly gapless when a vertex eigenvalue lies at $\mu$ within the
-numerical tolerance, or when the vertex occupation counts differ. Otherwise,
-the vertex with the largest minimum distance from $\mu$ becomes the anchor.
-
-Let the anchor eigenbasis be split into occupied and unoccupied columns,
-$Q=[Q_o,Q_u]$. At each vertex,
+The triangle inequality gives
 
 $$
-Q^\dagger(H_i-\mu I)Q=
-\begin{pmatrix}
-A_i & C_i^\dagger\\
-C_i & D_i
-\end{pmatrix},
+\sup_{k,\,\lVert v\rVert_2=1}\lVert D_v^2H(k)\rVert_2
+\leq
+(2\pi)^2
+\sum_R\lVert H_R\rVert_2\lVert R\rVert_2^2.
 $$
 
-where the anchor has $n_o$ occupied and $n_u$ unoccupied states.
+Choosing the right-hand side as $M$ is therefore sufficient.
 
-### A fixed pair of graph subspaces
+The Frobenius norm may replace $\lVert H_R\rVert_2$ for an easier but more
+conservative estimate.
 
-The off-diagonal blocks suggest a perturbative rotation
+The user currently supplies this bound. Omitting `curvature_bound`, passing
+`None`, or passing `0.0` all assert $M=0$, meaning that the Hamiltonian itself
+is affine on every tested simplex. None of these values disables
+certification.
 
-$$
-X_{\alpha j}=
-\frac{(C_{\mathrm{avg}})_{\alpha j}}
-{\delta^u_\alpha+\delta^o_j}.
-$$
+An affine matrix Hamiltonian can still have curved eigenvalues because its
+eigenspaces may rotate and its levels may avoid one another. Hence $M=0$ can
+make the occupation certificate exact while the charge interpolation still
+needs refinement. This is why matrix certification and band-interpolation
+error estimation are separate algorithms.
 
-This defines two orthogonal graph frames,
+## Reusing bounds at nearby chemical potentials
 
-$$
-F_o=\begin{pmatrix}I\\-X\end{pmatrix},
-\qquad
-F_u=\begin{pmatrix}X^\dagger\\I\end{pmatrix}.
-$$
-
-For every vertex, the implementation tests
-
-$$
--F_o^\dagger(H_i-\mu I)F_o
--\epsilon_S F_o^\dagger F_o \succ 0
-$$
-
-and
+Once a fixed frame has been certified, changing the chemical potential does
+not require rebuilding every restricted block. For any frame $F$,
 
 $$
-F_u^\dagger(H_i-\mu I)F_u
--\epsilon_S F_u^\dagger F_u \succ 0.
+F^\dagger A(k;\mu+\delta)F
+=
+F^\dagger A(k;\mu)F-\delta F^\dagger F.
 $$
 
-The error terms are valid because
+The unoccupied block therefore limits how far $\mu$ may be raised, while the
+occupied block limits how far it may be lowered. FermiSimplex uses Gershgorin
+row bounds to obtain conservative one-sided radii and returns an interval
 
 $$
--\epsilon_S F^\dagger F
-\preceq F^\dagger R(k)F
-\preceq \epsilon_S F^\dagger F.
+\mu'\in[\mu-r_o^\mu,\mu+r_u^\mu]
 $$
 
-The same frames are used at every vertex. Their restrictions of
-$H_{\mathrm{lin}}$ are barycentric combinations, so positivity at all vertices
-implies positivity everywhere inside the simplex. The two frame dimensions add
-to the full Hilbert-space dimension; consequently the inertia is fixed and the
-occupation is exactly $n_o$ throughout $S$.
+over which the stored occupation bounds remain valid.
 
-The rotation is only a proof-search heuristic. If this test fails, the simplex
-has not been proved gapless.
+Only the bounds $[L,U]$ are reusable throughout this interval. The descriptive
+status can change; for example, a vertex eigenvalue may become visibly equal
+to a shifted $\mu$ even though the stored lower and upper occupation bounds
+remain correct.
 
-### Partial occupation bounds
+## Adaptive Fermi-surface determination
 
-When the full proof fails, the code searches for common negative directions in
-the anchor occupied sector and common positive directions in the unoccupied
-sector. Suppose it proves $r_o$ negative directions and $r_u$ positive
-directions. Then
+The occupation certificate controls which simplices can be discarded:
 
-$$
-\boxed{r_o\leq N(k;\mu)\leq n_{\mathrm{dof}}-r_u}
-\qquad (k\in S).
-$$
+1. Evaluate and cache the missing vertex eigensystems.
+2. Build the simplex certificate at $\mu$.
+3. Discard a `CertifiedGapped` simplex; it contains no Fermi-level state.
+4. Refine a `VisibleGapless` or `Inconclusive` simplex while its diameter
+   exceeds `min_feature_size`.
+5. At the requested feature size, intersect the ordered vertex-linear bands
+   with $\mu$ on the retained simplices.
 
-The result is stored as `occupation_bounds = [L, U]`. Directions are ordered by
-their worst diagonal margin over the vertices, and leading subspaces are
-accepted by Cholesky tests. This ordering changes how tight the result is, not
-its validity. If $L=U$, the occupation is exact even if the rotated full proof
-failed.
+This prevents a small pocket from being silently discarded merely because all
+coarse vertices happen to lie on the same side of $\mu$: such a simplex must
+pass the matrix certificate before it is removed.
 
-The three statuses mean:
+`coverage_certified` is true only when the run completes, no inconclusive
+simplex survives at the terminal feature size, and the extracted result
+contains no unrepresentable flat-band or lower-dimensional contact. Conditional
+on the supplied residual bound, it certifies that discarded simplices contain
+no true Fermi-level crossing.
 
-- `CertifiedGapped`: constant occupation was proved;
-- `VisibleGapless`: the vertex data display a contact or occupation change;
-- `Inconclusive`: neither conclusion was proved.
+It does **not** prove that the returned piecewise-linear surface has the exact
+topology, a bounded Hausdorff distance, or a certified geometric interpolation
+error. Those are stronger statements than spectral coverage at a requested
+feature size.
 
-Positive-definiteness tests use the numerical margin
-$\max(10^{-10},\text{tolerance})$.
+## Piecewise-linear charge
 
-### Reuse across chemical potentials
-
-Changing $\mu$ shifts a restricted block by its frame Gram matrix,
+At zero temperature,
 
 $$
-B(\mu+\delta)=B(\mu)-\delta G,
-\qquad G=F^\dagger F.
+Q(\mu)=\int_{\mathrm{BZ}}\nu(k;\mu)\,dk.
 $$
 
-Gershgorin row margins provide conservative one-sided radii. If
-$r_o^\mu$ comes from the occupied sector and $r_u^\mu$ from the unoccupied
-sector, the occupation bounds remain valid for
+For each ordered band index $n$, FermiSimplex linearly interpolates the vertex
+eigenvalues:
 
 $$
-\boxed{\mu'\in[\mu-r_o^\mu,\ \mu+r_u^\mu]}.
+\widetilde E_n(k)
+=
+\sum_i\lambda_i(k)\varepsilon_{i,n}.
 $$
 
-Only the occupation bounds are reusable over this interval; the status can
-change within it.
-
-## Piecewise-linear simplex charge
-
-The zero-temperature filling is
+The simplex contribution is
 
 $$
-Q(\mu)=\int_{\mathrm{BZ}}N(k;\mu)\,dk.
+\widetilde Q_T(\mu)
+=
+\sum_n
+\operatorname{vol}
+\{k\in T:\widetilde E_n(k)\leq\mu\}.
 $$
 
-For each sorted band index $n$, FermiSimplex interpolates the vertex
-energies,
-
-$$
-\widetilde E_n(k)=\sum_i\lambda_i(k)E_{in},
-$$
-
-and computes
-
-$$
-\widetilde Q_S(\mu)=
-\sum_n \mathrm{vol}
-\{k\in S:\widetilde E_n(k)\leq\mu\}.
-$$
-
-AdaptiveSimplex evaluates these affine cut-simplex volumes exactly. A band
-lying entirely on the level is assigned half of the simplex volume.
+AdaptiveSimplex computes these affine cut-simplex volumes exactly. A band
+lying identically on the level is assigned half of the simplex volume.
 
 For distinct vertex energies $e_0,\ldots,e_d$, the derivative of one band
 contribution is
 
 $$
-\frac{d\widetilde Q_S}{d\mu}
-=d|S|\sum_{i=0}^d
+\frac{d\widetilde Q_T}{d\mu}
+=
+d|T|
+\sum_{i=0}^d
 \frac{(\mu-e_i)_+^{d-1}}
 {\prod_{j\neq i}(e_j-e_i)}.
 $$
 
-The implementation uses the equivalent divided-difference formula and
+The implementation uses the equivalent divided-difference expression and
 confluent divided differences for repeated numerical knots.
 
-## The certified charge bound
+### A rigorous charge uncertainty
 
-If a certificate establishes $L\leq N(k;\mu)\leq U$, the linearly interpolated
-occupation also stays between those ranks. Therefore
-
-$$
-\left|Q_S-\widetilde Q_S\right|\leq(U-L)|S|.
-$$
-
-The reported global quantity is
+If the matrix certificate proves
 
 $$
-\boxed{B_{\mathrm{cert}}=
-\sum_{S\in\mathcal P}(U_S-L_S)|S|},
+L\leq\nu(k;\mu)\leq U
+\qquad(k\in T),
 $$
 
-where $\mathcal P$ is the preview partition used for the returned charge. This
-is `certified_error_bound`. It is rigorous when $M$ is valid, but it is not the
-criterion used to stop refinement. Even when $M=0$, the bound can be positive
-if the occupation remains ambiguous.
-
-## The projected charge estimator
-
-Let the occupation certificate select exactly the half-open band interval
-$J=[L,U)$, with width $m=U-L$. No neighboring guard bands are added. At vertex
-$k_i$, write the selected eigenvalues as
+then the ordered vertex-linear occupation also remains between $L$ and $U$.
+Both the exact and interpolated simplex charges therefore lie within an
+interval of width $(U-L)|T|$, giving
 
 $$
-\varepsilon_{i,r}=\varepsilon_{L+r}(k_i),
-\qquad r=0,\ldots,m-1,
+\boxed{
+\left|Q_T-\widetilde Q_T\right|
+\leq
+(U-L)|T|.
+}
 $$
 
-and collect their orthonormal eigenvectors in the frame
-$V_i\in\mathbb C^{N\times m}$.
-
-At the simplex barycenter $k_c$, compute the complete ordered spectrum using
-an eigenvalues-only Hermitian solve,
+Summing over the partition gives
 
 $$
-\eta_{c,0}\le\cdots\le\eta_{c,N-1},
-\qquad \theta_{c,r}=\eta_{c,L+r}.
+\boxed{
+B_{\mathrm{cert}}
+=
+\sum_{T\in\mathcal P}(U_T-L_T)|T|.
+}
 $$
 
-For the midpoint of edge $(i,j)$, compute the principal-angle SVD
+This is reported as `certified_error_bound`. It is rigorous when the supplied
+residual bounds are valid, but it is intentionally coarse: it uses only the
+number of uncertain bands and the simplex volume. It is not the adaptive
+stopping criterion.
+
+## The sampled projected charge-error estimator
+
+Efficient charge refinement needs a more informative estimate of how the
+ordered eigenvalues depart from their vertex-linear interpolation. The
+certificate has already identified the only potentially relevant band
+interval
 
 $$
-V_i^\dagger V_j=A\Sigma C^\dagger
-$$
-
-and use the aligned midpoint frame
-
-$$
-Q_{ij}=(V_iA+V_jC)(2I+2\Sigma)^{-1/2}.
-$$
-
-This construction depends only on the endpoint subspaces, not on phase or
-unitary gauge choices within their selected frames.
-
-At each edge midpoint, diagonalize only the projected matrix
-
-$$
-H_{ij}^{\mathrm{proj}}=Q_{ij}^\dagger H(k_{ij})Q_{ij}
-$$
-
-for its $m$ ordered eigenvalues $\theta_{ij,r}$. Thus the center is exact at
-its sampled point while the edges use $m$-dimensional Rayleigh--Ritz values.
-Compare both kinds of ordered values with the vertex-linear band interpolation
-
-$$
-\ell_{p,r}=\sum_i\lambda_i(k_p)\varepsilon_{i,r},
+J=[L,U),
 \qquad
-\delta_{p,r}=\theta_{p,r}-\ell_{p,r}.
+m=U-L.
 $$
 
-The directional estimates are
+No guard bands are added.
+
+At vertex $i$, collect the selected eigenvectors in
 
 $$
-\rho_+=\max_{p,r}[\delta_{p,r}]_+,
+V_i\in\mathbb C^{N\times m}
+$$
+
+and write the corresponding ordered eigenvalues as
+
+$$
+\varepsilon_{i,r}
+=
+\varepsilon_{i,L+r},
+\qquad r=0,\ldots,m-1.
+$$
+
+### Probe values
+
+For dimensions $d\geq2$, the simplex barycenter is evaluated by a full
+Hermitian eigenvalues-only solve. If its ordered spectrum is
+
+$$
+\eta_{c,0}\leq\cdots\leq\eta_{c,N-1},
+$$
+
+the selected values are
+
+$$
+\theta_{c,r}=\eta_{c,L+r}.
+$$
+
+At the midpoint of edge $(i,j)$, the endpoint frames are aligned through the
+principal-angle SVD
+
+$$
+V_i^\dagger V_j=A\Sigma C^\dagger.
+$$
+
+The orthonormal midpoint frame is
+
+$$
+Q_{ij}
+=
+(V_iA+V_jC)(2I+2\Sigma)^{-1/2}.
+$$
+
+This construction depends on the endpoint subspaces rather than arbitrary
+phases or unitary gauge choices within their frames. The edge Hamiltonian is
+projected,
+
+$$
+H_{ij}^{\mathrm{proj}}
+=
+Q_{ij}^\dagger H(k_{ij})Q_{ij},
+$$
+
+and only the $m$ eigenvalues of this projected matrix are computed.
+
+In one dimension the simplex center is the only edge midpoint, so there is one
+edge-style probe. If $m=N$, the projected space is the full Hilbert space and
+the implementation directly performs the equivalent full eigenvalues-only
+solve.
+
+For a $d$-simplex with $d\geq2$, this gives one barycenter and
+$\binom{d+1}{2}$ edge midpoints. The common probe counts are:
+
+| Dimension | Distinct probes |
+|---:|---|
+| 1D | one edge midpoint |
+| 2D | barycenter and three edge midpoints |
+| 3D | barycenter and six edge midpoints |
+
+Edge midpoints are natural samples because the scalar error of linear
+interpolation of a quadratic along an edge is proportional to $t(1-t)$ and
+has its largest magnitude at $t=1/2$. Together with the vertices, edge
+midpoints are also the nodes of standard quadratic simplex interpolation. The
+barycenter adds one symmetric interior test; no quadratic reconstruction is
+performed.
+
+### Directional spectral deviations
+
+At probe $p$, compare the sampled ordered value with vertex-linear
+interpolation:
+
+$$
+\ell_{p,r}
+=
+\sum_i\lambda_i(k_p)\varepsilon_{i,r},
 \qquad
-\rho_-=\max_{p,r}[-\delta_{p,r}]_+.
+\delta_{p,r}
+=
+\theta_{p,r}-\ell_{p,r}.
 $$
 
-The probes are the barycenter and every edge midpoint, after removing
-duplicates: one point in 1D, the center plus three edges in 2D, and the center
-plus six edges in 3D. Edge midpoints are mathematically natural because the
-error of scalar linear interpolation of a quadratic along an edge is
-proportional to $t(1-t)$ and therefore has its largest magnitude at the
-midpoint. The edge midpoints together with the vertices are the standard
-quadratic interpolation nodes. The barycenter adds a symmetric interior
-probe, although the estimator does not construct a quadratic interpolant.
-
-A positive difference raises the sampled energy relative to its
-linear interpolation and can reduce occupation; a negative difference can
-increase it. The existing occupation-volume shell therefore uses
+The largest sampled upward and downward deviations are
 
 $$
-E_{\mathrm{proj},S}=\sum_{n=L}^{U-1}
-\left[V_{n,S}(\mu+\rho_-)-V_{n,S}(\mu-\rho_+)\right]_+,
-$$
-
-where $V_{n,S}(a)$ is the occupied cut volume of interpolated band $n$ at
-level $a$.
-
-This is a sampled estimate—not a proof. It can miss unsampled extrema, and the
-edge values can miss errors caused by components outside their projected
-subspaces. The exact center also removes any accidental inflation that a
-projected center's Ritz error could have supplied. Consequently,
-`target_reached` means that the sampled stopping criterion was met; it is not a
-continuous interpolation-error certificate.
-
-## Adaptive stopping and optional preview
-
-Production charge calculations use `preview_depth=0`. In that case the
-AdaptiveSimplex preview value is the coarse value and its correction vanishes:
-
-$$
-Q_S^{\mathrm{preview}}=Q_S^{\mathrm{coarse}}=\widetilde Q_S,
-\qquad \Delta Q_S=0.
-$$
-
-The local and global stopping estimates are therefore
-
-$$
-\boxed{E_S=E_{\mathrm{proj},S}},
+\rho_+
+=
+\max_{p,r}[\delta_{p,r}]_+,
 \qquad
-E_{\mathrm{stop}}=\sum_S E_S.
+\rho_-
+=
+\max_{p,r}[-\delta_{p,r}]_+.
 $$
 
-The same local projected-error estimate prioritizes refinement. This avoids
-an additional refined evaluation because the charge rule already measures its
-own sampled interpolation error.
-
-A positive `preview_depth=p` remains available for tests and diagnostics. Let
-$\mathcal P_p(S)$ be its depth-$p$ preview leaves. Then
+A positive deviation raises the sampled energy relative to interpolation and
+can reduce occupation. A negative deviation can increase it. FermiSimplex
+therefore converts the two numbers into an occupation-volume shell:
 
 $$
-Q_S^{\mathrm{coarse}}=\widetilde Q_S,
-\quad
-Q_S^{\mathrm{preview}}=\sum_{T\in\mathcal P_p(S)}\widetilde Q_T,
-\quad
-\Delta Q_S=Q_S^{\mathrm{preview}}-Q_S^{\mathrm{coarse}}.
+E_{\mathrm{proj},T}
+=
+\sum_{n=L}^{U-1}
+\left[
+V_{n,T}(\mu+\rho_-)
+-
+V_{n,T}(\mu-\rho_+)
+\right]_+,
 $$
 
-The local stopping contribution is
+where $V_{n,T}(a)$ is the cut volume of interpolated band $n$ below level
+$a$.
+
+Shared edge estimates are cached across neighboring simplices.
+
+This estimator is **not** a continuous certificate. It can miss unsampled
+interior extrema, and a projected edge space can miss components outside that
+space. The exact barycenter removes projection error at the interior probe but
+does not change the sampled nature of the result.
+
+### Adaptive stopping
+
+Production charge calculations use `preview_depth=0`. The returned charge is
+then the current-mesh piecewise-linear charge, and the local stopping estimate
+is
 
 $$
-\boxed{E_S=
-\sum_{T\in\mathcal P_p(S)}E_{\mathrm{proj},T}
-+|\Delta Q_S|},
+E_T=E_{\mathrm{proj},T}.
 $$
 
-The returned charge is the preview value. With the production depth zero this
-is exactly the current-mesh charge. `stats.target_reached` only says that the
-sampled estimate met the target.
+The global stopping estimate is
 
-Increasing $M$ increases $\epsilon_S$, which can widen $[L,U)$, enlarge both
-reported errors, and require more refinement. Refinement reduces the curvature
-term quadratically through $D_S^2$.
+$$
+\boxed{
+E_{\mathrm{stop}}=\sum_T E_T.
+}
+$$
 
-## Fermi surfaces and density matrices
+The same local values prioritize refinement. A positive preview depth remains
+available for diagnostics: the returned value is computed on preview leaves,
+and the stopping estimate combines their projected errors with the absolute
+preview correction.
 
-Fermi-surface extraction discards certified-gapped simplices and refines
-visible or inconclusive ones to `min_feature_size`. It then intersects the
-piecewise-linear bands with $\mu$. `coverage_certified` concerns classification
-down to that feature size; it does not certify topology, Hausdorff distance, or
-geometric interpolation error.
+`stats.target_reached` means that this sampled stopping estimate met
+`target_error`. It does not mean that the rigorous
+`certified_error_bound` met the same target.
 
-Density matrices use the same adaptive mesh and cached eigensystems, but their
-`stopping_error` is an adaptive quadrature estimate. A rigorous projector bound
-would additionally require spectral-gap control, so density matrices are not
-currently certified.
+## Density matrices
+
+Density matrices reuse the adaptive geometry and cached vertex eigensystems.
+Their `stopping_error` is an adaptive quadrature estimate. The occupation
+certificate alone does not bound the variation of the spectral projector; a
+rigorous density-matrix certificate would require additional gap-dependent
+control. Density matrices are therefore not currently certified.
+
+## What the reported quantities mean
+
+| Quantity | Meaning | Rigorous? |
+|---|---|---|
+| `occupation_bounds = [L, U]` | Every point in the simplex has between $L$ and $U$ occupied states | Yes, if $\epsilon_T$ is valid |
+| `CertifiedGapped` | The occupation is constant and no Fermi-level state exists in the simplex | Yes, if $\epsilon_T$ is valid |
+| `VisibleGapless` | Vertex data show a contact or force an occupation change | Yes, assuming a continuous Hamiltonian |
+| `Inconclusive` | The sufficient proof did not decide | No gap or crossing conclusion |
+| `certified_error_bound` | Global charge bound from occupation widths | Yes, if every $\epsilon_T$ is valid |
+| `stopping_error` for charge | Center-and-edge sampled interpolation estimate | No |
+| `coverage_certified` | The run completed with no terminal inconclusive or unrepresentable contact | Conditional on valid $\epsilon_T$; not a topology guarantee |
+| density-matrix `stopping_error` | Adaptive quadrature estimate | No |
+
+The rigorous statements also assume finite ascending vertex eigenvalues and
+finite column-orthonormal eigenvectors. The direct certification interface
+checks container dimensions but intentionally does not revalidate these
+performance-sensitive numerical preconditions.

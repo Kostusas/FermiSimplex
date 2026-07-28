@@ -55,7 +55,9 @@ GitLab CI and GitHub Actions independently run the same locked test, package,
 benchmark, and wheel-smoke checks; mirroring does not suppress either pipeline.
 The provider files contain only runner and artifact configuration, while the
 shared commands stay in `pixi.toml`. GitHub covers Linux, macOS, and Windows;
-the available GitLab runner covers Linux AMD64.
+the available GitLab runner covers Linux AMD64. GitLab validates the source
+archive and builds its wheel in one job so the wheel consumes that exact
+archive without relying on the server's restricted artifact uploads.
 
 See [Release process](release.md) for wheel builds, TestPyPI, and tag-based
 publishing.

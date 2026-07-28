@@ -45,18 +45,7 @@ tests:
   script:
     - pixi run --frozen ci-test
 
-source-distribution:
-  extends: .default-pixi
-  stage: verify
-  script:
-    - pixi run --frozen ci-package
-  artifacts:
-    name: "fermisimplex-sdist-$CI_COMMIT_SHORT_SHA"
-    paths:
-      - dist/*.tar.gz
-    expire_in: 30 days
-
-wheel-linux-x86_64:
+distributions-linux-x86_64:
   stage: verify
   image: python:3.13-slim
   services:
@@ -69,20 +58,20 @@ wheel-linux-x86_64:
     DOCKER_TLS_CERTDIR: ""
     CIBW_ARCHS: "x86_64"
     CIBW_BUILD: "cp313-*"
-  needs:
-    - job: source-distribution
-      artifacts: true
+    PIXI_HOME: "/tmp/fermisimplex-pixi-home"
+    XDG_CACHE_HOME: "/tmp/fermisimplex-cache"
   before_script:
     - apt-get update
-    - apt-get install -y --no-install-recommends docker.io
+    - apt-get install -y --no-install-recommends ca-certificates curl docker.io
+    - curl --fail --location --silent --show-error --output /tmp/pixi.tar.gz https://github.com/prefix-dev/pixi/releases/download/v0.70.2/pixi-x86_64-unknown-linux-musl.tar.gz
+    - echo "9d0d72fc1fa1a8f87bfde943cf25d3575cb352cb516795d4dab21898bd98adea  /tmp/pixi.tar.gz" | sha256sum --check
+    - tar --extract --gzip --file /tmp/pixi.tar.gz --directory /usr/local/bin
+    - pixi config set --global detached-environments /tmp/fermisimplex-pixi-envs
+    - pixi --version
   script:
+    - pixi run --frozen ci-package
     - python -m pip install --no-cache-dir cibuildwheel==4.1.1
     - python -m cibuildwheel --platform linux --output-dir wheelhouse dist/*.tar.gz
-  artifacts:
-    name: "fermisimplex-wheel-linux-x86_64-$CI_COMMIT_SHORT_SHA"
-    paths:
-      - wheelhouse/*.whl
-    expire_in: 30 days
 
 benchmark:
   extends: .default-pixi

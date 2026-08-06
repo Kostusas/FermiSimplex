@@ -13,6 +13,11 @@ All notable changes to FermiSimplex are documented in this file.
   small-space recursion rule, and a tighter large-active-space fallback.
 - Added `error_depth` and detailed charge-estimator work statistics to the C++
   and Python APIs.
+- Set the default charge `error_depth` to 2.
+- Made current-mesh charge a direct linear-simplex calculation with no target,
+  recursive error estimation, or temporary sampling.
+- Allowed density-matrix `preview_depth=0` to integrate the existing mesh
+  without preview evaluations or refinement.
 - Applied the corrected frozen Schur model through a per-layer dense safe
   resolvent, two reused thin work buffers, and cached reduced matrices; no
   pointwise safe-block factorization is required.

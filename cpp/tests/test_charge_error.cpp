@@ -4,6 +4,8 @@
 #include <fermisimplex/integration.h>
 #include <fermisimplex/spectral_mesh.h>
 
+#include <adaptivesimplex/adaptive/types.h>
+
 #include <algorithm>
 #include <array>
 #include <cmath>
@@ -69,7 +71,18 @@ ChargeResult estimate(
     std::uint32_t error_depth
 ) {
     auto mesh = SpectralMesh(std::move(model), kTol, 0);
-    return estimate_charge_on_current_mesh(mesh, 0.0, 10.0, error_depth);
+    return integrate_charge(
+        mesh,
+        0.0,
+        adaptivesimplex::adaptive::Options{
+            .target_error = 10.0,
+            .max_refinements = 0,
+            .preview_depth = 0,
+            .min_refinement_batch_size = 1,
+            .max_refinement_batch_size = 100,
+        },
+        error_depth
+    );
 }
 
 void expect_positive(double value, const std::string &message) {

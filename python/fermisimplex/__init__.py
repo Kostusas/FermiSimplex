@@ -10,6 +10,7 @@ from .certification import (
 from .mesh import (
     ChargeErrorStats,
     ChargeResult,
+    CurrentMeshChargeResult,
     DensityMatrixResult,
     FermiSurfaceResult,
     FermiSurfaceStats,
@@ -21,6 +22,7 @@ __all__ = [
     "CertificateStatus",
     "ChargeErrorStats",
     "ChargeResult",
+    "CurrentMeshChargeResult",
     "DensityMatrixResult",
     "FermiSurfaceResult",
     "FermiSurfaceStats",

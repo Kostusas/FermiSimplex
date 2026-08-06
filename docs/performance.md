@@ -120,10 +120,11 @@ stable performance comparisons.
 The ordinary presets retain these benchmark families:
 
 - reused-workspace and current-wrapper LAPACK eigensolves;
-- cumulative model evaluation, Hamiltonian validation, eigensystem, and cache
-  insertion costs;
+- cumulative model evaluation, trusted Hamiltonian dispatch, eigensystem, and
+  cache insertion costs;
 - tight-binding evaluation and eigensystem costs for several hopping counts;
-- fixed-mesh and adaptive charge integration with recursive error depth 1;
+- direct current-mesh charge and adaptive charge integration at the default
+  recursive error depth 2;
 - adaptive Fermi-surface extraction;
 - controlled root-mesh evaluation and classification scaling;
 - the separate occupation-bounds benchmark executable.
@@ -131,9 +132,9 @@ The ordinary presets retain these benchmark families:
 End-to-end results record total time, new spectral vertices, actual simplex
 visits, refinements, time per vertex and visit, and LAPACK equivalents per
 vertex and visit. Charge results additionally carry the recursive estimator
-counters above. The current-mesh charge pass uses no AdaptiveSimplex preview;
-the adaptive charge pass also forces preview depth zero and refines using the
-summed charge-error estimate.
+counters above. The current-mesh charge pass performs only linear-simplex
+integration; the adaptive charge pass forces AdaptiveSimplex preview depth zero
+and refines using the separate recursive charge-error estimate.
 
 The benchmark excludes `SpectralMesh` construction from timed regions. Reference
 LAPACK matrices are prepared outside the timer. Raw timings should only be

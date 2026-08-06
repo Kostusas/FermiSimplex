@@ -902,15 +902,9 @@ void benchmark_charge_total(
 ) {
     constexpr auto ndim = std::size_t{2};
     constexpr auto root_level = std::uint32_t{2};
-    constexpr auto target_error = 0.02;
     auto vertices = std::size_t{0};
     auto simplices = std::size_t{0};
     auto simplex_visits = std::size_t{0};
-    auto visible_gapless_simplices = std::size_t{0};
-    auto inconclusive_simplices = std::size_t{0};
-    auto stopping_error = 0.0;
-    auto target_reached = false;
-    auto charge_error_stats = fermisimplex::ChargeErrorStats{};
     const auto timing = measure(config.samples, 1, [&](std::size_t) {
         auto mesh = fermisimplex::SpectralMesh(
             crossing_model(ndof), 1e-14, root_level
@@ -918,40 +912,25 @@ void benchmark_charge_total(
         const auto started = Clock::now();
         const auto charge = fermisimplex::estimate_charge_on_current_mesh(
             mesh,
-            0.0,
-            target_error,
-            1
+            0.0
         );
         const auto finished = Clock::now();
         require_stable_count(
             vertices,
-            static_cast<std::size_t>(charge.stats.evaluations),
+            mesh.cached_vertices(),
             "charge vertex count"
         );
         require_stable_count(
             simplices,
-            static_cast<std::size_t>(charge.stats.active_simplices),
+            static_cast<std::size_t>(mesh.active_simplices()),
             "charge active-simplex count"
         );
         require_stable_count(
             simplex_visits,
-            static_cast<std::size_t>(charge.stats.simplex_visits),
+            static_cast<std::size_t>(mesh.active_simplices()),
             "charge simplex-visit count"
         );
-        require_stable_count(
-            visible_gapless_simplices,
-            static_cast<std::size_t>(charge.visible_gapless_simplices),
-            "charge visible-gapless count"
-        );
-        require_stable_count(
-            inconclusive_simplices,
-            static_cast<std::size_t>(charge.inconclusive_simplices),
-            "charge inconclusive count"
-        );
-        stopping_error = charge.stopping_error;
-        charge_error_stats = charge.error_stats;
-        target_reached = charge.stats.target_reached;
-        benchmark_sink = charge.value + charge.stopping_error;
+        benchmark_sink = charge.value + charge.dcharge_dmu;
         return elapsed_ns(started, finished);
     });
     auto result = make_total_result(
@@ -967,14 +946,7 @@ void benchmark_charge_total(
         timing,
         lapack_ns
     );
-    result.target_error = target_error;
     result.preview_depth = 0;
-    result.stopping_error = stopping_error;
-    result.error_depth = 1;
-    result.charge_error_stats = charge_error_stats;
-    result.visible_gapless_simplices = visible_gapless_simplices;
-    result.inconclusive_simplices = inconclusive_simplices;
-    result.target_reached = target_reached;
     results.push_back(std::move(result));
 }
 
@@ -1003,10 +975,16 @@ void benchmark_charge_estimator_case(
             root_level
         );
         const auto started = Clock::now();
-        const auto charge = fermisimplex::estimate_charge_on_current_mesh(
+        const auto charge = fermisimplex::integrate_charge(
             mesh,
             0.0,
-            target_error,
+            adaptivesimplex::adaptive::Options{
+                .target_error = target_error,
+                .max_refinements = 0,
+                .preview_depth = 0,
+                .min_refinement_batch_size = 1,
+                .max_refinement_batch_size = 100,
+            },
             error_depth
         );
         const auto finished = Clock::now();
@@ -1151,8 +1129,7 @@ void benchmark_adaptive_charge_total(
         const auto charge = fermisimplex::integrate_charge(
             mesh,
             0.0,
-            options,
-            1
+            options
         );
         const auto finished = Clock::now();
         require_stable_count(
@@ -1213,7 +1190,7 @@ void benchmark_adaptive_charge_total(
     result.target_error = options.target_error;
     result.preview_depth = options.preview_depth;
     result.stopping_error = stopping_error;
-    result.error_depth = 1;
+    result.error_depth = 2;
     result.charge_error_stats = charge_error_stats;
     result.visible_gapless_simplices = visible_gapless_simplices;
     result.inconclusive_simplices = inconclusive_simplices;
@@ -1531,7 +1508,6 @@ std::string render_summary(const Config &config, const std::vector<Result> &resu
         results.end(),
         [](const Result &result) {
             return result.category == "charge_estimator" ||
-                result.name == "charge_current_mesh_total" ||
                 result.name == "charge_adaptive_total";
         }
     );
@@ -1553,7 +1529,6 @@ std::string render_summary(const Config &config, const std::vector<Result> &resu
         for (const auto &result : results) {
             if (
                 result.category != "charge_estimator" &&
-                result.name != "charge_current_mesh_total" &&
                 result.name != "charge_adaptive_total"
             ) {
                 continue;

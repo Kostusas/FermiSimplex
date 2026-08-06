@@ -71,6 +71,10 @@ void bind_integration_types(nb::module_ &module) {
         )
         .def_prop_ro("stats", [](const ChargeResult &result) { return result.stats; });
 
+    nb::class_<CurrentMeshChargeResult>(module, "CurrentMeshChargeResult")
+        .def_ro("value", &CurrentMeshChargeResult::value)
+        .def_ro("dcharge_dmu", &CurrentMeshChargeResult::dcharge_dmu);
+
     nb::class_<DensityMatrixResult>(module, "DensityMatrixResult")
         .def_prop_ro(
             "matrices",

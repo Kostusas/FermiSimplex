@@ -89,7 +89,7 @@ charge = mesh.integrate_charge(
     mu=0.17,
     target_error=1e-2,
     max_refinements=10_000,
-    error_depth=1,
+    error_depth=2,
 )
 density = mesh.integrate_density_matrix(
     mu=0.17,
@@ -150,16 +150,24 @@ curvature argument. See the [mathematics guide][mathematics] for details.
   orthonormal. These performance-sensitive numerical preconditions are not
   rechecked.
 - `mesh.integrate_charge`: adaptive filling and $dQ/d\mu$.
+- `mesh.estimate_charge_on_current_mesh`: direct linear-simplex filling and
+  $dQ/d\mu$ with no error estimation or refinement.
 - `mesh.integrate_density_matrix`: real-space density-matrix components.
 - `mesh.fermi_surface`: band-labelled points and cells in reduced coordinates.
 
 Adaptive controls are ordinary keyword arguments on the calculation that uses
-them—there is no separate options object. For charge, `error_depth=1` permits
-one complete temporary subdivision into $2^d$ microsimplices on each unresolved
-branch. Certified branches stop early. Increasing the maximum depth adds
-actual-Hamiltonian samples without refining the persistent mesh.
+them—there is no separate options object. Charge defaults to `error_depth=2`.
+Each level permits one complete temporary subdivision into $2^d$
+microsimplices on each unresolved branch; certified branches stop early.
+Increasing the maximum depth adds actual-Hamiltonian samples without refining
+the persistent mesh.
 `charge.error_stats` reports the resulting reductions, solves, eigensystems,
 temporary simplices, and fallbacks.
+
+Density matrices default to `preview_depth=1`. Setting `preview_depth=0`
+integrates directly on the existing mesh, adds no preview vertices, and performs
+no refinement. This is useful after charge integration has already established
+and populated the desired mean-field mesh.
 
 See the [visual Python tour][visual-tour], runnable
 [quick start][quick-start], and

@@ -9,6 +9,7 @@ import numpy as np
 from ._native import (
     ChargeErrorStats,
     ChargeResult,
+    CurrentMeshChargeResult,
     DensityMatrixResult,
     FermiSurfaceResult,
     FermiSurfaceStats,
@@ -201,7 +202,7 @@ class SpectralMesh:
         mu: float,
         target_error: float,
         max_refinements: int | None = None,
-        error_depth: int = 1,
+        error_depth: int = 2,
         min_refinement_batch_size: int = 1,
         max_refinement_batch_size: int = 100,
     ) -> ChargeResult:
@@ -259,23 +260,15 @@ class SpectralMesh:
         self,
         *,
         mu: float,
-        target_error: float,
-        error_depth: int = 1,
-    ) -> ChargeResult:
-        """Estimate charge without committing further mesh refinement.
+    ) -> CurrentMeshChargeResult:
+        """Integrate charge directly on the current mesh.
 
-        The recursive estimator evaluates the Hamiltonian at temporary
-        microvertices but does not add those points to the persistent mesh.
-        ``error_depth=1`` permits one complete subdivision on each unresolved
-        branch; certified branches stop early. The returned stopping error
-        is sampled rather than rigorous. The corrected frozen-safe-block
-        approximation can lose accuracy when variation is comparable with the
-        anchor gap or safe-block inertia changes.
+        This evaluates missing eigensystems at existing vertices and applies
+        the linear-simplex charge rule. It performs no certification, error
+        estimation, temporary subdivision, or persistent refinement.
         """
         return self._native.estimate_charge_on_current_mesh(
             _finite_float(mu, "mu"),
-            _nonnegative_float(target_error, "target_error"),
-            _nonnegative_integer(error_depth, "error_depth"),
         )
 
     def integrate_density_matrix(
@@ -302,7 +295,9 @@ class SpectralMesh:
         max_refinements
             Maximum number of simplex refinements, or ``None`` for no limit.
         preview_depth
-            Refinement depth used to estimate each simplex correction.
+            Refinement depth used to estimate each simplex correction. Zero
+            integrates directly on the current mesh without preview samples
+            or refinement.
         min_refinement_batch_size, max_refinement_batch_size
             Bounds on the number of simplices refined in one adaptive step.
 
@@ -316,7 +311,7 @@ class SpectralMesh:
         adaptive = _adaptive_parameters(
             target_error,
             max_refinements,
-            _positive_integer(preview_depth, "preview_depth"),
+            _nonnegative_integer(preview_depth, "preview_depth"),
             min_refinement_batch_size,
             max_refinement_batch_size,
         )
@@ -372,6 +367,7 @@ class SpectralMesh:
 __all__ = [
     "ChargeErrorStats",
     "ChargeResult",
+    "CurrentMeshChargeResult",
     "DensityMatrixResult",
     "FermiSurfaceResult",
     "FermiSurfaceStats",

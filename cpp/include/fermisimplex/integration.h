@@ -53,6 +53,11 @@ struct ChargeResult {
     IntegrationStats stats;
 };
 
+struct CurrentMeshChargeResult {
+    double value = 0.0;
+    double dcharge_dmu = 0.0;
+};
+
 struct DensityMatrixResult {
     // Row-major [lattice_vector][row][column] storage.
     std::vector<std::complex<double>> matrices;
@@ -67,16 +72,17 @@ ChargeResult integrate_charge(
     SpectralMesh &mesh,
     double mu,
     const adaptivesimplex::adaptive::Options &options,
-    std::uint32_t error_depth = 1
+    std::uint32_t error_depth = 2
 );
 
-ChargeResult estimate_charge_on_current_mesh(
+// Evaluates missing eigensystems at existing vertices and applies the
+// linear-simplex charge rule. Performs no certification or refinement.
+CurrentMeshChargeResult estimate_charge_on_current_mesh(
     SpectralMesh &mesh,
-    double mu,
-    double target_error,
-    std::uint32_t error_depth = 1
+    double mu
 );
 
+// With preview_depth=0, integrates the current mesh without refinement.
 DensityMatrixResult integrate_density_matrix(
     SpectralMesh &mesh,
     double mu,

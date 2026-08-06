@@ -3,7 +3,7 @@ from __future__ import annotations
 import numpy as np
 import pytest
 
-from fermisimplex import ChargeErrorStats, SpectralMesh
+from fermisimplex import ChargeErrorStats, CurrentMeshChargeResult, SpectralMesh
 
 from .helpers import constant_insulator
 
@@ -36,32 +36,22 @@ def test_integrates_charge_on_a_tight_binding_model():
 def test_evaluates_charge_without_refining_the_mesh():
     mesh = SpectralMesh(constant_insulator(1))
 
-    result = mesh.estimate_charge_on_current_mesh(mu=0.0, target_error=1e-12)
+    result = mesh.estimate_charge_on_current_mesh(mu=0.0)
 
+    assert isinstance(result, CurrentMeshChargeResult)
     assert result.value == pytest.approx(1.0)
-    assert result.stats.refinements == 0
-
-
-@pytest.mark.parametrize("target_error", (-1.0, np.inf, np.nan))
-def test_current_mesh_charge_requires_a_finite_nonnegative_target(target_error):
-    mesh = SpectralMesh(constant_insulator(1))
-
-    with pytest.raises(ValueError, match="target_error"):
-        mesh.estimate_charge_on_current_mesh(mu=0.0, target_error=target_error)
+    assert result.dcharge_dmu == pytest.approx(0.0)
 
 
 def test_current_mesh_charge_does_not_refine_the_persistent_mesh():
     mesh = SpectralMesh(constant_insulator(1))
     active_simplices = mesh.active_simplices
 
-    result = mesh.estimate_charge_on_current_mesh(
-        mu=0.0,
-        target_error=1.0,
-    )
+    result = mesh.estimate_charge_on_current_mesh(mu=0.0)
 
     assert mesh.active_simplices == active_simplices
-    assert result.stats.evaluations == result.stats.active_vertices
-    assert result.stats.simplex_visits == result.stats.active_simplices
+    assert mesh.cached_vertices == mesh.active_vertices
+    assert result.value == pytest.approx(1.0)
 
 
 def test_callable_hamiltonian_is_evaluated_with_separate_coordinates():
@@ -73,7 +63,7 @@ def test_callable_hamiltonian_is_evaluated_with_separate_coordinates():
 
     mesh = SpectralMesh(function)
 
-    result = mesh.estimate_charge_on_current_mesh(mu=0.0, target_error=1e-12)
+    result = mesh.estimate_charge_on_current_mesh(mu=0.0)
 
     assert result.value == pytest.approx(1.0)
     assert seen_points
@@ -84,14 +74,16 @@ def test_error_depth_increases_temporary_estimator_work():
     def band(k: float) -> np.ndarray:
         return np.array([[(k - 0.5) ** 2 - 0.1]], dtype=complex)
 
-    shallow = SpectralMesh(band).estimate_charge_on_current_mesh(
+    shallow = SpectralMesh(band).integrate_charge(
         mu=0.0,
-        target_error=1.0,
+        target_error=10.0,
+        max_refinements=0,
         error_depth=0,
     )
-    subdivided = SpectralMesh(band).estimate_charge_on_current_mesh(
+    subdivided = SpectralMesh(band).integrate_charge(
         mu=0.0,
-        target_error=1.0,
+        target_error=10.0,
+        max_refinements=0,
         error_depth=1,
     )
 
@@ -107,9 +99,10 @@ def test_error_depth_increases_temporary_estimator_work():
 
 
 def test_charge_error_stats_are_nonnegative():
-    result = SpectralMesh(constant_insulator(1)).estimate_charge_on_current_mesh(
+    result = SpectralMesh(constant_insulator(1)).integrate_charge(
         mu=0.0,
-        target_error=1.0,
+        target_error=10.0,
+        max_refinements=0,
     )
 
     assert result.error_stats.root_simplices >= 0
@@ -123,9 +116,10 @@ def test_charge_rejects_negative_error_depth(error_depth):
     mesh = SpectralMesh(constant_insulator(1))
 
     with pytest.raises(ValueError, match="error_depth"):
-        mesh.estimate_charge_on_current_mesh(
+        mesh.integrate_charge(
             mu=0.0,
-            target_error=1.0,
+            target_error=10.0,
+            max_refinements=0,
             error_depth=error_depth,
         )
 
@@ -134,8 +128,29 @@ def test_charge_error_depth_must_be_an_integer():
     mesh = SpectralMesh(constant_insulator(1))
 
     with pytest.raises(TypeError, match="error_depth"):
-        mesh.estimate_charge_on_current_mesh(
+        mesh.integrate_charge(
             mu=0.0,
-            target_error=1.0,
+            target_error=10.0,
+            max_refinements=0,
             error_depth=1.5,
         )
+
+
+def test_charge_error_depth_defaults_to_two():
+    def band(k: float) -> np.ndarray:
+        return np.array([[(k - 0.5) ** 2 - 0.1]], dtype=complex)
+
+    default = SpectralMesh(band).integrate_charge(
+        mu=0.0,
+        target_error=10.0,
+        max_refinements=0,
+    )
+    explicit = SpectralMesh(band).integrate_charge(
+        mu=0.0,
+        target_error=10.0,
+        max_refinements=0,
+        error_depth=2,
+    )
+
+    assert default.stopping_error == pytest.approx(explicit.stopping_error)
+    assert default.error_stats.micro_simplices == explicit.error_stats.micro_simplices

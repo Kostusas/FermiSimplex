@@ -52,12 +52,12 @@ public:
     EigensystemCache &eigensystems() noexcept { return eigensystems_; }
     const EigensystemCache &eigensystems() const noexcept { return eigensystems_; }
 
-    // Validates the Hamiltonian at one reduced coordinate.
+    // Evaluates the trusted model at one reduced coordinate.
     std::vector<std::complex<double>> hamiltonian(
         std::span<const double> reduced_point
     ) const;
 
-    // Validates and diagonalizes the Hamiltonian at one reduced coordinate.
+    // Evaluates and diagonalizes the trusted model at one reduced coordinate.
     Eigensystem spectrum(std::span<const double> reduced_point) const;
 
     double linearization_error_bound(

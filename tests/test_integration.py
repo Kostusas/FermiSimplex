@@ -43,7 +43,7 @@ def test_integration_requires_a_finite_chemical_potential(mu):
     with pytest.raises(ValueError, match="mu must be finite"):
         mesh.integrate_charge(mu=mu, target_error=1.0, max_refinements=0)
     with pytest.raises(ValueError, match="mu must be finite"):
-        mesh.estimate_charge_on_current_mesh(mu=mu, target_error=1.0)
+        mesh.estimate_charge_on_current_mesh(mu=mu)
     with pytest.raises(ValueError, match="mu must be finite"):
         mesh.integrate_density_matrix(
             mu=mu,
@@ -53,7 +53,27 @@ def test_integration_requires_a_finite_chemical_potential(mu):
         )
 
 
-def test_density_matrix_requires_a_positive_preview_depth():
+def test_density_matrix_preview_zero_reuses_the_current_mesh():
+    mesh = SpectralMesh(constant_insulator(1))
+    mesh.estimate_charge_on_current_mesh(mu=0.0)
+    cached_vertices = mesh.cached_vertices
+
+    result = mesh.integrate_density_matrix(
+        mu=0.0,
+        lattice_vectors=[(0,)],
+        target_error=0.0,
+        max_refinements=0,
+        preview_depth=0,
+    )
+
+    assert result.matrices[0] == pytest.approx(np.diag([1.0, 0.0]))
+    assert result.stopping_error == pytest.approx(0.0)
+    assert result.stats.evaluations == 0
+    assert result.stats.refinements == 0
+    assert mesh.cached_vertices == cached_vertices
+
+
+def test_density_matrix_rejects_negative_preview_depth():
     mesh = SpectralMesh(constant_insulator(1))
 
     with pytest.raises(ValueError, match="preview_depth"):
@@ -61,7 +81,7 @@ def test_density_matrix_requires_a_positive_preview_depth():
             mu=0.0,
             lattice_vectors=[(0,)],
             target_error=1.0,
-            preview_depth=0,
+            preview_depth=-1,
         )
 
 

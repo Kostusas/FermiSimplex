@@ -238,9 +238,10 @@ def run_case(
 ) -> dict[str, object]:
     mesh = SpectralMesh(model.hoppings, root_level=root_level)
     started = time.perf_counter()
-    result = mesh.estimate_charge_on_current_mesh(
+    result = mesh.integrate_charge(
         mu=model.mu,
-        target_error=0.0,
+        target_error=1.0e9,
+        max_refinements=0,
         error_depth=error_depth,
     )
     elapsed = time.perf_counter() - started
@@ -301,9 +302,10 @@ def run_case(
 
 def warm_up() -> None:
     mesh = SpectralMesh({(0,): np.array([[-1.0]])}, root_level=0)
-    mesh.estimate_charge_on_current_mesh(
+    mesh.integrate_charge(
         mu=0.0,
-        target_error=0.0,
+        target_error=1.0e9,
+        max_refinements=0,
         error_depth=0,
     )
 

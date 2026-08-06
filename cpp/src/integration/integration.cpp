@@ -172,43 +172,47 @@ auto density_integrand(
     );
 }
 
-template <class Integrand>
-adaptive::IntegrationResult<ChargeContribution> estimate_current_mesh_charge(
+CurrentMeshChargeResult current_mesh_charge(
     SpectralMesh &mesh,
-    Integrand &integrand,
-    double target_error
+    double mu
 ) {
     auto &geometry = mesh.geometry();
     const auto active = geometry.simplices().active_simplices();
     const auto simplex_ids = std::vector<core::SimplexId>(active.begin(), active.end());
     auto evaluations = std::int64_t{0};
     auto value = ChargeContribution{};
-    auto correction = ChargeContribution{};
-    auto error_policy = integrand.stopping_global_error();
-    auto error_state = error_policy.template zero<ChargeContribution>();
+    auto integrand = adaptive::simplex_integrand(
+        mesh.eigensystems(),
+        [&mesh](std::span<const double> point) {
+            return mesh.spectrum(point);
+        },
+        [&mesh, mu](
+            const core::Geometry &current_geometry,
+            core::SimplexId simplex_id,
+            EigensystemCache &
+        ) {
+            return integration_detail::band_charge_on_simplex(
+                mu,
+                mesh,
+                current_geometry,
+                simplex_id
+            );
+        }
+    );
 
-    for (const auto &estimate : adaptive::estimate_simplices(
-             geometry,
-             integrand,
-             simplex_ids,
-             0,
-             evaluations
-         )) {
-        value += estimate.preview;
-        correction += estimate.correction;
-        const auto contribution =
-            error_policy.template contribution<ChargeContribution>(estimate);
-        error_policy.template add<ChargeContribution>(error_state, contribution);
+    adaptive::evaluate_vertices(
+        geometry,
+        integrand,
+        simplex_ids,
+        0,
+        evaluations
+    );
+    for (const auto simplex_id : simplex_ids) {
+        value += integrand.simplex_contribution(geometry, simplex_id);
     }
-
-    const auto error = error_policy.template error<ChargeContribution>(error_state);
-    return adaptive::IntegrationResult<ChargeContribution>{
-        .integral = std::move(value),
-        .correction = std::move(correction),
-        .stopping_error = error,
-        .evaluations = evaluations,
-        .refinements = 0,
-        .converged = error <= target_error,
+    return CurrentMeshChargeResult{
+        .value = value.value,
+        .dcharge_dmu = value.dcharge_dmu,
     };
 }
 
@@ -291,34 +295,12 @@ ChargeResult integrate_charge(
     );
 }
 
-ChargeResult estimate_charge_on_current_mesh(
+CurrentMeshChargeResult estimate_charge_on_current_mesh(
     SpectralMesh &mesh,
-    double mu,
-    double target_error,
-    std::uint32_t error_depth
+    double mu
 ) {
     validate_mu(mu);
-    validate_target_error(target_error);
-    auto simplex_visits = std::int64_t{0};
-    auto error_stats = ChargeErrorStats{};
-    auto integrand = charge_integrand(
-        mesh,
-        mu,
-        error_depth,
-        simplex_visits,
-        error_stats
-    );
-    const auto raw = estimate_current_mesh_charge(
-        mesh,
-        integrand,
-        target_error
-    );
-    return charge_result(
-        mesh,
-        raw,
-        simplex_visits,
-        error_stats
-    );
+    return current_mesh_charge(mesh, mu);
 }
 
 DensityMatrixResult integrate_density_matrix(
@@ -329,11 +311,6 @@ DensityMatrixResult integrate_density_matrix(
 ) {
     validate_mu(mu);
     validate_options(options);
-    if (options.preview_depth == 0) {
-        throw std::runtime_error(
-            "density-matrix preview_depth must be positive"
-        );
-    }
     auto rule = DensityMatrixRule(
         mesh.ndim(),
         mesh.ndof(),

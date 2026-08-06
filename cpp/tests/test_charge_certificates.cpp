@@ -88,8 +88,7 @@ void test_charge_derivative_handles_repeated_vertex_energies() {
         );
         const auto result = estimate_charge_on_current_mesh(
             mesh,
-            0.25,
-            1.0
+            0.25
         );
         expect_near(
             result.dcharge_dmu,
@@ -129,7 +128,7 @@ void test_integration_rejects_nonfinite_mu() {
             "charge integration should reject a non-finite chemical potential"
         );
         expect_runtime_error(
-            [&] { (void)estimate_charge_on_current_mesh(mesh, mu, 1.0); },
+            [&] { (void)estimate_charge_on_current_mesh(mesh, mu); },
             "mu must be finite",
             "fixed-mesh charge should reject a non-finite chemical potential"
         );
@@ -140,28 +139,13 @@ void test_integration_rejects_nonfinite_mu() {
         );
     }
 
-    expect_runtime_error(
-        [&] { (void)integrate_density_matrix(mesh, 0.0, {{0}}, options); },
-        "preview_depth",
-        "density integration should require a positive preview depth"
-    );
-
-    expect_runtime_error(
-        [&] {
-            (void)estimate_charge_on_current_mesh(
-                mesh,
-                0.0,
-                std::numeric_limits<double>::quiet_NaN()
-            );
-        },
-        "target_error",
-        "fixed-mesh charge should reject a non-finite target error"
-    );
-    const auto depth_zero = estimate_charge_on_current_mesh(mesh, 0.0, 1.0, 0);
+    const auto density = integrate_density_matrix(mesh, 0.0, {{0}}, options);
+    expect_near(density.stopping_error, 0.0, kTol, "depth-zero density error");
+    expect_eq(density.stats.refinements, 0, "depth-zero density refinements");
     expect_eq(
-        depth_zero.stats.simplex_visits,
-        depth_zero.stats.active_simplices,
-        "charge should visit each active simplex once"
+        density.stats.simplex_visits,
+        density.stats.active_simplices,
+        "depth-zero density should visit each active simplex once"
     );
 }
 

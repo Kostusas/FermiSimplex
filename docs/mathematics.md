@@ -793,7 +793,8 @@ Each unresolved node is completely subdivided before certification repeats on
 its children. One logical subdivision consists of $d$ longest-edge bisections,
 so it creates $2^d$ child simplices. Consequently, `error_depth=1` allows
 at most one complete subdivision along an unresolved branch, not one binary
-bisection. A certified node stops before subdividing.
+bisection. The public charge API defaults to `error_depth=2`. A certified node
+stops before subdividing.
 
 On every child, the algorithm certifies the current small matrices, freezes any
 new safe directions, and creates another corrected frozen-Schur layer when
@@ -918,6 +919,9 @@ $$
 
 `charge.value` remains the current-mesh linear-tetrahedron charge.
 `stats.target_reached` means only that this sampled sum met `target_error`.
+The separate `estimate_charge_on_current_mesh` operation evaluates the same
+linear-simplex charge and derivative without running this estimator; its result
+therefore contains no `stopping_error`.
 
 ### Expected scaling and limitations
 
@@ -954,6 +958,9 @@ Their `stopping_error` is an adaptive quadrature estimate. The occupation
 certificate alone does not bound the variation of the spectral projector; a
 rigorous density-matrix certificate would require additional gap-dependent
 control. Density matrices are therefore not currently certified.
+With `preview_depth=0`, no parent-child correction is sampled: the current mesh
+is integrated directly, `stopping_error` is zero by construction, and no
+refinement occurs.
 
 ## What the reported quantities mean
 
@@ -964,6 +971,7 @@ control. Density matrices are therefore not currently certified.
 | `VisibleGapless` | Vertex data show a contact or force an occupation change | Yes, assuming a continuous Hamiltonian |
 | `Inconclusive` | The sufficient proof did not decide | No gap or crossing conclusion |
 | charge `stopping_error` | Sum of recursive Schur shifted-volume estimates | No |
+| current-mesh charge `value` | Direct linear-simplex integral with no accompanying error estimate | No |
 | `charge.error_stats` | Estimator work, active-space, and fallback counters | Diagnostic only |
 | `coverage_certified` | The run completed with no terminal inconclusive or unrepresentable contact | Conditional on valid $\epsilon_T$; not a topology guarantee |
 | density-matrix `stopping_error` | Adaptive quadrature estimate | No |

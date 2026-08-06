@@ -302,20 +302,13 @@ void bind_spectral_mesh(nb::module_ &module) {
         )
         .def(
             "estimate_charge_on_current_mesh",
-            [](SpectralMesh &mesh,
-               double mu,
-               double target_error,
-               std::uint32_t error_depth) {
+            [](SpectralMesh &mesh, double mu) {
                 return fermisimplex::estimate_charge_on_current_mesh(
                     mesh,
-                    mu,
-                    target_error,
-                    error_depth
+                    mu
                 );
             },
             "mu"_a,
-            "target_error"_a,
-            "error_depth"_a = 1,
             nb::call_guard<nb::gil_scoped_release>()
         )
         .def(

@@ -328,6 +328,45 @@ void test_safe_spectators_reduce_to_the_active_band() {
     );
 }
 
+void test_complex_basis_preserves_the_active_band() {
+    const auto scalar = estimate(
+        scalar_model([](double x) { return x * x - 0.1; }),
+        1
+    );
+    const auto model = std::make_shared<TestModel>(
+        1,
+        2,
+        [](std::span<const double> point) {
+            const auto active = point[0] * point[0] - 0.1;
+            constexpr auto safe = -2.0;
+            const auto diagonal = 0.5 * (safe + active);
+            const auto coupling = Complex{0.0, 0.5 * (active - safe)};
+            return Matrix{
+                diagonal,
+                std::conj(coupling),
+                coupling,
+                diagonal,
+            };
+        }
+    );
+    const auto embedded = estimate(model, 1);
+
+    expect_near(
+        embedded.value - 1.0,
+        scalar.value,
+        1e-12,
+        "complex safe state should only add integer charge"
+    );
+    expect_near(
+        embedded.stopping_error,
+        scalar.stopping_error,
+        1e-12,
+        "complex basis should preserve the active-band estimate"
+    );
+    expect(embedded.error_stats.schur_reductions > 0, "complex Schur reduction");
+    expect_eq(embedded.error_stats.schur_failures, 0, "complex Schur failures");
+}
+
 void test_coupled_reduction_uses_frozen_correction() {
     const auto model = std::make_shared<TestModel>(
         1,
@@ -639,6 +678,7 @@ int main() {
         test_two_band_space_bypasses_root_gate();
         test_large_active_space_uses_tight_fallback();
         test_safe_spectators_reduce_to_the_active_band();
+        test_complex_basis_preserves_the_active_band();
         test_coupled_reduction_uses_frozen_correction();
         test_new_microvertices_detect_a_visible_harmonic();
         test_certified_root_rechecks_reopened_band_curvature();

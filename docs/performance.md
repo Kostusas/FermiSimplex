@@ -77,6 +77,12 @@ eigensystems, corrected Schur evaluations, micro-simplices, and fallbacks.
 Depth changes
 the fixed microsimplex tree; it is not AdaptiveSimplex mesh refinement.
 
+Each Schur layer stores a dense anchor resolvent and reuses two thin work
+buffers. At a terminal node, an unchanged certificate is reused when its
+chemical-potential interval contains the complete shifted-volume radius. These
+are algebraic and control-flow optimizations; they do not change the sampled
+charge interval.
+
 Machine-readable charge fields include:
 
 - `error_depth` and `stopping_error`;

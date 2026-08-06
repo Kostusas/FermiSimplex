@@ -59,6 +59,14 @@ bool finite(Complex value) {
     return std::isfinite(value.real()) && std::isfinite(value.imag());
 }
 
+bool covers_radius(
+    const cert::SimplexCertificate &certificate,
+    double radius
+) {
+    return cert::occupation_bounds_valid_at(certificate, -radius) &&
+           cert::occupation_bounds_valid_at(certificate, radius);
+}
+
 Matrix multiply(
     char left_operation,
     char right_operation,
@@ -144,8 +152,9 @@ struct SchurLayer {
     std::size_t parent_dimension = 0;
     std::size_t active_dimension = 0;
     Matrix active_basis;
-    Matrix safe_basis;
-    std::vector<double> inverse_safe_eigenvalues;
+    Matrix safe_resolvent;
+    mutable Matrix x_buffer;
+    mutable Matrix y_buffer;
 };
 
 Matrix apply_layer(
@@ -155,52 +164,50 @@ Matrix apply_layer(
 ) {
     const auto size = layer.parent_dimension;
     const auto active = layer.active_dimension;
-    const auto safe = size - active;
+    auto &x = layer.x_buffer;
+    auto &y = layer.y_buffer;
+    auto result = Matrix(active * active);
+    auto frozen_shift = Matrix(active * active);
 
-    const auto h_active = multiply(
-        'N', 'N', size, active, size,
-        matrix, size, layer.active_basis, size
+    // X = H U?, A = U?^H X.
+    linalg::matrix_multiply(
+        'N', 'N', size, active, size, Complex{1.0, 0.0},
+        matrix.data(), size, layer.active_basis.data(), size,
+        Complex{0.0, 0.0}, x.data(), size
     );
-    auto result = multiply(
-        'C', 'N', active, active, size,
-        layer.active_basis, size, h_active, size
-    );
-    const auto coupling = multiply(
-        'C', 'N', safe, active, size,
-        layer.safe_basis, size, h_active, size
+    linalg::matrix_multiply(
+        'C', 'N', active, active, size, Complex{1.0, 0.0},
+        layer.active_basis.data(), size, x.data(), size,
+        Complex{0.0, 0.0}, result.data(), active
     );
 
-    auto scaled_coupling = coupling;
-    for (std::size_t column = 0; column < active; ++column) {
-        for (std::size_t row = 0; row < safe; ++row) {
-            scaled_coupling[matrix_index(row, column, safe)] *=
-                layer.inverse_safe_eigenvalues[row];
-        }
-    }
+    // Y = R X and F = X^H Y, where R = Us D0^-1 Us^H.
+    linalg::matrix_multiply(
+        'N', 'N', size, active, size, Complex{1.0, 0.0},
+        layer.safe_resolvent.data(), size, x.data(), size,
+        Complex{0.0, 0.0}, y.data(), size
+    );
+    linalg::matrix_multiply(
+        'C', 'N', active, active, size, Complex{1.0, 0.0},
+        x.data(), size, y.data(), size,
+        Complex{0.0, 0.0}, frozen_shift.data(), active
+    );
 
-    // One corrected frozen solve, written without forming the safe block:
-    // S1 = A - 2 B^H D0^-1 B + (Us D0^-1 B)^H H (Us D0^-1 B).
-    const auto response = multiply(
-        'N', 'N', size, active, safe,
-        layer.safe_basis, size, scaled_coupling, safe
+    // Reuse X for H Y and accumulate Y^H H Y into A.
+    linalg::matrix_multiply(
+        'N', 'N', size, active, size, Complex{1.0, 0.0},
+        matrix.data(), size, y.data(), size,
+        Complex{0.0, 0.0}, x.data(), size
     );
-    const auto h_response = multiply(
-        'N', 'N', size, active, size,
-        matrix, size, response, size
-    );
-    const auto frozen_shift = multiply(
-        'C', 'N', active, active, safe,
-        coupling, safe, scaled_coupling, safe
-    );
-    const auto response_energy = multiply(
-        'C', 'N', active, active, size,
-        response, size, h_response, size
+    linalg::matrix_multiply(
+        'C', 'N', active, active, size, Complex{1.0, 0.0},
+        y.data(), size, x.data(), size,
+        Complex{1.0, 0.0}, result.data(), active
     );
 
     ++stats.schur_evaluations;
     for (std::size_t index = 0; index < result.size(); ++index) {
-        result[index] += response_energy[index]
-            - Complex{2.0, 0.0} * frozen_shift[index];
+        result[index] -= Complex{2.0, 0.0} * frozen_shift[index];
         if (!finite(result[index])) {
             throw SchurFailure{};
         }
@@ -422,13 +429,27 @@ SchurLayer make_layer(
             inverse_safe_eigenvalues.push_back(1.0 / value);
         }
     }
+    auto active_basis = selected_columns(anchor, active_columns);
+    const auto safe_basis = selected_columns(anchor, safe_columns);
+    auto scaled_safe_basis = safe_basis;
+    for (std::size_t column = 0; column < safe_columns.size(); ++column) {
+        for (std::size_t row = 0; row < size; ++row) {
+            scaled_safe_basis[matrix_index(row, column, size)] *=
+                inverse_safe_eigenvalues[column];
+        }
+    }
+    auto safe_resolvent = multiply(
+        'N', 'C', size, size, safe_columns.size(),
+        scaled_safe_basis, size, safe_basis, size
+    );
+    make_hermitian(safe_resolvent, size);
     return SchurLayer{
         .parent_dimension = size,
         .active_dimension = active_columns.size(),
-        .active_basis = selected_columns(anchor, active_columns),
-        .safe_basis = selected_columns(anchor, safe_columns),
-        .inverse_safe_eigenvalues =
-            std::move(inverse_safe_eigenvalues),
+        .active_basis = std::move(active_basis),
+        .safe_resolvent = std::move(safe_resolvent),
+        .x_buffer = Matrix(size * active),
+        .y_buffer = Matrix(size * active),
     };
 }
 
@@ -603,7 +624,8 @@ struct ChargeErrorEstimator::Impl {
         core::SimplexId simplex_id,
         const SimplexState &state,
         std::size_t fixed_occupied,
-        bool include_band_defect
+        bool include_band_defect,
+        const cert::SimplexCertificate *reusable_certificate
     ) {
         const auto &simplex =
             geometry.simplices().simplex(simplex_id);
@@ -674,13 +696,23 @@ struct ChargeErrorEstimator::Impl {
                    std::max(defects.first, defects.second);
         };
 
+        const auto certify_with_beta = [&](double beta) {
+            if (
+                reusable_certificate != nullptr &&
+                covers_radius(*reusable_certificate, beta)
+            ) {
+                return *reusable_certificate;
+            }
+            return certify(state, beta, mesh.tolerance());
+        };
+
         auto beta = make_beta(sample_defects(include_band_defect));
-        auto certificate = certify(state, beta, mesh.tolerance());
+        auto certificate = certify_with_beta(beta);
         auto bounds = certificate.occupation_bounds;
         auto active = bounds.upper - bounds.lower;
         if (!include_band_defect && active != 0) {
             beta = make_beta(sample_defects(true));
-            certificate = certify(state, beta, mesh.tolerance());
+            certificate = certify_with_beta(beta);
             bounds = certificate.occupation_bounds;
             active = bounds.upper - bounds.lower;
         }
@@ -753,6 +785,7 @@ struct ChargeErrorEstimator::Impl {
 
         auto current_model = model;
         auto current_state = std::move(state);
+        const cert::SimplexCertificate *current_certificate = &certificate;
         auto current_fixed = fixed_occupied;
         const auto certified_fallback = OccupationRange{
             .lower = std::max(
@@ -778,6 +811,7 @@ struct ChargeErrorEstimator::Impl {
             current_model = reduction->first;
             current_state = reduction->second;
             current_fixed += bounds.lower;
+            current_certificate = nullptr;
         }
 
         if (active == 0 || logical_depth == depth) {
@@ -788,7 +822,8 @@ struct ChargeErrorEstimator::Impl {
                     simplex_id,
                     current_state,
                     current_fixed,
-                    active != 0
+                    active != 0,
+                    current_certificate
                 );
             } catch (const SchurFailure &) {
                 ++stats.schur_failures;

@@ -4,7 +4,7 @@ All notable changes to FermiSimplex are documented in this file.
 
 ## Unreleased
 
-## 0.2.0 - 2026-08-06
+## 0.2.0 - 2026-08-07
 
 - Replaced the projected charge-error heuristic with a fixed-depth recursive
   active-space estimator using corrected frozen-Schur reductions and actual
@@ -13,9 +13,11 @@ All notable changes to FermiSimplex are documented in this file.
   small-space recursion rule, and a tighter large-active-space fallback.
 - Added `error_depth` and detailed charge-estimator work statistics to the C++
   and Python APIs.
-- Added one-correction frozen safe-block elimination using thin matrix products
-  and per-layer reduced-model caches; no pointwise safe-block factorization is
-  required.
+- Applied the corrected frozen Schur model through a per-layer dense safe
+  resolvent, two reused thin work buffers, and cached reduced matrices; no
+  pointwise safe-block factorization is required.
+- Reused certified chemical-potential intervals for terminal curvature radii
+  whenever re-anchoring has not changed the effective model.
 - Removed repeated Hamiltonian coordinate, shape, finiteness, and Hermiticity
   validation from the evaluation hot path; model values are trusted after
   setup.

@@ -742,19 +742,36 @@ X_1=X_0+D_0^{-1}(B-DX_0),
 S_1=A-B^\dagger X_1.
 $$
 
-The implementation evaluates the equivalent expression
+Define the anchor safe-space resolvent
+
+$$
+R=U_sD_0^{-1}U_s^\dagger.
+$$
+
+With
+
+$$
+X=KU_?,
+\qquad
+Y=RX,
+\qquad
+F=X^\dagger Y,
+$$
+
+the implementation evaluates the equivalent expression
 
 $$
 \boxed{
-S_1=A-2B^\dagger X_0+W^\dagger K W,
-\qquad
-W=U_sX_0,
+S_1=U_?^\dagger X-2F+Y^\dagger K Y.
 }
 $$
 
-so it never forms or factors the large pointwise safe block $D(k)$. It stores
-$1/d_s$ once per layer and uses thin matrix products whose width is the active
-dimension.
+The layer forms $R$ once, then discards $U_s$ and $D_0^{-1}$. Every sampled
+matrix uses two reused $m\times q$ work buffers: after forming $Y$, the $X$
+buffer is overwritten by $KY$. Only the resulting $q\times q$ matrices are
+cached. Thus the estimator never forms or factors the large pointwise safe
+block $D(k)$. Forming the dense resolvent costs one setup product per layer,
+but makes repeated applications efficient when $q\ll m$.
 
 If $B=O(h)$ and $D-D_0=O(h)$, plain freezing leaves a typical $O(h^3)$ Schur
 error, while one correction leaves the next $O(h^4)$ term. This statement
@@ -834,10 +851,16 @@ $\beta_S$ is an estimator rather than a supremum bound.
 
 ### Shifted occupation volumes
 
-The terminal certificate is repeated with radius $\beta_S$. Let its reduced
-occupation bounds be $[L_S,U_S]$, let $n_0$ be the number of previously frozen
-occupied states, and let $e_{n,i}$ be terminal vertex energies relative to
-$\mu$. Define the affine cut volume
+The terminal certificate is needed at both shifted levels $-\beta_S$ and
+$+\beta_S$. If the existing certificate's chemical-potential interval contains
+both levels and the effective model has not been re-anchored, its occupation
+bounds are reused. Otherwise certification is repeated with radius $\beta_S$.
+This restriction prevents a parent certificate from being applied to a changed
+Schur surrogate.
+
+Let the resulting reduced occupation bounds be $[L_S,U_S]$, let $n_0$ be the
+number of previously frozen occupied states, and let $e_{n,i}$ be terminal
+vertex energies relative to $\mu$. Define the affine cut volume
 
 $$
 \Phi_S(a;e_{n,0},\ldots,e_{n,d})

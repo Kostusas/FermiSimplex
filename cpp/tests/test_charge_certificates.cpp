@@ -56,28 +56,12 @@ adaptive::Options fixed_options(double target_error) {
     };
 }
 
-std::shared_ptr<TightBindingModel> aliased_pocket() {
-    return std::make_shared<TightBindingModel>(
-        std::vector<HoppingTerm>{
-            {.lattice_vector = {0}, .matrix = {0.5}},
-            {.lattice_vector = {8}, .matrix = {0.5}},
-            {.lattice_vector = {-8}, .matrix = {0.5}},
-        }
-    );
-}
-
 void test_constant_insulator_charge_is_certified() {
     auto mesh = SpectralMesh(constant_insulator());
-    const auto result = integrate_charge(mesh, 0.0, fixed_options(0.0), 0.0);
+    const auto result = integrate_charge(mesh, 0.0, fixed_options(0.0));
 
     expect_near(result.value, 1.0, kTol, "constant insulator charge");
     expect_near(result.stopping_error, 0.0, kTol, "constant insulator estimate");
-    expect_near(
-        result.certified_error_bound,
-        0.0,
-        kTol,
-        "constant insulator certificate"
-    );
     expect_eq(result.stats.evaluations, 3, "charge vertex evaluations");
     expect_eq(
         result.stats.simplex_visits,
@@ -93,45 +77,6 @@ void test_fermi_surface_counts_work() {
     expect_eq(result.stats.evaluations, 3, "surface vertex evaluations");
     expect_eq(result.stats.simplex_visits, 2, "surface simplex visits");
     expect_eq(result.stats.refinements, 0, "gapped surface refinement count");
-}
-
-void test_default_curvature_bound_is_zero() {
-    auto mesh = SpectralMesh(winding_model(3));
-    const auto implicit_zero = estimate_charge_on_current_mesh(
-        mesh,
-        0.0,
-        3.0
-    );
-    const auto explicit_zero = estimate_charge_on_current_mesh(
-        mesh,
-        0.0,
-        3.0,
-        0,
-        0.0
-    );
-
-    expect_near(
-        implicit_zero.certified_error_bound,
-        explicit_zero.certified_error_bound,
-        kTol,
-        "omitted curvature must mean zero curvature"
-    );
-}
-
-void test_curvature_prevents_false_certification_of_aliased_band() {
-    auto mesh = SpectralMesh(aliased_pocket());
-    const auto result = estimate_charge_on_current_mesh(
-        mesh,
-        0.0,
-        0.0,
-        0,
-        256.0 * std::numbers::pi_v<double> * std::numbers::pi_v<double>
-    );
-
-    expect(
-        result.certified_error_bound > 0.0,
-        "global tight-binding curvature must expose unresolved aliased structure"
-    );
 }
 
 void test_charge_derivative_handles_repeated_vertex_energies() {
@@ -212,11 +157,11 @@ void test_integration_rejects_nonfinite_mu() {
         "target_error",
         "fixed-mesh charge should reject a non-finite target error"
     );
-    const auto previewless = estimate_charge_on_current_mesh(mesh, 0.0, 1.0, 0);
+    const auto depth_zero = estimate_charge_on_current_mesh(mesh, 0.0, 1.0, 0);
     expect_eq(
-        previewless.stats.simplex_visits,
-        previewless.stats.active_simplices,
-        "zero preview depth should visit each active simplex once"
+        depth_zero.stats.simplex_visits,
+        depth_zero.stats.active_simplices,
+        "charge should visit each active simplex once"
     );
 }
 
@@ -226,8 +171,6 @@ int main() {
     try {
         test_constant_insulator_charge_is_certified();
         test_fermi_surface_counts_work();
-        test_default_curvature_bound_is_zero();
-        test_curvature_prevents_false_certification_of_aliased_band();
         test_charge_derivative_handles_repeated_vertex_energies();
         test_affine_matrix_charge_does_not_converge_at_root();
         test_integration_rejects_nonfinite_mu();

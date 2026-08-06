@@ -5,7 +5,7 @@ preview = ["pixi-build"]
 
 [package]
 name = "fermisimplex"
-version = "0.1.0"
+version = "0.2.0"
 
 [package.build]
 backend = { name = "pixi-build-python", version = "*", channels = ["https://prefix.dev/conda-forge"] }
@@ -70,6 +70,7 @@ test = { depends-on = ["test-cpp", "test-python"] }
 configure-cpp-benchmarks = "cmake -S . -B build/cpp-benchmarks -G Ninja -DCMAKE_BUILD_TYPE=Release -DFERMISIMPLEX_BUILD_PYTHON=OFF -DFERMISIMPLEX_BUILD_TESTING=OFF -DFERMISIMPLEX_BUILD_BENCHMARKS=ON"
 build-cpp-benchmarks = { cmd = "cmake --build build/cpp-benchmarks --target fermisimplex_performance_benchmark", depends-on = ["configure-cpp-benchmarks"] }
 benchmark-cpp = { cmd = "cmake --build build/cpp-benchmarks --target fermisimplex_run_performance_benchmark", depends-on = ["configure-cpp-benchmarks"] }
+benchmark-charge-error = { cmd = "python benchmarks/charge_error.py --preset full --output build/benchmarks/charge-error.json --plot build/benchmarks/charge-error-scalar.png", depends-on = ["install-editable"] }
 
 check-metadata = "python ci/check_metadata.py"
 parse-workflows = "python ci/check_workflows.py"

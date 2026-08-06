@@ -14,6 +14,10 @@
 #define FERMISIMPLEX_LAPACK_ZGESVD zgesvd_
 #endif
 
+#ifndef FERMISIMPLEX_LAPACK_ZGESV
+#define FERMISIMPLEX_LAPACK_ZGESV zgesv_
+#endif
+
 #ifndef FERMISIMPLEX_LAPACK_ZPOTRF
 #define FERMISIMPLEX_LAPACK_ZPOTRF zpotrf_
 #endif
@@ -50,6 +54,17 @@ void FERMISIMPLEX_LAPACK_ZGESVD(
     std::complex<double> *work,
     const int *lwork,
     double *rwork,
+    int *info
+);
+
+void FERMISIMPLEX_LAPACK_ZGESV(
+    const int *n,
+    const int *nrhs,
+    std::complex<double> *a,
+    const int *lda,
+    int *ipiv,
+    std::complex<double> *b,
+    const int *ldb,
     int *info
 );
 
@@ -265,6 +280,43 @@ void singular_value_decompose_in_place(
         );
     }
     matrix = std::move(left);
+}
+
+bool solve_linear_system_in_place(
+    std::vector<Complex> &matrix,
+    std::vector<Complex> &right_hand_sides,
+    size_t size,
+    size_t right_hand_side_count,
+    const char *context
+) {
+    const auto prefix = error_prefix(context);
+    if (matrix.size() != size * size) {
+        throw std::runtime_error(prefix + "coefficient-matrix shape mismatch");
+    }
+    if (right_hand_sides.size() != size * right_hand_side_count) {
+        throw std::runtime_error(prefix + "right-hand-side shape mismatch");
+    }
+    if (size == 0 || right_hand_side_count == 0) {
+        return true;
+    }
+
+    const auto n = lapack_dimension(size);
+    const auto nrhs = lapack_dimension(right_hand_side_count);
+    const auto lda = std::max(1, n);
+    const auto ldb = std::max(1, n);
+    auto pivots = std::vector<int>(size);
+    auto info = 0;
+    FERMISIMPLEX_LAPACK_ZGESV(
+        &n, &nrhs, matrix.data(), &lda, pivots.data(),
+        right_hand_sides.data(), &ldb, &info
+    );
+    if (info < 0) {
+        throw std::runtime_error(
+            prefix + "zgesv received an invalid argument (info=" +
+            std::to_string(info) + ")"
+        );
+    }
+    return info == 0;
 }
 
 }  // namespace fermisimplex::linalg

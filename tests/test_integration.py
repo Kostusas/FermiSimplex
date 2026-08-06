@@ -15,7 +15,7 @@ from .helpers import constant_insulator, dense_reference, dimerized_chain
         ({"target_error": np.inf}, "target_error"),
         ({"target_error": np.nan}, "target_error"),
         ({"target_error": 1.0, "max_refinements": -2}, "max_refinements"),
-        ({"target_error": 1.0, "preview_depth": -1}, "preview_depth"),
+        ({"target_error": 1.0, "error_depth": -1}, "error_depth"),
         (
             {"target_error": 1.0, "min_refinement_batch_size": 0},
             "min_refinement_batch_size",

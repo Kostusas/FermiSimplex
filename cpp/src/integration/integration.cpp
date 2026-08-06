@@ -51,14 +51,6 @@ void validate_mu(double mu) {
     }
 }
 
-void validate_curvature_bound(double curvature_bound) {
-    if (!std::isfinite(curvature_bound) || curvature_bound < 0.0) {
-        throw std::runtime_error(
-            "curvature_bound must be finite and non-negative"
-        );
-    }
-}
-
 IntegrationStats stats(
     const SpectralMesh &mesh,
     std::int64_t evaluations,
@@ -108,8 +100,7 @@ struct SumSimplexErrors {
 
 struct ChargeSimplexError {
     template <class Estimate> double operator()(const Estimate &estimate) const {
-        return estimate.preview.projected_error +
-               std::abs(estimate.correction.value);
+        return estimate.preview.estimated_error;
     }
 };
 
@@ -122,17 +113,19 @@ struct DensitySimplexError {
 auto charge_integrand(
     SpectralMesh &mesh,
     double mu,
-    double curvature_bound,
-    std::int64_t &simplex_visits
+    std::uint32_t error_depth,
+    std::int64_t &simplex_visits,
+    ChargeErrorStats &error_stats
 ) {
-    auto projected_error_cache =
-        std::make_shared<ProjectedErrorCache>();
+    auto error_estimator = std::make_shared<
+        integration_detail::ChargeErrorEstimator
+    >(mesh, mu, error_depth, error_stats);
     return adaptive::simplex_integrand(
         mesh.eigensystems(),
         [&mesh](std::span<const double> point) {
             return mesh.spectrum(point);
         },
-        [&mesh, mu, curvature_bound, &simplex_visits, projected_error_cache](
+        [&mesh, mu, &simplex_visits, error_estimator](
             const core::Geometry &geometry,
             core::SimplexId simplex_id,
             EigensystemCache &
@@ -143,8 +136,7 @@ auto charge_integrand(
                 mesh,
                 geometry,
                 simplex_id,
-                curvature_bound,
-                projected_error_cache.get()
+                *error_estimator
             );
         },
         adaptive::estimation_policies<
@@ -184,8 +176,7 @@ template <class Integrand>
 adaptive::IntegrationResult<ChargeContribution> estimate_current_mesh_charge(
     SpectralMesh &mesh,
     Integrand &integrand,
-    double target_error,
-    std::uint32_t preview_depth
+    double target_error
 ) {
     auto &geometry = mesh.geometry();
     const auto active = geometry.simplices().active_simplices();
@@ -200,7 +191,7 @@ adaptive::IntegrationResult<ChargeContribution> estimate_current_mesh_charge(
              geometry,
              integrand,
              simplex_ids,
-             preview_depth,
+             0,
              evaluations
          )) {
         value += estimate.preview;
@@ -224,16 +215,17 @@ adaptive::IntegrationResult<ChargeContribution> estimate_current_mesh_charge(
 ChargeResult charge_result(
     const SpectralMesh &mesh,
     const adaptive::IntegrationResult<ChargeContribution> &raw,
-    std::int64_t simplex_visits
+    std::int64_t simplex_visits,
+    const ChargeErrorStats &error_stats
 ) {
     const auto &value = raw.integral;
     return ChargeResult{
         .value = value.value,
         .stopping_error = raw.stopping_error,
-        .certified_error_bound = value.certified_error_bound,
         .dcharge_dmu = value.dcharge_dmu,
         .visible_gapless_simplices = value.visible_gapless_simplices,
         .inconclusive_simplices = value.inconclusive_simplices,
+        .error_stats = error_stats,
         .stats = stats(
             mesh,
             raw.evaluations,
@@ -271,36 +263,62 @@ ChargeResult integrate_charge(
     SpectralMesh &mesh,
     double mu,
     const adaptive::Options &options,
-    double curvature_bound
+    std::uint32_t error_depth
 ) {
     validate_mu(mu);
     validate_options(options);
-    validate_curvature_bound(curvature_bound);
     auto simplex_visits = std::int64_t{0};
-    auto integrand = charge_integrand(mesh, mu, curvature_bound, simplex_visits);
-    const auto raw = adaptive::run(mesh.geometry(), integrand, options);
-    return charge_result(mesh, raw, simplex_visits);
+    auto error_stats = ChargeErrorStats{};
+    auto integrand = charge_integrand(
+        mesh,
+        mu,
+        error_depth,
+        simplex_visits,
+        error_stats
+    );
+    auto charge_options = options;
+    charge_options.preview_depth = 0;
+    const auto raw = adaptive::run(
+        mesh.geometry(),
+        integrand,
+        charge_options
+    );
+    return charge_result(
+        mesh,
+        raw,
+        simplex_visits,
+        error_stats
+    );
 }
 
 ChargeResult estimate_charge_on_current_mesh(
     SpectralMesh &mesh,
     double mu,
     double target_error,
-    std::uint32_t preview_depth,
-    double curvature_bound
+    std::uint32_t error_depth
 ) {
     validate_mu(mu);
     validate_target_error(target_error);
-    validate_curvature_bound(curvature_bound);
     auto simplex_visits = std::int64_t{0};
-    auto integrand = charge_integrand(mesh, mu, curvature_bound, simplex_visits);
+    auto error_stats = ChargeErrorStats{};
+    auto integrand = charge_integrand(
+        mesh,
+        mu,
+        error_depth,
+        simplex_visits,
+        error_stats
+    );
     const auto raw = estimate_current_mesh_charge(
         mesh,
         integrand,
-        target_error,
-        preview_depth
+        target_error
     );
-    return charge_result(mesh, raw, simplex_visits);
+    return charge_result(
+        mesh,
+        raw,
+        simplex_visits,
+        error_stats
+    );
 }
 
 DensityMatrixResult integrate_density_matrix(

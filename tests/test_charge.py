@@ -3,9 +3,9 @@ from __future__ import annotations
 import numpy as np
 import pytest
 
-from fermisimplex import SpectralMesh
+from fermisimplex import ChargeErrorStats, SpectralMesh
 
-from .helpers import constant_insulator, winding_constant_gap_band
+from .helpers import constant_insulator
 
 
 def _adaptive_arguments(target_error: float = 1e-12) -> dict[str, object]:
@@ -15,22 +15,22 @@ def _adaptive_arguments(target_error: float = 1e-12) -> dict[str, object]:
     }
 
 
-def test_integrates_certified_charge_on_a_tight_binding_model():
+def test_integrates_charge_on_a_tight_binding_model():
     mesh = SpectralMesh(constant_insulator(2))
 
     result = mesh.integrate_charge(
         mu=0.0,
-        curvature_bound=0.0,
         **_adaptive_arguments(),
     )
 
     assert result.value == pytest.approx(1.0)
     assert result.stopping_error == pytest.approx(0.0)
-    assert result.certified_error_bound == pytest.approx(0.0)
     assert result.dcharge_dmu == pytest.approx(0.0)
+    assert isinstance(result.error_stats, ChargeErrorStats)
     assert result.stats.target_reached
     assert result.stats.refinements == 0
     assert result.stats.evaluations == result.stats.active_vertices
+    assert result.stats.simplex_visits == result.stats.active_simplices
 
 
 def test_evaluates_charge_without_refining_the_mesh():
@@ -50,15 +50,18 @@ def test_current_mesh_charge_requires_a_finite_nonnegative_target(target_error):
         mesh.estimate_charge_on_current_mesh(mu=0.0, target_error=target_error)
 
 
-def test_current_mesh_charge_uses_no_preview_by_default():
+def test_current_mesh_charge_does_not_refine_the_persistent_mesh():
     mesh = SpectralMesh(constant_insulator(1))
+    active_simplices = mesh.active_simplices
 
     result = mesh.estimate_charge_on_current_mesh(
         mu=0.0,
         target_error=1.0,
     )
 
+    assert mesh.active_simplices == active_simplices
     assert result.stats.evaluations == result.stats.active_vertices
+    assert result.stats.simplex_visits == result.stats.active_simplices
 
 
 def test_callable_hamiltonian_is_evaluated_with_separate_coordinates():
@@ -77,46 +80,62 @@ def test_callable_hamiltonian_is_evaluated_with_separate_coordinates():
     assert all(len(point) == 3 for point in seen_points)
 
 
-def test_none_and_zero_curvature_bounds_are_equivalent_for_charge():
-    mesh = SpectralMesh(winding_constant_gap_band(3))
-    implicit_zero = mesh.estimate_charge_on_current_mesh(
+def test_error_depth_increases_temporary_estimator_work():
+    def band(k: float) -> np.ndarray:
+        return np.array([[(k - 0.5) ** 2 - 0.1]], dtype=complex)
+
+    shallow = SpectralMesh(band).estimate_charge_on_current_mesh(
         mu=0.0,
-        target_error=3.0,
+        target_error=1.0,
+        error_depth=0,
     )
-    explicit_none = mesh.estimate_charge_on_current_mesh(
+    subdivided = SpectralMesh(band).estimate_charge_on_current_mesh(
         mu=0.0,
-        target_error=3.0,
-        curvature_bound=None,
-    )
-    explicit_zero = mesh.estimate_charge_on_current_mesh(
-        mu=0.0,
-        target_error=3.0,
-        curvature_bound=0.0,
+        target_error=1.0,
+        error_depth=1,
     )
 
-    assert implicit_zero.value == pytest.approx(explicit_none.value)
-    assert implicit_zero.value == pytest.approx(explicit_zero.value)
-    assert implicit_zero.stopping_error == pytest.approx(
-        explicit_none.stopping_error
+    assert shallow.error_stats.terminal_simplices > 0
+    assert (
+        subdivided.error_stats.terminal_simplices
+        >= shallow.error_stats.terminal_simplices
     )
-    assert implicit_zero.stopping_error == pytest.approx(
-        explicit_zero.stopping_error
-    )
-    assert implicit_zero.certified_error_bound == pytest.approx(
-        explicit_none.certified_error_bound
-    )
-    assert implicit_zero.certified_error_bound == pytest.approx(
-        explicit_zero.certified_error_bound
+    assert (
+        subdivided.error_stats.hamiltonian_evaluations
+        >= shallow.error_stats.hamiltonian_evaluations
     )
 
 
-@pytest.mark.parametrize("curvature_bound", (-1.0, np.inf, np.nan))
-def test_charge_rejects_invalid_curvature_bounds(curvature_bound):
+def test_charge_error_stats_are_nonnegative():
+    result = SpectralMesh(constant_insulator(1)).estimate_charge_on_current_mesh(
+        mu=0.0,
+        target_error=1.0,
+    )
+
+    assert result.error_stats.root_simplices >= 0
+    assert result.error_stats.hamiltonian_evaluations >= 0
+    assert result.error_stats.micro_simplices >= 0
+    assert result.error_stats.conservative_fallbacks >= 0
+
+
+@pytest.mark.parametrize("error_depth", (-1, -2))
+def test_charge_rejects_negative_error_depth(error_depth):
     mesh = SpectralMesh(constant_insulator(1))
 
-    with pytest.raises(ValueError, match="curvature_bound"):
+    with pytest.raises(ValueError, match="error_depth"):
         mesh.estimate_charge_on_current_mesh(
             mu=0.0,
             target_error=1.0,
-            curvature_bound=curvature_bound,
+            error_depth=error_depth,
+        )
+
+
+def test_charge_error_depth_must_be_an_integer():
+    mesh = SpectralMesh(constant_insulator(1))
+
+    with pytest.raises(TypeError, match="error_depth"):
+        mesh.estimate_charge_on_current_mesh(
+            mu=0.0,
+            target_error=1.0,
+            error_depth=1.5,
         )

@@ -3,7 +3,9 @@
 FermiSimplex uses SemVer-style versions:
 
 - Patch releases fix bugs and documentation.
-- Minor releases add compatible APIs or examples.
+- Before 1.0, minor releases may change public APIs while the numerical
+  foundations are still stabilizing.
+- After 1.0, minor releases add compatible APIs or examples.
 - Major releases may remove or change public APIs.
 
 Release tags use `vX.Y.Z`. The tag must match the version in `pyproject.toml`,

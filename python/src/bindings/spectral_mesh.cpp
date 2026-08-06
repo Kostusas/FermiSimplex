@@ -288,30 +288,28 @@ void bind_spectral_mesh(nb::module_ &module) {
                double mu,
                double target_error,
                std::int64_t max_refinements,
-               std::uint32_t preview_depth,
+               std::uint32_t error_depth,
                std::size_t min_refinement_batch_size,
-               std::size_t max_refinement_batch_size,
-               double curvature_bound) {
+               std::size_t max_refinement_batch_size) {
                 return fermisimplex::integrate_charge(
                     mesh,
                     mu,
                     adaptive_options(
                         target_error,
                         max_refinements,
-                        preview_depth,
+                        0,
                         min_refinement_batch_size,
                         max_refinement_batch_size
                     ),
-                    curvature_bound
+                    error_depth
                 );
             },
             "mu"_a,
             "target_error"_a,
             "max_refinements"_a,
-            "preview_depth"_a,
+            "error_depth"_a,
             "min_refinement_batch_size"_a,
             "max_refinement_batch_size"_a,
-            "curvature_bound"_a,
             nb::call_guard<nb::gil_scoped_release>()
         )
         .def(
@@ -319,20 +317,17 @@ void bind_spectral_mesh(nb::module_ &module) {
             [](SpectralMesh &mesh,
                double mu,
                double target_error,
-               std::uint32_t preview_depth,
-               double curvature_bound) {
+               std::uint32_t error_depth) {
                 return fermisimplex::estimate_charge_on_current_mesh(
                     mesh,
                     mu,
                     target_error,
-                    preview_depth,
-                    curvature_bound
+                    error_depth
                 );
             },
             "mu"_a,
             "target_error"_a,
-            "preview_depth"_a = 0,
-            "curvature_bound"_a = 0.0,
+            "error_depth"_a = 1,
             nb::call_guard<nb::gil_scoped_release>()
         )
         .def(

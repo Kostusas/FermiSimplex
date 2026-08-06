@@ -1369,8 +1369,8 @@ void write_result(std::ostream &output, const Result &result, bool trailing_comm
         << result.charge_error_stats.reduced_eigensystems << ",\n"
         << "      \"charge_norm_eigensystems\": "
         << result.charge_error_stats.norm_eigensystems << ",\n"
-        << "      \"charge_safe_block_solves\": "
-        << result.charge_error_stats.safe_block_solves << ",\n"
+        << "      \"charge_schur_evaluations\": "
+        << result.charge_error_stats.schur_evaluations << ",\n"
         << "      \"charge_schur_reductions\": "
         << result.charge_error_stats.schur_reductions << ",\n"
         << "      \"charge_micro_simplices\": "
@@ -1379,8 +1379,8 @@ void write_result(std::ostream &output, const Result &result, bool trailing_comm
         << result.charge_error_stats.terminal_simplices << ",\n"
         << "      \"charge_conservative_fallbacks\": "
         << result.charge_error_stats.conservative_fallbacks << ",\n"
-        << "      \"charge_singular_schur_failures\": "
-        << result.charge_error_stats.singular_schur_failures << ",\n"
+        << "      \"charge_schur_failures\": "
+        << result.charge_error_stats.schur_failures << ",\n"
         << "      \"charge_initial_active_dimension_sum\": "
         << result.charge_error_stats.initial_active_dimension_sum << ",\n"
         << "      \"charge_terminal_active_dimension_sum\": "
@@ -1423,7 +1423,7 @@ std::string render_json(const Config &config, const std::vector<Result> &results
     output << std::setprecision(12);
     output
         << "{\n"
-        << "  \"schema_version\": 5,\n"
+        << "  \"schema_version\": 6,\n"
         << "  \"metadata\": {\n"
         << "    \"git_commit\": \""
         << json_escape(FERMISIMPLEX_BENCHMARK_GIT_COMMIT) << "\",\n"
@@ -1546,7 +1546,7 @@ std::string render_summary(const Config &config, const std::vector<Result> &resu
             << std::setw(11) << "eig/root"
             << std::setw(10) << "H/root"
             << std::setw(11) << "red/root"
-            << std::setw(12) << "solve/root"
+            << std::setw(12) << "schur/root"
             << std::setw(10) << "micro"
             << std::setw(10) << "fallback"
             << '\n';
@@ -1589,7 +1589,7 @@ std::string render_summary(const Config &config, const std::vector<Result> &resu
                 ) / static_cast<double>(roots)
                 << std::setw(12)
                 << static_cast<double>(
-                    result.charge_error_stats.safe_block_solves
+                    result.charge_error_stats.schur_evaluations
                 ) / static_cast<double>(roots)
                 << std::setw(10)
                 << result.charge_error_stats.micro_simplices

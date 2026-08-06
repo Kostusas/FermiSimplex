@@ -318,8 +318,8 @@ void test_safe_spectators_reduce_to_the_active_band() {
         "embedded model minimum active dimension"
     );
     expect(
-        embedded.error_stats.safe_block_solves > 0,
-        "Schur reduction should use direct safe-block solves"
+        embedded.error_stats.schur_evaluations > 0,
+        "Schur reduction should evaluate the corrected surrogate"
     );
     expect_eq(
         embedded.error_stats.conservative_fallbacks,
@@ -328,7 +328,7 @@ void test_safe_spectators_reduce_to_the_active_band() {
     );
 }
 
-void test_nonsingular_coupled_reduction_uses_pointwise_schur_solves() {
+void test_coupled_reduction_uses_frozen_correction() {
     const auto model = std::make_shared<TestModel>(
         1,
         2,
@@ -354,9 +354,13 @@ void test_nonsingular_coupled_reduction_uses_pointwise_schur_solves() {
 
     expect_near(result.value, 0.25, 1e-12, "rotated affine-band charge");
     expect_eq(result.error_stats.schur_reductions, 1, "coupled Schur reductions");
-    expect_eq(result.error_stats.safe_block_solves, 3, "coupled safe-block solves");
-    expect_eq(result.error_stats.minimum_active_dimension, 1, "coupled active dimension");
-    expect_eq(result.error_stats.singular_schur_failures, 0, "coupled singular blocks");
+    expect_eq(result.error_stats.schur_evaluations, 3, "coupled Schur evaluations");
+    expect_eq(
+        result.error_stats.minimum_active_dimension,
+        1,
+        "coupled active dimension"
+    );
+    expect_eq(result.error_stats.schur_failures, 0, "coupled Schur failures");
     expect_eq(result.error_stats.conservative_fallbacks, 0, "coupled fallbacks");
 }
 
@@ -435,7 +439,7 @@ void test_certified_root_rechecks_reopened_band_curvature() {
     );
 }
 
-void test_singular_safe_block_falls_back_without_throwing() {
+void test_frozen_correction_avoids_pointwise_safe_singularity() {
     const auto model = std::make_shared<TestModel>(
         1,
         3,
@@ -455,15 +459,20 @@ void test_singular_safe_block_falls_back_without_throwing() {
     );
     const auto result = estimate(model, 1);
 
-    expect(
-        result.error_stats.singular_schur_failures > 0,
-        "a singular pointwise safe block should be detected"
+    expect_eq(
+        result.error_stats.schur_failures,
+        0,
+        "frozen correction should not factor pointwise safe blocks"
+    );
+    expect_eq(
+        result.error_stats.conservative_fallbacks,
+        0,
+        "an interior pointwise singularity should not force a fallback"
     );
     expect(
-        result.error_stats.conservative_fallbacks > 0,
-        "a singular pointwise safe block should use a conservative leaf"
+        std::isfinite(result.stopping_error),
+        "frozen-correction estimate"
     );
-    expect(std::isfinite(result.stopping_error), "singular fallback estimate");
 }
 
 void test_quadratic_2d_uses_complete_depth_one_geometry() {
@@ -630,10 +639,10 @@ int main() {
         test_two_band_space_bypasses_root_gate();
         test_large_active_space_uses_tight_fallback();
         test_safe_spectators_reduce_to_the_active_band();
-        test_nonsingular_coupled_reduction_uses_pointwise_schur_solves();
+        test_coupled_reduction_uses_frozen_correction();
         test_new_microvertices_detect_a_visible_harmonic();
         test_certified_root_rechecks_reopened_band_curvature();
-        test_singular_safe_block_falls_back_without_throwing();
+        test_frozen_correction_avoids_pointwise_safe_singularity();
     } catch (const std::exception &error) {
         std::cerr << error.what() << "\n";
         return 1;

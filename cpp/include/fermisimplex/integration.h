@@ -29,13 +29,13 @@ struct ChargeErrorStats {
     std::int64_t full_eigensystems = 0;
     std::int64_t reduced_eigensystems = 0;
     std::int64_t norm_eigensystems = 0;
-    std::int64_t safe_block_solves = 0;
+    std::int64_t schur_evaluations = 0;
     std::int64_t schur_reductions = 0;
     std::int64_t micro_simplices = 0;
     std::int64_t terminal_simplices = 0;
     // Sampled occupation-range fallbacks, not rigorous error certificates.
     std::int64_t conservative_fallbacks = 0;
-    std::int64_t singular_schur_failures = 0;
+    std::int64_t schur_failures = 0;
     std::int64_t initial_active_dimension_sum = 0;
     std::int64_t terminal_active_dimension_sum = 0;
     // Zero means no successful Schur reduction was recorded.

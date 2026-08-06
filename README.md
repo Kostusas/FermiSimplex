@@ -34,8 +34,8 @@ rotating noble-metal-inspired three-dimensional surface.
   caching, and the compiled numerical core avoid repeated work as the Fermi
   surface becomes progressively sharper.
 - 🎯 **Recursive charge estimates** use certificate-selected active spaces,
-  pointwise Schur reduction, and actual-Hamiltonian microsimplex samples to
-  target interpolation error near the Fermi level.
+  a corrected frozen-Schur reduction and actual-Hamiltonian microsimplex
+  samples to target interpolation error near the Fermi level.
 - 🧩 **Python and C++** share one numerical core; models can be dense callables
   or translation-invariant tight-binding Hamiltonians.
 
@@ -127,12 +127,14 @@ bound, separated occupied and empty trial subspaces prove fixed occupation.
 `surface.coverage_certified` concerns classification down to
 `min_feature_size`, not topology or geometric accuracy. Charge instead uses a
 sampled recursive error estimate: it evaluates the actual Hamiltonian on
-temporary microsimplices, reduces certificate-selected safe bands with exact
-Schur complements, and converts terminal midpoint defects into shifted
-occupation volumes. `charge.stopping_error` is therefore useful for adaptive
+temporary microsimplices, reduces certificate-selected safe bands with one
+corrected frozen-Schur step, and converts terminal midpoint defects into
+shifted occupation volumes. `charge.stopping_error` is therefore useful for
+adaptive
 refinement but is not a rigorous bound; structure between sampled points can
-still alias, and the reduced-space bookkeeping does not track a safe block's
-inertia away from its anchor. Density matrices also use adaptive estimates.
+still alias, and the frozen safe block is only a local approximation and does
+not track its inertia away from the anchor. Density matrices also use adaptive
+estimates.
 
 Fermi-surface guarantees assume a valid `curvature_bound`. Omitting it, `None`,
 and `0.0` all assert zero curvature; none disables certification. Charge has no

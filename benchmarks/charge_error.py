@@ -23,12 +23,12 @@ CHARGE_ERROR_STATS = (
     "full_eigensystems",
     "reduced_eigensystems",
     "norm_eigensystems",
-    "safe_block_solves",
+    "schur_evaluations",
     "schur_reductions",
     "micro_simplices",
     "terminal_simplices",
     "conservative_fallbacks",
-    "singular_schur_failures",
+    "schur_failures",
     "initial_active_dimension_sum",
     "terminal_active_dimension_sum",
     "minimum_active_dimension",
@@ -423,7 +423,7 @@ def benchmark(preset: str, only: str) -> dict[str, object]:
     )
     total_wall_seconds = time.perf_counter() - benchmark_started
     return {
-        "schema_version": 1,
+        "schema_version": 2,
         "generated_at": datetime.now(timezone.utc).isoformat(),
         "preset": preset,
         "only": only,

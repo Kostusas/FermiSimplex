@@ -28,7 +28,7 @@ void bind_integration_types(nb::module_ &module) {
         .def_ro("full_eigensystems", &ChargeErrorStats::full_eigensystems)
         .def_ro("reduced_eigensystems", &ChargeErrorStats::reduced_eigensystems)
         .def_ro("norm_eigensystems", &ChargeErrorStats::norm_eigensystems)
-        .def_ro("safe_block_solves", &ChargeErrorStats::safe_block_solves)
+        .def_ro("schur_evaluations", &ChargeErrorStats::schur_evaluations)
         .def_ro("schur_reductions", &ChargeErrorStats::schur_reductions)
         .def_ro("micro_simplices", &ChargeErrorStats::micro_simplices)
         .def_ro("terminal_simplices", &ChargeErrorStats::terminal_simplices)
@@ -38,8 +38,8 @@ void bind_integration_types(nb::module_ &module) {
             "Number of sampled occupation-range fallbacks."
         )
         .def_ro(
-            "singular_schur_failures",
-            &ChargeErrorStats::singular_schur_failures
+            "schur_failures",
+            &ChargeErrorStats::schur_failures
         )
         .def_ro(
             "initial_active_dimension_sum",

@@ -7,13 +7,15 @@ All notable changes to FermiSimplex are documented in this file.
 ## 0.2.0 - 2026-08-06
 
 - Replaced the projected charge-error heuristic with a fixed-depth recursive
-  active-space estimator using pointwise exact Schur complements and actual
+  active-space estimator using corrected frozen-Schur reductions and actual
   Hamiltonian evaluations at temporary microsimplex vertices.
 - Added terminal midpoint non-affinity sampling, shifted simplex volumes, a
   small-space recursion rule, and a tighter large-active-space fallback.
 - Added `error_depth` and detailed charge-estimator work statistics to the C++
   and Python APIs.
-- Added direct LAPACK safe-block solves and per-layer reduced-model caches.
+- Added one-correction frozen safe-block elimination using thin matrix products
+  and per-layer reduced-model caches; no pointwise safe-block factorization is
+  required.
 - Removed the charge-only curvature, preview-depth, certified-error-bound, and
   legacy projected-error APIs. This is an intentional pre-1.0 API break.
 

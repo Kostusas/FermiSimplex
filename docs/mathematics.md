@@ -709,57 +709,66 @@ the recursive estimator even though its active space is at least half of the
 full matrix. The gate is applied only to the original simplex, never to its
 descendants.
 
-### Exact pointwise Schur reduction
+### Frozen Schur reduction with one correction
 
 At a recursive node, let $K(k)$ denote the current full or already reduced
 Hamiltonian relative to the chemical potential. Certification of its vertex
 eigensystems selects active and safe directions. The vertex whose safe spectrum
-is farthest from zero supplies fixed orthonormal bases $U_?$ and $U_s$. At every
-sampled point, form
+is farthest from zero supplies fixed orthonormal bases $U_?$ and $U_s$. Because
+these are eigenvectors at the anchor $k_0$,
 
 $$
-\begin{pmatrix}U_?&U_s\end{pmatrix}^\dagger
-K(k)
-\begin{pmatrix}U_?&U_s\end{pmatrix}
-=
-\begin{pmatrix}
-A(k)&B(k)^\dagger\\
-B(k)&D(k)
-\end{pmatrix}
+D_0=U_s^\dagger K(k_0)U_s=\operatorname{diag}(d_s),
+\qquad
+U_s^\dagger K(k_0)U_?=0.
 $$
 
-and the pointwise Schur complement
+At a sampled point define
+
+$$
+A=U_?^\dagger K U_?,
+\qquad
+B=U_s^\dagger K U_?,
+\qquad
+D=U_s^\dagger K U_s.
+$$
+
+A frozen Schur approximation would use $X_0=D_0^{-1}B$ and
+$S_0=A-B^\dagger X_0$. The estimator takes one inexpensive correction,
+
+$$
+X_1=X_0+D_0^{-1}(B-DX_0),
+\qquad
+S_1=A-B^\dagger X_1.
+$$
+
+The implementation evaluates the equivalent expression
 
 $$
 \boxed{
-S(k)=A(k)-B(k)^\dagger D(k)^{-1}B(k).
+S_1=A-2B^\dagger X_0+W^\dagger K W,
+\qquad
+W=U_sX_0,
 }
 $$
 
-The implementation never forms $D^{-1}$ explicitly: it solves $D X=B$ and
-subtracts $B^\dagger X$. If $D(k)$ is nonsingular, congruence gives the exact
-inertia identity
+so it never forms or factors the large pointwise safe block $D(k)$. It stores
+$1/d_s$ once per layer and uses thin matrix products whose width is the active
+dimension.
 
-$$
-\operatorname{Inertia}K(k)
-=
-\operatorname{Inertia}D(k)
-+
-\operatorname{Inertia}S(k).
-$$
+If $B=O(h)$ and $D-D_0=O(h)$, plain freezing leaves a typical $O(h^3)$ Schur
+error, while one correction leaves the next $O(h^4)$ term. This statement
+assumes that the anchor safe gap stays separated and that the Neumann expansion
+is useful. The corrected surrogate is not an exact Schur complement and does
+not preserve inertia exactly. It can become inaccurate when safe-block
+variation is comparable with the anchor gap or when a safe eigenvalue crosses
+zero. The deliberately simple implementation adds no variation guard; exact
+finite-stencil aliasing is a separate limitation discussed below.
 
-Every block is formed from the actual current matrix at that point. At the root
-this starts from the actual $H(k)-\mu I$; deeper layers apply exact pointwise
-Schur transformations to their parent effective matrices. There is no affine
-Hamiltonian reconstruction and no frozen safe block.
-
-There is one accepted bookkeeping caveat. The number of frozen occupied safe
-directions is taken from the anchor certification, while the implementation
-does not diagonalize $D(k)$ to track its inertia. An exactly singular safe
-block at a required sample triggers the occupation-range fallback. A change of
-inertia between the anchor and a nonsingular sample is not detected, even if
-that endpoint is sampled. Thus exact Schur reduction preserves the sampled
-matrices; it does not by itself make the charge interval rigorous.
+Every block still uses the actual current matrix at that sampled point. At the
+root this is the actual $H(k)-\mu I$; no affine Hamiltonian reconstruction is
+used. Deeper recursion re-anchors the current small effective matrix, freezes
+its newly safe spectrum, and applies the same one-correction construction.
 
 ### Logical microsimplex recursion
 
@@ -770,7 +779,8 @@ at most one complete subdivision along an unresolved branch, not one binary
 bisection. A certified node stops before subdividing.
 
 On every child, the algorithm certifies the current small matrices, freezes any
-new safe directions, and creates another pointwise Schur layer when possible.
+new safe directions, and creates another corrected frozen-Schur layer when
+possible.
 This can reduce the active dimension repeatedly. A node terminates when its
 occupation is fixed or when `error_depth` is reached. All new microvertices
 evaluate the actual model Hamiltonian; temporary samples do not refine the
@@ -859,9 +869,10 @@ $$
 The signs follow because the effective energies are measured relative to
 $\mu$: lowering the cut level gives the lower occupied volume. A leaf whose
 $\beta_S$ certificate remains fixed has $L_S=U_S$ and contributes its integer
-occupation exactly within the sampled model. A failed candidate Schur layer is
-discarded, leaving the current small matrix. If an inherited layer is singular
-at a required sample, that branch uses its last valid sampled occupation range.
+occupation exactly within the sampled model. A candidate layer with a zero or
+non-finite anchor safe eigenvalue is discarded, leaving the current small
+matrix. A non-finite corrected sample uses the last
+valid sampled occupation range.
 
 Sum the leaf endpoints to obtain $Q_T^-$ and $Q_T^+$. The root estimate remains
 
@@ -908,8 +919,8 @@ bound.
 
 `charge.error_stats` exposes the work and failure modes: root, micro-, and
 terminal-simplex counts; actual Hamiltonian evaluations; full, reduced, and
-norm eigensystems; safe-block solves and Schur reductions; the
-`conservative_fallbacks` and `singular_schur_failures` counters; and initial,
+norm eigensystems; corrected Schur evaluations and Schur reductions; the
+`conservative_fallbacks` and `schur_failures` counters; and initial,
 terminal, and minimum active dimensions. A `minimum_active_dimension` value of
 zero means that no Schur reduction was recorded.
 

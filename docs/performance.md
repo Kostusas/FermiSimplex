@@ -67,13 +67,14 @@ bands. The mesh is fixed at root level 2. For each matrix size it measures:
 The constructed cluster width is stored as `target_bands`. Certification may
 reduce the actual uncertain space on individual simplices, so
 `charge_initial_active_dimension_sum / charge_root_simplices` is the observed
-mean root width. `charge_conservative_fallbacks` records how often the root gate
-or a singular Schur layer selected the sampled occupation-range fallback.
+mean root width. `charge_conservative_fallbacks` records how often the root
+gate or a failed Schur layer selected the sampled occupation-range fallback.
 
 The terminal table reports total milliseconds and full-eigensolve equivalents
 per root simplex. One equivalent is the faster measured full `zheevd` path for
 the same matrix size. It also reports actual Hamiltonian evaluations, reduced
-eigensystems, safe-block solves, micro-simplices, and fallbacks. Depth changes
+eigensystems, corrected Schur evaluations, micro-simplices, and fallbacks.
+Depth changes
 the fixed microsimplex tree; it is not AdaptiveSimplex mesh refinement.
 
 Machine-readable charge fields include:
@@ -83,8 +84,8 @@ Machine-readable charge fields include:
   `charge_terminal_simplices`;
 - `charge_hamiltonian_evaluations`;
 - full, reduced, and norm eigensystem counts;
-- safe-block solve and Schur-reduction counts;
-- `charge_conservative_fallbacks` and singular-Schur failure counts;
+- corrected Schur-evaluation and Schur-reduction counts;
+- `charge_conservative_fallbacks` and Schur-failure counts;
 - initial and terminal active-dimension sums and the minimum reduced dimension.
 
 `lapack_equivalents_per_operation` is the full timed mesh pass divided by one

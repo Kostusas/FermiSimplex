@@ -217,8 +217,9 @@ class SpectralMesh:
             each unresolved branch. One subdivision produces ``2**ndim``
             children; certified branches stop early. Temporary samples do not
             refine the persistent mesh. The estimate is not a rigorous bound
-            and can miss structure between sampled microvertices or a change
-            in safe-block inertia away from a Schur anchor.
+            and can miss structure between sampled microvertices. The frozen
+            safe-block approximation can also lose accuracy when its variation
+            is comparable with the anchor gap or its inertia changes.
         min_refinement_batch_size, max_refinement_batch_size
             Bounds on the number of simplices refined in one adaptive step.
 
@@ -264,8 +265,9 @@ class SpectralMesh:
         microvertices but does not add those points to the persistent mesh.
         ``error_depth=1`` permits one complete subdivision on each unresolved
         branch; certified branches stop early. The returned stopping error
-        is sampled rather than rigorous and does not track safe-block inertia
-        away from each Schur anchor.
+        is sampled rather than rigorous. The corrected frozen-safe-block
+        approximation can lose accuracy when variation is comparable with the
+        anchor gap or safe-block inertia changes.
         """
         return self._native.estimate_charge_on_current_mesh(
             _finite_float(mu, "mu"),

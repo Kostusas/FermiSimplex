@@ -32,7 +32,7 @@ using Complex = std::complex<double>;
 using Matrix = std::vector<Complex>;
 using Point = core::DyadicVertex;
 
-struct SingularSafeBlock {};
+struct SchurFailure {};
 
 struct ChargeInterval {
     double lower = 0.0;
@@ -145,6 +145,7 @@ struct SchurLayer {
     std::size_t active_dimension = 0;
     Matrix active_basis;
     Matrix safe_basis;
+    std::vector<double> inverse_safe_eigenvalues;
 };
 
 Matrix apply_layer(
@@ -168,43 +169,40 @@ Matrix apply_layer(
         'C', 'N', safe, active, size,
         layer.safe_basis, size, h_active, size
     );
-    const auto h_safe = multiply(
-        'N', 'N', size, safe, size,
-        matrix, size, layer.safe_basis, size
-    );
-    auto safe_block = multiply(
-        'C', 'N', safe, safe, size,
-        layer.safe_basis, size, h_safe, size
-    );
-    make_hermitian(safe_block, safe);
 
-    auto solved_coupling = coupling;
-    ++stats.safe_block_solves;
-    if (!linalg::solve_linear_system_in_place(
-            safe_block,
-            solved_coupling,
-            safe,
-            active,
-            "charge-error Schur complement"
-        )) {
-        throw SingularSafeBlock{};
-    }
-    if (!std::all_of(
-            solved_coupling.begin(),
-            solved_coupling.end(),
-            finite
-        )) {
-        throw SingularSafeBlock{};
+    auto scaled_coupling = coupling;
+    for (std::size_t column = 0; column < active; ++column) {
+        for (std::size_t row = 0; row < safe; ++row) {
+            scaled_coupling[matrix_index(row, column, safe)] *=
+                layer.inverse_safe_eigenvalues[row];
+        }
     }
 
-    const auto correction = multiply(
+    // One corrected frozen solve, written without forming the safe block:
+    // S1 = A - 2 B^H D0^-1 B + (Us D0^-1 B)^H H (Us D0^-1 B).
+    const auto response = multiply(
+        'N', 'N', size, active, safe,
+        layer.safe_basis, size, scaled_coupling, safe
+    );
+    const auto h_response = multiply(
+        'N', 'N', size, active, size,
+        matrix, size, response, size
+    );
+    const auto frozen_shift = multiply(
         'C', 'N', active, active, safe,
-        coupling, safe, solved_coupling, safe
+        coupling, safe, scaled_coupling, safe
     );
+    const auto response_energy = multiply(
+        'C', 'N', active, active, size,
+        response, size, h_response, size
+    );
+
+    ++stats.schur_evaluations;
     for (std::size_t index = 0; index < result.size(); ++index) {
-        result[index] -= correction[index];
+        result[index] += response_energy[index]
+            - Complex{2.0, 0.0} * frozen_shift[index];
         if (!finite(result[index])) {
-            throw SingularSafeBlock{};
+            throw SchurFailure{};
         }
     }
     make_hermitian(result, active);
@@ -407,14 +405,21 @@ SchurLayer make_layer(
     const auto size = anchor.eigenvalues.size();
     auto active_columns = std::vector<std::size_t>{};
     auto safe_columns = std::vector<std::size_t>{};
+    auto inverse_safe_eigenvalues = std::vector<double>{};
     const auto active = bounds.upper - bounds.lower;
     active_columns.reserve(active);
     safe_columns.reserve(size - active);
+    inverse_safe_eigenvalues.reserve(size - active);
     for (std::size_t band = 0; band < size; ++band) {
         if (bounds.lower <= band && band < bounds.upper) {
             active_columns.push_back(band);
         } else {
+            const auto value = anchor.eigenvalues[band];
+            if (!std::isfinite(value) || value == 0.0) {
+                throw SchurFailure{};
+            }
             safe_columns.push_back(band);
+            inverse_safe_eigenvalues.push_back(1.0 / value);
         }
     }
     return SchurLayer{
@@ -422,6 +427,8 @@ SchurLayer make_layer(
         .active_dimension = active_columns.size(),
         .active_basis = selected_columns(anchor, active_columns),
         .safe_basis = selected_columns(anchor, safe_columns),
+        .inverse_safe_eigenvalues =
+            std::move(inverse_safe_eigenvalues),
     };
 }
 
@@ -559,12 +566,12 @@ struct ChargeErrorEstimator::Impl {
         }
 
         const auto anchor = best_anchor(state, bounds);
-        auto candidate = std::make_shared<EffectiveModel>(
-            model,
-            make_layer(*state.spectra[anchor], bounds),
-            stats
-        );
         try {
+            auto candidate = std::make_shared<EffectiveModel>(
+                model,
+                make_layer(*state.spectra[anchor], bounds),
+                stats
+            );
             auto candidate_state =
                 simplex_state(geometry, simplex_id, *candidate);
             ++stats.schur_reductions;
@@ -578,8 +585,8 @@ struct ChargeErrorEstimator::Impl {
                 std::move(candidate),
                 std::move(candidate_state),
             };
-        } catch (const SingularSafeBlock &) {
-            ++stats.singular_schur_failures;
+        } catch (const SchurFailure &) {
+            ++stats.schur_failures;
             return std::nullopt;
         }
     }
@@ -732,8 +739,8 @@ struct ChargeErrorEstimator::Impl {
         SimplexState state;
         try {
             state = simplex_state(geometry, simplex_id, *model);
-        } catch (const SingularSafeBlock &) {
-            ++stats.singular_schur_failures;
+        } catch (const SchurFailure &) {
+            ++stats.schur_failures;
             record_terminal(fallback_range.upper - fallback_range.lower);
             return fallback(fallback_range, volume);
         }
@@ -783,8 +790,8 @@ struct ChargeErrorEstimator::Impl {
                     current_fixed,
                     active != 0
                 );
-            } catch (const SingularSafeBlock &) {
-                ++stats.singular_schur_failures;
+            } catch (const SchurFailure &) {
+                ++stats.schur_failures;
                 record_terminal(
                     current_fallback.upper - current_fallback.lower
                 );

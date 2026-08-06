@@ -38,8 +38,6 @@ def _coordinates_array(coordinates, ndim: int) -> Point:
     result = np.ascontiguousarray(np.asarray(coordinates, dtype=np.float64))
     if result.shape != (ndim,):
         raise ValueError(f"expected {ndim} coordinates")
-    if not np.all(np.isfinite(result)):
-        raise ValueError("coordinates must be finite")
     return result
 
 

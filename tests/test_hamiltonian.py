@@ -80,37 +80,6 @@ mesh = SpectralMesh(lambda k: np.array([[k]], dtype=complex))
     assert "nanobind: leaked" not in completed.stderr
 
 
-def test_hamiltonian_coordinates_must_be_finite():
-    mesh = SpectralMesh(lambda k: np.array([[k]], dtype=complex))
-
-    with pytest.raises(ValueError, match="coordinates must be finite"):
-        mesh.evaluate(np.nan)
-
-
-def test_spectral_evaluation_rejects_nonhermitian_matrices():
-    mesh = SpectralMesh(
-        lambda _k: np.array([[0.0, 1.0], [0.0, 0.0]], dtype=complex)
-    )
-
-    with pytest.raises(RuntimeError, match="Hamiltonian must be Hermitian"):
-        mesh.integrate_charge(
-            mu=0.0,
-            target_error=1.0,
-            max_refinements=0,
-        )
-
-
-def test_spectral_evaluation_rejects_nonfinite_matrix_entries():
-    mesh = SpectralMesh(lambda _k: np.array([[np.nan]], dtype=complex))
-
-    with pytest.raises(RuntimeError, match="Hamiltonian entries must be finite"):
-        mesh.integrate_charge(
-            mu=0.0,
-            target_error=1.0,
-            max_refinements=0,
-        )
-
-
 @pytest.mark.parametrize(
     "function",
     (
@@ -129,16 +98,6 @@ def test_callable_hamiltonian_requires_explicit_coordinate_parameters(function):
 def test_callable_hamiltonian_requires_a_square_origin_matrix():
     with pytest.raises(ValueError, match="non-empty square matrix"):
         SpectralMesh(lambda _k: np.zeros((1, 2)))
-
-
-def test_callable_hamiltonian_requires_a_consistent_matrix_shape():
-    def function(k):
-        return np.eye(2) if k == 0.0 else np.eye(1)
-
-    mesh = SpectralMesh(function)
-
-    with pytest.raises(ValueError, match=r"shape \(2, 2\)"):
-        mesh.evaluate(0.5)
 
 
 def test_spectral_mesh_requires_a_callable_or_tight_binding_mapping():

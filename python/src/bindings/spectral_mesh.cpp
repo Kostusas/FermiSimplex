@@ -15,7 +15,6 @@
 #include <optional>
 #include <span>
 #include <stdexcept>
-#include <string>
 #include <utility>
 #include <vector>
 
@@ -44,10 +43,6 @@ public:
     std::vector<std::complex<double>> evaluate(
         std::span<const double> reduced_point
     ) const override {
-        if (reduced_point.size() != ndim_) {
-            throw std::runtime_error("Hamiltonian point dimension mismatch");
-        }
-
         nb::gil_scoped_acquire gil;
         if (!callable_) {
             throw std::runtime_error("Hamiltonian callable is no longer available");
@@ -72,13 +67,6 @@ public:
             throw nb::python_error();
         }
         const auto matrix = nb::cast<CallbackMatrixArray>(returned);
-        if (matrix.shape(0) != ndof_ || matrix.shape(1) != ndof_) {
-            throw nb::value_error(
-                ("Hamiltonian must return a matrix with shape (" +
-                 std::to_string(ndof_) + ", " + std::to_string(ndof_) + ")").c_str()
-            );
-        }
-
         std::vector<std::complex<double>> result(ndof_ * ndof_);
         for (std::size_t row = 0; row < ndof_; ++row) {
             for (std::size_t column = 0; column < ndof_; ++column) {

@@ -136,6 +136,9 @@ class SpectralMesh:
 
     Notes
     -----
+    Callable models must return a finite Hermitian matrix of the inferred shape
+    at every point. Values are trusted after the one-time shape inference.
+
     The mesh is stateful. Calculations refine its geometry and cache vertex
     eigensystems, so later calculations on the same instance reuse earlier
     work.

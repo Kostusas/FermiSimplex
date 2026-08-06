@@ -749,7 +749,7 @@ double benchmark_vertex_pipeline(
     ));
 
     auto mesh = fermisimplex::SpectralMesh(model);
-    const auto validated = measure(
+    const auto hamiltonian = measure(
         config.samples, evaluation_iterations, [&](std::size_t sample) {
             auto checksum = 0.0;
             point[1] = 0.1 * static_cast<double>(sample + 1);
@@ -764,8 +764,8 @@ double benchmark_vertex_pipeline(
         }
     );
     results.push_back(make_result(
-        "hamiltonian_validate", "vertex", "evaluation", 2, ndof, 0,
-        0, 0, 0, evaluation_iterations, config.samples, validated, lapack_ns
+        "spectral_mesh_hamiltonian", "vertex", "evaluation", 2, ndof, 0,
+        0, 0, 0, evaluation_iterations, config.samples, hamiltonian, lapack_ns
     ));
 
     const auto spectrum = measure(
@@ -1423,7 +1423,7 @@ std::string render_json(const Config &config, const std::vector<Result> &results
     output << std::setprecision(12);
     output
         << "{\n"
-        << "  \"schema_version\": 6,\n"
+        << "  \"schema_version\": 7,\n"
         << "  \"metadata\": {\n"
         << "    \"git_commit\": \""
         << json_escape(FERMISIMPLEX_BENCHMARK_GIT_COMMIT) << "\",\n"
@@ -1611,7 +1611,8 @@ std::string render_summary(const Config &config, const std::vector<Result> &resu
         << '\n';
     for (const auto ndof : config.matrix_sizes) {
         const auto &model = measurement("dense_model_evaluate", ndof);
-        const auto &validation = measurement("hamiltonian_validate", ndof);
+        const auto &hamiltonian =
+            measurement("spectral_mesh_hamiltonian", ndof);
         const auto &spectrum = measurement("spectrum_dense_model", ndof);
         const auto &cached = measurement("spectrum_and_cache_insert", ndof);
         output
@@ -1620,7 +1621,7 @@ std::string render_summary(const Config &config, const std::vector<Result> &resu
             << std::setw(13)
             << model.lapack_equivalents_per_operation
             << std::setw(13)
-            << validation.lapack_equivalents_per_operation
+            << hamiltonian.lapack_equivalents_per_operation
             << std::setw(13)
             << spectrum.lapack_equivalents_per_operation
             << std::setw(15)
@@ -1628,7 +1629,7 @@ std::string render_summary(const Config &config, const std::vector<Result> &resu
             << '\n';
     }
     output
-        << "Stages are cumulative after model eval: Hamiltonian adds validation, "
+        << "Stages are cumulative after model eval: Hamiltonian adds mesh dispatch, "
            "eigensystem adds diagonalization,\n"
         << "and cached vertex adds eigensystem-cache insertion.\n";
 

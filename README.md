@@ -76,7 +76,8 @@ The coordinates are reduced coordinates in $[0,1]^d$. Here
 $M=(2\pi)^2$ bounds every directional second derivative of the scalar
 Hamiltonian. `SpectralMesh` infers the momentum-space dimension from the
 callable arguments and the matrix dimension by evaluating it at the origin.
-Callables receive separate coordinates: `hamiltonian(kx, ky, ...)`.
+Callables receive separate coordinates: `hamiltonian(kx, ky, ...)`. They are
+trusted to keep returning finite Hermitian matrices of the inferred shape.
 
 ![Two- and three-dimensional Fermi surfaces](https://raw.githubusercontent.com/Kostusas/FermiSimplex/main/docs/assets/fermi_surface_gallery.png)
 

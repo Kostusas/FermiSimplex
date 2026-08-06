@@ -16,6 +16,9 @@ All notable changes to FermiSimplex are documented in this file.
 - Added one-correction frozen safe-block elimination using thin matrix products
   and per-layer reduced-model caches; no pointwise safe-block factorization is
   required.
+- Removed repeated Hamiltonian coordinate, shape, finiteness, and Hermiticity
+  validation from the evaluation hot path; model values are trusted after
+  setup.
 - Removed the charge-only curvature, preview-depth, certified-error-bound, and
   legacy projected-error APIs. This is an intentional pre-1.0 API break.
 

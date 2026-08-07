@@ -958,6 +958,11 @@ Their `stopping_error` is an adaptive quadrature estimate. The occupation
 certificate alone does not bound the variation of the spectral projector; a
 rigorous density-matrix certificate would require additional gap-dependent
 control. Density matrices are therefore not currently certified.
+`integrate_density_components` applies the same rule only to requested entries
+$(r,i,j)$. Requests with the same $(i,j)$ share the projector contraction and
+differ only by the lattice phase for $r$. The stopping estimate then covers
+only those requested entries. Full density matrices are the special case that
+requests every $(r,i,j)$.
 With `preview_depth=0`, no parent-child correction is sampled: the current mesh
 is integrated directly, `stopping_error` is zero by construction, and no
 refinement occurs.

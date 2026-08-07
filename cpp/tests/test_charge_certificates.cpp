@@ -114,6 +114,43 @@ void test_affine_matrix_charge_does_not_converge_at_root() {
     );
 }
 
+void test_density_components_preserve_request_order() {
+    auto mesh = SpectralMesh(constant_insulator());
+    const auto result = integrate_density_components(
+        mesh,
+        0.0,
+        {{0}},
+        {
+            {.lattice_vector_index = 0, .row = 1, .column = 1},
+            {.lattice_vector_index = 0, .row = 0, .column = 0},
+            {.lattice_vector_index = 0, .row = 0, .column = 0},
+        },
+        fixed_options(0.0)
+    );
+
+    expect_eq(result.values.size(), 3, "density component count");
+    expect_near(std::abs(result.values[0]), 0.0, kTol, "empty component");
+    expect_near(std::abs(result.values[1] - Complex{1.0}), 0.0, kTol,
+                "occupied component");
+    expect_near(std::abs(result.values[2] - Complex{1.0}), 0.0, kTol,
+                "repeated component");
+    expect_near(result.stopping_error, 0.0, kTol, "component estimate");
+
+    expect_runtime_error(
+        [&] {
+            (void)integrate_density_components(
+                mesh,
+                0.0,
+                {{0}},
+                {{.lattice_vector_index = 0, .row = 2, .column = 0}},
+                fixed_options(0.0)
+            );
+        },
+        "out of range",
+        "density components should validate matrix indices"
+    );
+}
+
 void test_integration_rejects_nonfinite_mu() {
     auto mesh = SpectralMesh(constant_insulator());
     const auto options = fixed_options(1.0);
@@ -137,6 +174,19 @@ void test_integration_rejects_nonfinite_mu() {
             "mu must be finite",
             "density integration should reject a non-finite chemical potential"
         );
+        expect_runtime_error(
+            [&] {
+                (void)integrate_density_components(
+                    mesh,
+                    mu,
+                    {{0}},
+                    {{.lattice_vector_index = 0, .row = 0, .column = 0}},
+                    options
+                );
+            },
+            "mu must be finite",
+            "density-component integration should reject a non-finite chemical potential"
+        );
     }
 
     const auto density = integrate_density_matrix(mesh, 0.0, {{0}}, options);
@@ -157,6 +207,7 @@ int main() {
         test_fermi_surface_counts_work();
         test_charge_derivative_handles_repeated_vertex_energies();
         test_affine_matrix_charge_does_not_converge_at_root();
+        test_density_components_preserve_request_order();
         test_integration_rejects_nonfinite_mu();
     } catch (const std::exception &error) {
         std::cerr << error.what() << "\n";

@@ -3,7 +3,7 @@ from __future__ import annotations
 import numpy as np
 import pytest
 
-from fermisimplex import SpectralMesh
+from fermisimplex import DensityComponentsResult, SpectralMesh
 
 from .helpers import constant_insulator, dense_reference, dimerized_chain
 
@@ -123,6 +123,81 @@ def test_density_matrix_matches_a_dense_reference():
             <= 5e-3
         )
     assert result.stopping_error <= 5e-3
+
+
+def test_density_components_match_full_matrices_in_request_order():
+    hoppings = dimerized_chain()
+    keys = [(0,), (1,), (-1,)]
+    components = [(2, 1, 0), (0, 0, 1), (1, 1, 0), (2, 1, 0)]
+    options = {
+        "mu": 0.0,
+        "lattice_vectors": keys,
+        "target_error": 1e6,
+        "max_refinements": 0,
+        "preview_depth": 2,
+    }
+
+    full = SpectralMesh(hoppings).integrate_density_matrix(**options)
+    selected = SpectralMesh(hoppings).integrate_density_components(
+        components=components,
+        **options,
+    )
+    expected = np.asarray(
+        [full.matrices[key, row, column] for key, row, column in components]
+    )
+
+    assert isinstance(selected, DensityComponentsResult)
+    assert selected.values == pytest.approx(expected)
+    assert selected.values[0] == pytest.approx(selected.values[3])
+    assert selected.stopping_error <= full.stopping_error
+    assert selected.stats.simplex_visits == full.stats.simplex_visits
+
+
+def test_density_components_preview_zero_reuses_the_current_mesh():
+    mesh = SpectralMesh(constant_insulator(1))
+    mesh.estimate_charge_on_current_mesh(mu=0.0)
+    cached_vertices = mesh.cached_vertices
+
+    result = mesh.integrate_density_components(
+        mu=0.0,
+        lattice_vectors=[(0,)],
+        components=[(0, 0, 0)],
+        target_error=0.0,
+        max_refinements=0,
+        preview_depth=0,
+    )
+
+    assert result.values == pytest.approx([1.0])
+    assert result.stopping_error == pytest.approx(0.0)
+    assert result.stats.evaluations == 0
+    assert result.stats.refinements == 0
+    assert mesh.cached_vertices == cached_vertices
+
+
+@pytest.mark.parametrize(
+    ("components", "exception", "message"),
+    (
+        ([], ValueError, "shape"),
+        ([(0, 0)], ValueError, "shape"),
+        ([(0.5, 0, 0)], TypeError, "integers"),
+        ([(-1, 0, 0)], ValueError, "non-negative"),
+        ([(1, 0, 0)], RuntimeError, "out of range"),
+        ([(0, 2, 0)], RuntimeError, "out of range"),
+        ([(0, 0, 2)], RuntimeError, "out of range"),
+    ),
+)
+def test_density_components_validate_indices(components, exception, message):
+    mesh = SpectralMesh(constant_insulator(1))
+
+    with pytest.raises(exception, match=message):
+        mesh.integrate_density_components(
+            mu=0.0,
+            lattice_vectors=[(0,)],
+            components=components,
+            target_error=1.0,
+            max_refinements=0,
+            preview_depth=0,
+        )
 
 
 def test_density_lattice_vectors_must_match_the_model_dimension():

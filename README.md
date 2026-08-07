@@ -97,11 +97,18 @@ density = mesh.integrate_density_matrix(
     target_error=1e-2,
     max_refinements=10_000,
 )
+selected_density = mesh.integrate_density_components(
+    mu=0.17,
+    lattice_vectors=[(0, 0, 0), (1, 0, 0)],
+    components=[(0, 0, 0), (1, 0, 1)],
+    target_error=1e-2,
+)
 
 charge.value
 charge.stopping_error
 charge.error_stats
 density.matrices  # (number of lattice vectors, ndof, ndof)
+selected_density.values  # follows the component request order
 ```
 
 For a tight-binding model,
@@ -152,6 +159,8 @@ curvature argument. See the [mathematics guide][mathematics] for details.
 - `mesh.integrate_charge`: adaptive filling and $dQ/d\mu$.
 - `mesh.estimate_charge_on_current_mesh`: direct linear-simplex filling and
   $dQ/d\mu$ with no error estimation or refinement.
+- `mesh.integrate_density_components`: selected real-space density entries,
+  requested as `(lattice_vector_index, row, column)`.
 - `mesh.integrate_density_matrix`: real-space density-matrix components.
 - `mesh.fermi_surface`: band-labelled points and cells in reduced coordinates.
 

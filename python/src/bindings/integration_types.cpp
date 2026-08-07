@@ -75,6 +75,23 @@ void bind_integration_types(nb::module_ &module) {
         .def_ro("value", &CurrentMeshChargeResult::value)
         .def_ro("dcharge_dmu", &CurrentMeshChargeResult::dcharge_dmu);
 
+    nb::class_<DensityComponentsResult>(module, "DensityComponentsResult")
+        .def_prop_ro(
+            "values",
+            [](const DensityComponentsResult &result) {
+                return make_array(
+                    std::vector<std::complex<double>>(result.values),
+                    {result.values.size()}
+                );
+            },
+            nb::rv_policy::move
+        )
+        .def_ro("stopping_error", &DensityComponentsResult::stopping_error)
+        .def_prop_ro(
+            "stats",
+            [](const DensityComponentsResult &result) { return result.stats; }
+        );
+
     nb::class_<DensityMatrixResult>(module, "DensityMatrixResult")
         .def_prop_ro(
             "matrices",

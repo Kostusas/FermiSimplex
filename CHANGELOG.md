@@ -18,6 +18,9 @@ All notable changes to FermiSimplex are documented in this file.
   recursive error estimation, or temporary sampling.
 - Allowed density-matrix `preview_depth=0` to integrate the existing mesh
   without preview evaluations or refinement.
+- Added selected density-component integration. Components sharing a matrix
+  element reuse one projector contraction across all requested lattice phases;
+  full density matrices use the same grouped kernel.
 - Applied the corrected frozen Schur model through a per-layer dense safe
   resolvent, two reused thin work buffers, and cached reduced matrices; no
   pointwise safe-block factorization is required.

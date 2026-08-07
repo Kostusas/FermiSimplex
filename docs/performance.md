@@ -125,6 +125,8 @@ The ordinary presets retain these benchmark families:
 - tight-binding evaluation and eigensystem costs for several hopping counts;
 - direct current-mesh charge and adaptive charge integration at the default
   recursive error depth 2;
+- full-matrix and selected-component density integration through one grouped
+  contraction kernel;
 - adaptive Fermi-surface extraction;
 - controlled root-mesh evaluation and classification scaling;
 - the separate occupation-bounds benchmark executable.
@@ -140,6 +142,12 @@ The benchmark excludes `SpectralMesh` construction from timed regions. Reference
 LAPACK matrices are prepared outside the timer. Raw timings should only be
 compared on the same runner; LAPACK-equivalent ratios still require the same
 LAPACK provider and thread configuration.
+
+Selected density requests are grouped by matrix element. For each simplex
+vertex, the band contraction for a unique `(row, column)` pair is evaluated
+once and reused for every requested lattice-vector phase. Its contraction cost
+therefore scales with the number of unique requested matrix elements rather
+than with the number of returned components.
 
 ## CI use
 

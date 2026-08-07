@@ -143,6 +143,28 @@ std::shared_ptr<const HamiltonianModel> tight_binding_hamiltonian(
     );
 }
 
+std::vector<DensityComponent> copy_density_components(
+    LatticeVectorArray components
+) {
+    if (components.shape(0) == 0 || components.shape(1) != 3) {
+        throw nb::value_error("components must have shape (n, 3) with n > 0");
+    }
+    auto result = std::vector<DensityComponent>{};
+    result.reserve(components.shape(0));
+    for (std::size_t index = 0; index < components.shape(0); ++index) {
+        const auto *component = components.data() + 3 * index;
+        if (component[0] < 0 || component[1] < 0 || component[2] < 0) {
+            throw nb::value_error("component indices must be non-negative");
+        }
+        result.push_back(DensityComponent{
+            .lattice_vector_index = static_cast<std::size_t>(component[0]),
+            .row = static_cast<std::size_t>(component[1]),
+            .column = static_cast<std::size_t>(component[2]),
+        });
+    }
+    return result;
+}
+
 adaptive::Options adaptive_options(
     double target_error,
     std::int64_t max_refinements,
@@ -309,6 +331,41 @@ void bind_spectral_mesh(nb::module_ &module) {
                 );
             },
             "mu"_a,
+            nb::call_guard<nb::gil_scoped_release>()
+        )
+        .def(
+            "integrate_density_components",
+            [](SpectralMesh &mesh,
+               double mu,
+               LatticeVectorArray lattice_vectors,
+               LatticeVectorArray components,
+               double target_error,
+               std::int64_t max_refinements,
+               std::uint32_t preview_depth,
+               std::size_t min_refinement_batch_size,
+               std::size_t max_refinement_batch_size) {
+                return fermisimplex::integrate_density_components(
+                    mesh,
+                    mu,
+                    copy_lattice_vectors(lattice_vectors),
+                    copy_density_components(components),
+                    adaptive_options(
+                        target_error,
+                        max_refinements,
+                        preview_depth,
+                        min_refinement_batch_size,
+                        max_refinement_batch_size
+                    )
+                );
+            },
+            "mu"_a,
+            "lattice_vectors"_a,
+            "components"_a,
+            "target_error"_a,
+            "max_refinements"_a,
+            "preview_depth"_a,
+            "min_refinement_batch_size"_a,
+            "max_refinement_batch_size"_a,
             nb::call_guard<nb::gil_scoped_release>()
         )
         .def(

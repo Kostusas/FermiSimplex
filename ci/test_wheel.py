@@ -25,6 +25,14 @@ def test_installed_distribution_runs_a_native_surface_calculation():
     )
 
     charge = mesh.estimate_charge_on_current_mesh(mu=0.0)
+    density = mesh.integrate_density_components(
+        mu=0.0,
+        lattice_vectors=[(0, 0)],
+        components=[(0, 0, 0), (0, 1, 1)],
+        target_error=0.0,
+        max_refinements=0,
+        preview_depth=0,
+    )
 
     assert version("FermiSimplex")
     assert surface.completed
@@ -32,6 +40,8 @@ def test_installed_distribution_runs_a_native_surface_calculation():
     assert set(surface.cell_bands.tolist()) == {0, 1}
     assert np.isfinite(charge.value)
     assert np.isfinite(charge.dcharge_dmu)
+    assert density.values.shape == (2,)
+    assert np.all(np.isfinite(density.values))
 
 
 def test_bundled_openblas_notice_matches_platform_backend():

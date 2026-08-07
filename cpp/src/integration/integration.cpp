@@ -20,7 +20,7 @@ namespace fermisimplex {
 namespace adaptive = adaptivesimplex::adaptive;
 namespace core = adaptivesimplex::core;
 using integration_detail::ChargeContribution;
-using integration_detail::DensityMatrixRule;
+using integration_detail::DensityRule;
 
 namespace {
 
@@ -149,7 +149,7 @@ auto charge_integrand(
 auto density_integrand(
     SpectralMesh &mesh,
     double mu,
-    DensityMatrixRule &rule,
+    DensityRule &rule,
     std::int64_t &simplex_visits
 ) {
     return adaptive::simplex_integrand(
@@ -240,10 +240,39 @@ ChargeResult charge_result(
     };
 }
 
-DensityMatrixResult density_result(
+adaptive::IntegrationResult<DensityRule::Value> integrate_density_rule(
+    SpectralMesh &mesh,
+    double mu,
+    DensityRule &rule,
+    const adaptive::Options &options,
+    std::int64_t &simplex_visits
+) {
+    auto integrand = density_integrand(mesh, mu, rule, simplex_visits);
+    return adaptive::run(mesh.geometry(), integrand, options);
+}
+
+DensityComponentsResult density_components_result(
     const SpectralMesh &mesh,
-    const adaptive::IntegrationResult<DensityMatrixRule::Value> &raw,
-    const DensityMatrixRule &rule,
+    const adaptive::IntegrationResult<DensityRule::Value> &raw,
+    std::int64_t simplex_visits
+) {
+    return DensityComponentsResult{
+        .values = raw.integral.values(),
+        .stopping_error = raw.stopping_error,
+        .stats = stats(
+            mesh,
+            raw.evaluations,
+            simplex_visits,
+            raw.refinements,
+            raw.converged
+        ),
+    };
+}
+
+DensityMatrixResult density_matrix_result(
+    const SpectralMesh &mesh,
+    const adaptive::IntegrationResult<DensityRule::Value> &raw,
+    const DensityRule &rule,
     std::int64_t simplex_visits
 ) {
     return DensityMatrixResult{
@@ -303,6 +332,32 @@ CurrentMeshChargeResult estimate_charge_on_current_mesh(
     return current_mesh_charge(mesh, mu);
 }
 
+DensityComponentsResult integrate_density_components(
+    SpectralMesh &mesh,
+    double mu,
+    std::vector<LatticeVector> lattice_vectors,
+    std::vector<DensityComponent> components,
+    const adaptive::Options &options
+) {
+    validate_mu(mu);
+    validate_options(options);
+    auto rule = DensityRule(
+        mesh.ndim(),
+        mesh.ndof(),
+        std::move(lattice_vectors),
+        std::move(components)
+    );
+    auto simplex_visits = std::int64_t{0};
+    const auto raw = integrate_density_rule(
+        mesh,
+        mu,
+        rule,
+        options,
+        simplex_visits
+    );
+    return density_components_result(mesh, raw, simplex_visits);
+}
+
 DensityMatrixResult integrate_density_matrix(
     SpectralMesh &mesh,
     double mu,
@@ -311,15 +366,20 @@ DensityMatrixResult integrate_density_matrix(
 ) {
     validate_mu(mu);
     validate_options(options);
-    auto rule = DensityMatrixRule(
+    auto rule = DensityRule(
         mesh.ndim(),
         mesh.ndof(),
         std::move(lattice_vectors)
     );
     auto simplex_visits = std::int64_t{0};
-    auto integrand = density_integrand(mesh, mu, rule, simplex_visits);
-    const auto raw = adaptive::run(mesh.geometry(), integrand, options);
-    return density_result(mesh, raw, rule, simplex_visits);
+    const auto raw = integrate_density_rule(
+        mesh,
+        mu,
+        rule,
+        options,
+        simplex_visits
+    );
+    return density_matrix_result(mesh, raw, rule, simplex_visits);
 }
 
 }  // namespace fermisimplex

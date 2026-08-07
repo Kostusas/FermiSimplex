@@ -111,6 +111,8 @@ struct Result {
     std::size_t ndof = 0;
     std::size_t hopping_terms = 0;
     std::size_t target_bands = 0;
+    std::size_t density_components = 0;
+    std::size_t density_unique_pairs = 0;
     std::uint32_t root_level = 0;
     std::size_t vertices = 0;
     std::size_t simplices = 0;
@@ -950,6 +952,127 @@ void benchmark_charge_total(
     results.push_back(std::move(result));
 }
 
+void benchmark_density_contractions(
+    std::size_t ndof,
+    const Config &config,
+    double lapack_ns,
+    std::vector<Result> &results
+) {
+    constexpr auto ndim = std::size_t{2};
+    constexpr auto root_level = std::uint32_t{2};
+    const auto lattice_vectors = std::vector<fermisimplex::LatticeVector>{
+        {0, 0}, {1, 0}, {0, 1}, {1, 1},
+    };
+    const auto unique_pairs = std::min<std::size_t>(16, ndof);
+    auto components = std::vector<fermisimplex::DensityComponent>{};
+    components.reserve(lattice_vectors.size() * unique_pairs);
+    for (std::size_t pair = 0; pair < unique_pairs; ++pair) {
+        for (std::size_t vector = 0; vector < lattice_vectors.size(); ++vector) {
+            components.push_back(fermisimplex::DensityComponent{
+                .lattice_vector_index = vector,
+                .row = pair,
+                .column = (3 * pair + 1) % ndof,
+            });
+        }
+    }
+    const auto options = adaptivesimplex::adaptive::Options{
+        .target_error = 0.0,
+        .max_refinements = 0,
+        .preview_depth = 0,
+        .min_refinement_batch_size = 1,
+        .max_refinement_batch_size = 100,
+    };
+    auto mesh = fermisimplex::SpectralMesh(
+        fixed_model(ndim, ndof), 1e-14, root_level
+    );
+    (void)fermisimplex::estimate_charge_on_current_mesh(mesh, 0.0);
+
+    auto full_visits = std::size_t{0};
+    const auto full_timing = measure(config.samples, 1, [&](std::size_t) {
+        const auto started = Clock::now();
+        const auto density = fermisimplex::integrate_density_matrix(
+            mesh,
+            0.0,
+            lattice_vectors,
+            options
+        );
+        const auto finished = Clock::now();
+        require_stable_count(
+            full_visits,
+            static_cast<std::size_t>(density.stats.simplex_visits),
+            "full-density simplex visits"
+        );
+        benchmark_sink = density.stopping_error +
+                         std::real(density.matrices.front());
+        return elapsed_ns(started, finished);
+    });
+    auto full = make_result(
+        "density_matrix_current_mesh",
+        "density",
+        "integration",
+        ndim,
+        ndof,
+        0,
+        root_level,
+        mesh.cached_vertices(),
+        static_cast<std::size_t>(mesh.active_simplices()),
+        1,
+        config.samples,
+        full_timing,
+        lapack_ns
+    );
+    full.simplex_visits = full_visits;
+    full.preview_depth = 0;
+    full.density_components = lattice_vectors.size() * ndof * ndof;
+    full.density_unique_pairs = ndof * ndof;
+    results.push_back(std::move(full));
+
+    auto component_visits = std::size_t{0};
+    const auto component_timing = measure(
+        config.samples,
+        1,
+        [&](std::size_t) {
+            const auto started = Clock::now();
+            const auto density = fermisimplex::integrate_density_components(
+                mesh,
+                0.0,
+                lattice_vectors,
+                components,
+                options
+            );
+            const auto finished = Clock::now();
+            require_stable_count(
+                component_visits,
+                static_cast<std::size_t>(density.stats.simplex_visits),
+                "selected-density simplex visits"
+            );
+            benchmark_sink = density.stopping_error +
+                             std::real(density.values.front());
+            return elapsed_ns(started, finished);
+        }
+    );
+    auto selected = make_result(
+        "density_components_current_mesh",
+        "density",
+        "integration",
+        ndim,
+        ndof,
+        0,
+        root_level,
+        mesh.cached_vertices(),
+        static_cast<std::size_t>(mesh.active_simplices()),
+        1,
+        config.samples,
+        component_timing,
+        lapack_ns
+    );
+    selected.simplex_visits = component_visits;
+    selected.preview_depth = 0;
+    selected.density_components = components.size();
+    selected.density_unique_pairs = unique_pairs;
+    results.push_back(std::move(selected));
+}
+
 void benchmark_charge_estimator_case(
     std::size_t ndof,
     std::size_t active,
@@ -1326,6 +1449,10 @@ void write_result(std::ostream &output, const Result &result, bool trailing_comm
         << "      \"ndof\": " << result.ndof << ",\n"
         << "      \"hopping_terms\": " << result.hopping_terms << ",\n"
         << "      \"target_bands\": " << result.target_bands << ",\n"
+        << "      \"density_components\": "
+        << result.density_components << ",\n"
+        << "      \"density_unique_pairs\": "
+        << result.density_unique_pairs << ",\n"
         << "      \"root_level\": " << result.root_level << ",\n"
         << "      \"vertices\": " << result.vertices << ",\n"
         << "      \"simplices\": " << result.simplices << ",\n"
@@ -1400,7 +1527,7 @@ std::string render_json(const Config &config, const std::vector<Result> &results
     output << std::setprecision(12);
     output
         << "{\n"
-        << "  \"schema_version\": 7,\n"
+        << "  \"schema_version\": 8,\n"
         << "  \"metadata\": {\n"
         << "    \"git_commit\": \""
         << json_escape(FERMISIMPLEX_BENCHMARK_GIT_COMMIT) << "\",\n"
@@ -1574,6 +1701,39 @@ std::string render_summary(const Config &config, const std::vector<Result> &resu
         }
     }
 
+    const auto has_density = std::any_of(
+        results.begin(),
+        results.end(),
+        [](const Result &result) { return result.category == "density"; }
+    );
+    if (has_density) {
+        output
+            << "\nDensity contraction diagnostics\n"
+            << std::left << std::setw(29) << "workload"
+            << std::right << std::setw(7) << "bands"
+            << std::setw(12) << "components"
+            << std::setw(12) << "pairs"
+            << std::setw(12) << "total ms"
+            << std::setw(13) << "ns/pair"
+            << '\n';
+        for (const auto &result : results) {
+            if (result.category != "density") {
+                continue;
+            }
+            output
+                << std::left << std::setw(29) << result.name
+                << std::right << std::setw(7) << result.ndof
+                << std::setw(12) << result.density_components
+                << std::setw(12) << result.density_unique_pairs
+                << std::setw(12)
+                << result.timing.median_ns_per_operation / 1e6
+                << std::setw(13)
+                << result.timing.median_ns_per_operation /
+                    static_cast<double>(result.density_unique_pairs)
+                << '\n';
+        }
+    }
+
 
     output
         << "\nPer-vertex pipeline scaling (LAPACK eigensystems)\n"
@@ -1688,7 +1848,8 @@ Config parse_arguments(int argc, char **argv) {
             }
             only = argv[index];
             if (only != "charge-estimator" &&
-                only != "charge-scaling") {
+                only != "charge-scaling" &&
+                only != "density") {
                 throw std::runtime_error("unknown --only value: " + only);
             }
         } else if (argument == "--samples") {
@@ -1703,7 +1864,7 @@ Config parse_arguments(int argc, char **argv) {
             std::cout
                 << "Usage: fermisimplex_performance_benchmark "
                    "[--preset quick|ci|full] "
-                   "[--only charge-estimator|charge-scaling] "
+                   "[--only charge-estimator|charge-scaling|density] "
                    "[--samples N] [--output PATH]\n";
             std::exit(0);
         } else {
@@ -1723,6 +1884,10 @@ Config parse_arguments(int argc, char **argv) {
         } else {
             config.matrix_sizes = {16, 64};
         }
+    } else if (config.only == "density") {
+        config.matrix_sizes = config.preset == "quick"
+            ? std::vector<std::size_t>{16, 32}
+            : std::vector<std::size_t>{16, 32, 64};
     }
     if (samples_override != 0) {
         config.samples = samples_override;
@@ -1756,6 +1921,13 @@ std::vector<Result> run_benchmarks(const Config &config) {
             ndof, config, reused_lapack_ns, results
         );
         lapack_baselines.emplace_back(ndof, lapack_ns);
+
+        if (config.only == "density") {
+            benchmark_density_contractions(
+                ndof, config, lapack_ns, results
+            );
+            continue;
+        }
 
         if (config.only == "charge-estimator") {
             benchmark_charge_estimator_case(
@@ -1801,6 +1973,9 @@ std::vector<Result> run_benchmarks(const Config &config) {
             );
         }
         benchmark_charge_total(ndof, config, lapack_ns, results);
+        benchmark_density_contractions(
+            ndof, config, lapack_ns, results
+        );
         benchmark_adaptive_charge_total(
             ndof, config, lapack_ns, results
         );
@@ -1813,7 +1988,8 @@ std::vector<Result> run_benchmarks(const Config &config) {
 
     if (
         config.only == "charge-estimator" ||
-        config.only == "charge-scaling"
+        config.only == "charge-scaling" ||
+        config.only == "density"
     ) {
         return results;
     }

@@ -10,6 +10,7 @@ from ._native import (
     ChargeErrorStats,
     ChargeResult,
     CurrentMeshChargeResult,
+    DensityComponentsResult,
     DensityMatrixResult,
     FermiSurfaceResult,
     FermiSurfaceStats,
@@ -81,6 +82,15 @@ def _lattice_vector_array(lattice_vectors, ndim: int) -> np.ndarray:
             f"lattice_vectors must have shape (n, {ndim}) with n > 0"
         )
     return result
+
+
+def _density_component_array(components) -> np.ndarray:
+    result = np.asarray(components)
+    if result.ndim != 2 or result.shape[0] == 0 or result.shape[1] != 3:
+        raise ValueError("components must have shape (n, 3) with n > 0")
+    if not np.issubdtype(result.dtype, np.integer):
+        raise TypeError("components must contain only integers")
+    return np.ascontiguousarray(result, dtype=np.int64)
 
 
 def _adaptive_parameters(
@@ -321,6 +331,42 @@ class SpectralMesh:
             *adaptive,
         )
 
+    def integrate_density_components(
+        self,
+        *,
+        mu: float,
+        lattice_vectors,
+        components,
+        target_error: float,
+        max_refinements: int | None = None,
+        preview_depth: int = 1,
+        min_refinement_batch_size: int = 1,
+        max_refinement_batch_size: int = 100,
+    ) -> DensityComponentsResult:
+        """Adaptively integrate selected real-space density components.
+
+        ``components`` has shape ``(count, 3)``. Each row contains
+        ``(lattice_vector_index, matrix_row, matrix_column)``. Returned values
+        follow the request order; repeated components are allowed.
+
+        The adaptive arguments have the same meaning as for
+        :meth:`integrate_density_matrix`. The stopping error covers only the
+        requested components.
+        """
+        adaptive = _adaptive_parameters(
+            target_error,
+            max_refinements,
+            _nonnegative_integer(preview_depth, "preview_depth"),
+            min_refinement_batch_size,
+            max_refinement_batch_size,
+        )
+        return self._native.integrate_density_components(
+            _finite_float(mu, "mu"),
+            _lattice_vector_array(lattice_vectors, self.ndim),
+            _density_component_array(components),
+            *adaptive,
+        )
+
     def fermi_surface(
         self,
         *,
@@ -368,6 +414,7 @@ __all__ = [
     "ChargeErrorStats",
     "ChargeResult",
     "CurrentMeshChargeResult",
+    "DensityComponentsResult",
     "DensityMatrixResult",
     "FermiSurfaceResult",
     "FermiSurfaceStats",

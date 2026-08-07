@@ -58,6 +58,20 @@ struct CurrentMeshChargeResult {
     double dcharge_dmu = 0.0;
 };
 
+struct DensityComponent {
+    std::size_t lattice_vector_index = 0;
+    std::size_t row = 0;
+    std::size_t column = 0;
+};
+
+struct DensityComponentsResult {
+    // Values follow the order of the requested components.
+    std::vector<std::complex<double>> values;
+    // Adaptive quadrature estimate over the requested components.
+    double stopping_error = 0.0;
+    IntegrationStats stats;
+};
+
 struct DensityMatrixResult {
     // Row-major [lattice_vector][row][column] storage.
     std::vector<std::complex<double>> matrices;
@@ -80,6 +94,15 @@ ChargeResult integrate_charge(
 CurrentMeshChargeResult estimate_charge_on_current_mesh(
     SpectralMesh &mesh,
     double mu
+);
+
+// Components index entries in lattice_vectors as (vector, row, column).
+DensityComponentsResult integrate_density_components(
+    SpectralMesh &mesh,
+    double mu,
+    std::vector<LatticeVector> lattice_vectors,
+    std::vector<DensityComponent> components,
+    const adaptivesimplex::adaptive::Options &options
 );
 
 // With preview_depth=0, integrates the current mesh without refinement.

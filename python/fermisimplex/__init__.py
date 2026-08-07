@@ -8,7 +8,10 @@ from .certification import (
     certify_simplex,
 )
 from .mesh import (
+    ChargeErrorStats,
     ChargeResult,
+    CurrentMeshChargeResult,
+    DensityComponentsResult,
     DensityMatrixResult,
     FermiSurfaceResult,
     FermiSurfaceStats,
@@ -18,7 +21,10 @@ from .mesh import (
 
 __all__ = [
     "CertificateStatus",
+    "ChargeErrorStats",
     "ChargeResult",
+    "CurrentMeshChargeResult",
+    "DensityComponentsResult",
     "DensityMatrixResult",
     "FermiSurfaceResult",
     "FermiSurfaceStats",

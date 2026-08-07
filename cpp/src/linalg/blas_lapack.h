@@ -71,4 +71,12 @@ void singular_value_decompose_in_place(
     const char *context
 );
 
+bool solve_linear_system_in_place(
+    std::vector<Complex> &matrix,
+    std::vector<Complex> &right_hand_sides,
+    size_t size,
+    size_t right_hand_side_count,
+    const char *context
+);
+
 }  // namespace fermisimplex::linalg

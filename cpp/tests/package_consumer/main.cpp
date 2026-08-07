@@ -30,8 +30,26 @@ int main() {
 
     const std::array<double, 1> point{0.25};
     const auto eigensystem = mesh.spectrum(point);
+    const auto charge = fermisimplex::estimate_charge_on_current_mesh(
+        mesh, 0.0
+    );
+    const auto density = fermisimplex::integrate_density_components(
+        mesh,
+        0.0,
+        {{0}},
+        {{.lattice_vector_index = 0, .row = 0, .column = 0}},
+        adaptivesimplex::adaptive::Options{
+            .target_error = 0.0,
+            .max_refinements = 0,
+            .preview_depth = 0,
+        }
+    );
     return eigensystem.eigenvalues.size() == 1 &&
-                   eigensystem.eigenvalues.front() == 2.0
+                   eigensystem.eigenvalues.front() == 2.0 &&
+                   charge.value == 0.0 &&
+                   charge.dcharge_dmu == 0.0 &&
+                   density.values.size() == 1 &&
+                   density.values.front() == 0.0
                ? 0
                : 1;
 }

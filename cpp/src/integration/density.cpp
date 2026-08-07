@@ -56,35 +56,140 @@ std::complex<double> density_element(
     return value;
 }
 
-}  // namespace
-
-DensityMatrixRule::DensityMatrixRule(
+std::vector<std::int64_t> flatten_lattice_vectors(
     std::size_t ndim,
-    std::size_t ndof,
-    std::vector<LatticeVector> lattice_vectors
-) : ndim_(ndim),
-    ndof_(ndof) {
-    if (ndim_ == 0 || ndof_ == 0) {
-        throw std::runtime_error("DensityMatrixRule: dimensions must be positive");
+    const std::vector<LatticeVector> &lattice_vectors
+) {
+    if (ndim == 0 || lattice_vectors.empty()) {
+        throw std::runtime_error("DensityRule: invalid lattice-vector shape");
     }
-    if (lattice_vectors.empty()) {
-        throw std::runtime_error("DensityMatrixRule: invalid lattice-vector shape");
-    }
-    lattice_vector_count_ = lattice_vectors.size();
-    lattice_vectors_.reserve(lattice_vector_count_ * ndim_);
+    auto result = std::vector<std::int64_t>{};
+    result.reserve(lattice_vectors.size() * ndim);
     for (const auto &lattice_vector : lattice_vectors) {
-        if (lattice_vector.size() != ndim_) {
-            throw std::runtime_error("DensityMatrixRule: invalid lattice-vector shape");
+        if (lattice_vector.size() != ndim) {
+            throw std::runtime_error("DensityRule: invalid lattice-vector shape");
         }
-        lattice_vectors_.insert(
-            lattice_vectors_.end(),
+        result.insert(
+            result.end(),
             lattice_vector.begin(),
             lattice_vector.end()
         );
     }
+    return result;
 }
 
-DensityMatrixRule::Value DensityMatrixRule::on_simplex(
+struct PendingContribution {
+    std::size_t pair_index = 0;
+    std::size_t output_index = 0;
+    std::size_t lattice_vector_index = 0;
+};
+
+}  // namespace
+
+DensityRule::DensityRule(
+    std::size_t ndim,
+    std::size_t ndof,
+    std::vector<LatticeVector> lattice_vectors
+) : ndim_(ndim),
+    ndof_(ndof),
+    lattice_vector_count_(lattice_vectors.size()),
+    output_size_(lattice_vector_count_ * ndof_ * ndof_),
+    lattice_vectors_(flatten_lattice_vectors(ndim_, lattice_vectors)) {
+    if (ndof_ == 0) {
+        throw std::runtime_error("DensityRule: dimensions must be positive");
+    }
+    pairs_.reserve(ndof_ * ndof_);
+    contributions_.reserve(output_size_);
+    for (std::size_t row = 0; row < ndof_; ++row) {
+        for (std::size_t column = 0; column < ndof_; ++column) {
+            const auto begin = contributions_.size();
+            for (std::size_t vector = 0;
+                 vector < lattice_vector_count_;
+                 ++vector) {
+                contributions_.push_back(Contribution{
+                    .output_index = (vector * ndof_ + row) * ndof_ + column,
+                    .lattice_vector_index = vector,
+                });
+            }
+            pairs_.push_back(ComponentPair{
+                .row = row,
+                .column = column,
+                .contribution_begin = begin,
+                .contribution_end = contributions_.size(),
+            });
+        }
+    }
+}
+
+DensityRule::DensityRule(
+    std::size_t ndim,
+    std::size_t ndof,
+    std::vector<LatticeVector> lattice_vectors,
+    std::vector<DensityComponent> components
+) : ndim_(ndim),
+    ndof_(ndof),
+    lattice_vector_count_(lattice_vectors.size()),
+    output_size_(components.size()),
+    lattice_vectors_(flatten_lattice_vectors(ndim_, lattice_vectors)) {
+    if (ndof_ == 0) {
+        throw std::runtime_error("DensityRule: dimensions must be positive");
+    }
+    if (components.empty()) {
+        throw std::runtime_error("DensityRule: components must be non-empty");
+    }
+
+    auto pending = std::vector<PendingContribution>{};
+    pending.reserve(components.size());
+    for (std::size_t output = 0; output < components.size(); ++output) {
+        const auto &component = components[output];
+        if (
+            component.lattice_vector_index >= lattice_vector_count_ ||
+            component.row >= ndof_ ||
+            component.column >= ndof_
+        ) {
+            throw std::runtime_error("DensityRule: component index out of range");
+        }
+        pending.push_back(PendingContribution{
+            .pair_index = component.row * ndof_ + component.column,
+            .output_index = output,
+            .lattice_vector_index = component.lattice_vector_index,
+        });
+    }
+    std::sort(
+        pending.begin(),
+        pending.end(),
+        [](const auto &left, const auto &right) {
+            return left.pair_index < right.pair_index;
+        }
+    );
+
+    contributions_.reserve(pending.size());
+    for (std::size_t begin = 0; begin < pending.size();) {
+        auto end = begin + 1;
+        while (
+            end < pending.size() &&
+            pending[end].pair_index == pending[begin].pair_index
+        ) {
+            ++end;
+        }
+        const auto contribution_begin = contributions_.size();
+        for (auto index = begin; index < end; ++index) {
+            contributions_.push_back(Contribution{
+                .output_index = pending[index].output_index,
+                .lattice_vector_index = pending[index].lattice_vector_index,
+            });
+        }
+        pairs_.push_back(ComponentPair{
+            .row = pending[begin].pair_index / ndof_,
+            .column = pending[begin].pair_index % ndof_,
+            .contribution_begin = contribution_begin,
+            .contribution_end = contributions_.size(),
+        });
+        begin = end;
+    }
+}
+
+DensityRule::Value DensityRule::on_simplex(
     double mu,
     const SpectralMesh &mesh,
     const core::Geometry &geometry,
@@ -116,7 +221,7 @@ DensityMatrixRule::Value DensityMatrixRule::on_simplex(
         }
     }
 
-    auto result = Value(lattice_vector_count_ * ndof_ * ndof_);
+    auto result = Value(output_size_);
     for (std::size_t local_vertex = 0; local_vertex < vertex_count; ++local_vertex) {
         const auto vertex_id = simplex.vertex_ids[local_vertex];
         const auto point = geometry.vertices().dyadic_vertex(vertex_id).to_point();
@@ -131,16 +236,24 @@ DensityMatrixRule::Value DensityMatrixRule::on_simplex(
         );
         const auto &spectra = cache.get(vertex_id);
 
-        for (std::size_t row = 0; row < ndof_; ++row) {
-            for (std::size_t column = 0; column < ndof_; ++column) {
-                const auto element =
-                    density_element(spectra, weights, row, column, ndof_);
-                for (std::size_t vector_index = 0;
-                     vector_index < lattice_vector_count_;
-                     ++vector_index) {
-                    result[(vector_index * ndof_ + row) * ndof_ + column] +=
-                        phases[vector_index] * element;
-                }
+        for (const auto &pair : pairs_) {
+            const auto element = density_element(
+                spectra,
+                weights,
+                pair.row,
+                pair.column,
+                ndof_
+            );
+            if (element == std::complex<double>{}) {
+                continue;
+            }
+            const auto *contribution =
+                contributions_.data() + pair.contribution_begin;
+            const auto *end =
+                contributions_.data() + pair.contribution_end;
+            for (; contribution != end; ++contribution) {
+                result[contribution->output_index] +=
+                    phases[contribution->lattice_vector_index] * element;
             }
         }
     }

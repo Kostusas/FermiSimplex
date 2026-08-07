@@ -15,7 +15,6 @@
 #include <optional>
 #include <span>
 #include <stdexcept>
-#include <string>
 #include <utility>
 #include <vector>
 
@@ -44,10 +43,6 @@ public:
     std::vector<std::complex<double>> evaluate(
         std::span<const double> reduced_point
     ) const override {
-        if (reduced_point.size() != ndim_) {
-            throw std::runtime_error("Hamiltonian point dimension mismatch");
-        }
-
         nb::gil_scoped_acquire gil;
         if (!callable_) {
             throw std::runtime_error("Hamiltonian callable is no longer available");
@@ -72,13 +67,6 @@ public:
             throw nb::python_error();
         }
         const auto matrix = nb::cast<CallbackMatrixArray>(returned);
-        if (matrix.shape(0) != ndof_ || matrix.shape(1) != ndof_) {
-            throw nb::value_error(
-                ("Hamiltonian must return a matrix with shape (" +
-                 std::to_string(ndof_) + ", " + std::to_string(ndof_) + ")").c_str()
-            );
-        }
-
         std::vector<std::complex<double>> result(ndof_ * ndof_);
         for (std::size_t row = 0; row < ndof_; ++row) {
             for (std::size_t column = 0; column < ndof_; ++column) {
@@ -153,6 +141,28 @@ std::shared_ptr<const HamiltonianModel> tight_binding_hamiltonian(
     return std::make_shared<TightBindingModel>(
         copy_hoppings(lattice_vectors, matrices)
     );
+}
+
+std::vector<DensityComponent> copy_density_components(
+    LatticeVectorArray components
+) {
+    if (components.shape(0) == 0 || components.shape(1) != 3) {
+        throw nb::value_error("components must have shape (n, 3) with n > 0");
+    }
+    auto result = std::vector<DensityComponent>{};
+    result.reserve(components.shape(0));
+    for (std::size_t index = 0; index < components.shape(0); ++index) {
+        const auto *component = components.data() + 3 * index;
+        if (component[0] < 0 || component[1] < 0 || component[2] < 0) {
+            throw nb::value_error("component indices must be non-negative");
+        }
+        result.push_back(DensityComponent{
+            .lattice_vector_index = static_cast<std::size_t>(component[0]),
+            .row = static_cast<std::size_t>(component[1]),
+            .column = static_cast<std::size_t>(component[2]),
+        });
+    }
+    return result;
 }
 
 adaptive::Options adaptive_options(
@@ -288,51 +298,74 @@ void bind_spectral_mesh(nb::module_ &module) {
                double mu,
                double target_error,
                std::int64_t max_refinements,
-               std::uint32_t preview_depth,
+               std::uint32_t error_depth,
                std::size_t min_refinement_batch_size,
-               std::size_t max_refinement_batch_size,
-               double curvature_bound) {
+               std::size_t max_refinement_batch_size) {
                 return fermisimplex::integrate_charge(
                     mesh,
                     mu,
                     adaptive_options(
                         target_error,
                         max_refinements,
-                        preview_depth,
+                        0,
                         min_refinement_batch_size,
                         max_refinement_batch_size
                     ),
-                    curvature_bound
+                    error_depth
                 );
             },
             "mu"_a,
             "target_error"_a,
             "max_refinements"_a,
-            "preview_depth"_a,
+            "error_depth"_a,
             "min_refinement_batch_size"_a,
             "max_refinement_batch_size"_a,
-            "curvature_bound"_a,
             nb::call_guard<nb::gil_scoped_release>()
         )
         .def(
             "estimate_charge_on_current_mesh",
-            [](SpectralMesh &mesh,
-               double mu,
-               double target_error,
-               std::uint32_t preview_depth,
-               double curvature_bound) {
+            [](SpectralMesh &mesh, double mu) {
                 return fermisimplex::estimate_charge_on_current_mesh(
                     mesh,
-                    mu,
-                    target_error,
-                    preview_depth,
-                    curvature_bound
+                    mu
                 );
             },
             "mu"_a,
+            nb::call_guard<nb::gil_scoped_release>()
+        )
+        .def(
+            "integrate_density_components",
+            [](SpectralMesh &mesh,
+               double mu,
+               LatticeVectorArray lattice_vectors,
+               LatticeVectorArray components,
+               double target_error,
+               std::int64_t max_refinements,
+               std::uint32_t preview_depth,
+               std::size_t min_refinement_batch_size,
+               std::size_t max_refinement_batch_size) {
+                return fermisimplex::integrate_density_components(
+                    mesh,
+                    mu,
+                    copy_lattice_vectors(lattice_vectors),
+                    copy_density_components(components),
+                    adaptive_options(
+                        target_error,
+                        max_refinements,
+                        preview_depth,
+                        min_refinement_batch_size,
+                        max_refinement_batch_size
+                    )
+                );
+            },
+            "mu"_a,
+            "lattice_vectors"_a,
+            "components"_a,
             "target_error"_a,
-            "preview_depth"_a = 0,
-            "curvature_bound"_a = 0.0,
+            "max_refinements"_a,
+            "preview_depth"_a,
+            "min_refinement_batch_size"_a,
+            "max_refinement_batch_size"_a,
             nb::call_guard<nb::gil_scoped_release>()
         )
         .def(

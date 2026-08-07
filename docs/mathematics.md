@@ -128,9 +128,9 @@ $$
 }
 $$
 
-The direct `certify_simplex` interface accepts $\epsilon_T$ itself. The mesh
-API currently obtains it from `curvature_bound`; that conversion is derived
-later.
+The direct `certify_simplex` interface accepts $\epsilon_T$ itself. The
+`fermi_surface` mesh API obtains it from `curvature_bound`; that conversion is
+derived later.
 
 For any fixed frame $F$,
 
@@ -476,8 +476,8 @@ $$
 \lVert H(k)-H_{\mathrm{lin}}(k)\rVert_2\leq\epsilon_T.
 $$
 
-`curvature_bound` is the current mesh API's way to construct this quantity; it
-is not a bound on an individual band's curvature.
+`curvature_bound` is how the `fermi_surface` mesh API constructs this
+quantity; it is not a bound on the curvature of an individual band.
 
 Assume that $H$ is twice differentiable and that
 
@@ -553,16 +553,16 @@ Choosing the right-hand side as $M$ is therefore sufficient.
 The Frobenius norm may replace $\lVert H_R\rVert_2$ for an easier but more
 conservative estimate.
 
-The user currently supplies this bound. Omitting `curvature_bound`, passing
+The Fermi-surface caller supplies this bound. Omitting `curvature_bound`, passing
 `None`, or passing `0.0` all assert $M=0$, meaning that the Hamiltonian itself
 is affine on every tested simplex. None of these values disables
 certification.
 
 An affine matrix Hamiltonian can still have curved eigenvalues because its
 eigenspaces may rotate and its levels may avoid one another. Hence $M=0$ can
-make the occupation certificate exact while the charge interpolation still
-needs refinement. This is why matrix certification and band-interpolation
-error estimation are separate algorithms.
+make the curvature-backed occupation certificate exact while the
+linear-tetrahedron charge still needs refinement. This is why matrix
+certification and band-interpolation error estimation are separate algorithms.
 
 ## Reusing bounds at nearby chemical potentials
 
@@ -662,213 +662,294 @@ $$
 The implementation uses the equivalent divided-difference expression and
 confluent divided differences for repeated numerical knots.
 
-### A rigorous charge uncertainty
+## Recursive active-space charge-error estimator
 
-If the matrix certificate proves
+The reported charge remains the current-mesh linear-tetrahedron value
+$\widetilde Q_T$. A separate recursive calculation estimates how far that value
+may move. It uses certification to identify a small active space, not as a
+continuous charge certificate.
+
+### Root active-space gate
+
+Let the root vertex certificate (used here with zero residual) return
+occupation bounds $[L_T,U_T]$ and
 
 $$
-L\leq\nu(k;\mu)\leq U
-\qquad(k\in T),
+q=U_T-L_T
 $$
 
-then the ordered vertex-linear occupation also remains between $L$ and $U$.
-Both the exact and interpolated simplex charges therefore lie within an
-interval of width $(U-L)|T|$, giving
+uncertain states out of $N$. If
+
+$$
+q>2
+\qquad\text{and}\qquad
+2q\geq N,
+$$
+
+the reduction is not worth its cost. The estimator returns the tighter
+sampled occupation interval
+
+$$
+Q_T^- = L_T|T|,
+\qquad
+Q_T^+ = U_T|T|.
+$$
+
+The corresponding local estimate is
+
+$$
+\eta_T=\max\left(
+|\widetilde Q_T-Q_T^-|,
+|Q_T^+-\widetilde Q_T|
+\right).
+$$
+
+The $q\leq2$ exemption is important: a scalar or two-band model always enters
+the recursive estimator even though its active space is at least half of the
+full matrix. The gate is applied only to the original simplex, never to its
+descendants.
+
+### Frozen Schur reduction with one correction
+
+At a recursive node, let $K(k)$ denote the current full or already reduced
+Hamiltonian relative to the chemical potential. Certification of its vertex
+eigensystems selects active and safe directions. The vertex whose safe spectrum
+is farthest from zero supplies fixed orthonormal bases $U_?$ and $U_s$. Because
+these are eigenvectors at the anchor $k_0$,
+
+$$
+D_0=U_s^\dagger K(k_0)U_s=\operatorname{diag}(d_s),
+\qquad
+U_s^\dagger K(k_0)U_?=0.
+$$
+
+At a sampled point define
+
+$$
+A=U_?^\dagger K U_?,
+\qquad
+B=U_s^\dagger K U_?,
+\qquad
+D=U_s^\dagger K U_s.
+$$
+
+A frozen Schur approximation would use $X_0=D_0^{-1}B$ and
+$S_0=A-B^\dagger X_0$. The estimator takes one inexpensive correction,
+
+$$
+X_1=X_0+D_0^{-1}(B-DX_0),
+\qquad
+S_1=A-B^\dagger X_1.
+$$
+
+Define the anchor safe-space resolvent
+
+$$
+R=U_sD_0^{-1}U_s^\dagger.
+$$
+
+With
+
+$$
+X=KU_?,
+\qquad
+Y=RX,
+\qquad
+F=X^\dagger Y,
+$$
+
+the implementation evaluates the equivalent expression
 
 $$
 \boxed{
-\left|Q_T-\widetilde Q_T\right|
-\leq
-(U-L)|T|.
+S_1=U_?^\dagger X-2F+Y^\dagger K Y.
 }
 $$
 
-Summing over the partition gives
+The layer forms $R$ once, then discards $U_s$ and $D_0^{-1}$. Every sampled
+matrix uses two reused $m\times q$ work buffers: after forming $Y$, the $X$
+buffer is overwritten by $KY$. Only the resulting $q\times q$ matrices are
+cached. Thus the estimator never forms or factors the large pointwise safe
+block $D(k)$. Forming the dense resolvent costs one setup product per layer,
+but makes repeated applications efficient when $q\ll m$.
+
+If $B=O(h)$ and $D-D_0=O(h)$, plain freezing leaves a typical $O(h^3)$ Schur
+error, while one correction leaves the next $O(h^4)$ term. This statement
+assumes that the anchor safe gap stays separated and that the Neumann expansion
+is useful. The corrected surrogate is not an exact Schur complement and does
+not preserve inertia exactly. It can become inaccurate when safe-block
+variation is comparable with the anchor gap or when a safe eigenvalue crosses
+zero. The deliberately simple implementation adds no variation guard; exact
+finite-stencil aliasing is a separate limitation discussed below.
+
+Every block still uses the actual current matrix at that sampled point. At the
+root this is the actual $H(k)-\mu I$; no affine Hamiltonian reconstruction is
+used. Deeper recursion re-anchors the current small effective matrix, freezes
+its newly safe spectrum, and applies the same one-correction construction.
+
+### Logical microsimplex recursion
+
+Each unresolved node is completely subdivided before certification repeats on
+its children. One logical subdivision consists of $d$ longest-edge bisections,
+so it creates $2^d$ child simplices. Consequently, `error_depth=1` allows
+at most one complete subdivision along an unresolved branch, not one binary
+bisection. The public charge API defaults to `error_depth=2`. A certified node
+stops before subdividing.
+
+On every child, the algorithm certifies the current small matrices, freezes any
+new safe directions, and creates another corrected frozen-Schur layer when
+possible.
+This can reduce the active dimension repeatedly. A node terminates when its
+occupation is fixed or when `error_depth` is reached. All new microvertices
+evaluate the actual model Hamiltonian; temporary samples do not refine the
+persistent mesh.
+
+### Terminal midpoint envelope
+
+Let $K_S$ be the terminal full or reduced matrix on a $d$-simplex $S$. For every
+edge $(i,j)$ with midpoint $m_{ij}$, calculate the matrix disagreement
+
+$$
+\delta^{M}_{ij}
+=
+\left\|
+K_S(m_{ij})-\frac{K_S(k_i)+K_S(k_j)}{2}
+\right\|_2.
+$$
+
+For an unresolved leaf, also compare its ordered eigenvalues. A leaf fixed at
+zero radius first uses the cheaper Frobenius upper bound for $\delta^M$ and
+repeats certification with the provisional $\beta_S$. If that radius reopens
+any bands, the estimator evaluates the ordered midpoint eigenvalues, recomputes
+$\delta^M$ in operator norm, and certifies again. Otherwise it takes
+$\delta^E_{ij}=0$.
+
+$$
+\delta^{E}_{ij}
+=
+\max_n\left|
+\lambda_n(K_S(m_{ij}))
+-\frac{\lambda_n(K_S(k_i))+\lambda_n(K_S(k_j))}{2}
+\right|.
+$$
+
+The second term detects eigenvalue curvature from internal band mixing even when
+the matrix itself is affine. Set
+
+$$
+\delta_S
+=
+\max_{(i,j)}\max(\delta^M_{ij},\delta^E_{ij}),
+\qquad
+\boxed{
+\beta_S=\frac{2d}{d+1}\,\delta_S.
+}
+$$
+
+The prefactor converts the sampled edge defect into the dimension-generic
+simplex interpolation scale. Because the edge midpoints are only samples,
+$\beta_S$ is an estimator rather than a supremum bound.
+
+### Shifted occupation volumes
+
+The terminal certificate is needed at both shifted levels $-\beta_S$ and
+$+\beta_S$. If the existing certificate's chemical-potential interval contains
+both levels and the effective model has not been re-anchored, its occupation
+bounds are reused. Otherwise certification is repeated with radius $\beta_S$.
+This restriction prevents a parent certificate from being applied to a changed
+Schur surrogate.
+
+Let the resulting reduced occupation bounds be $[L_S,U_S]$, let $n_0$ be the
+number of previously frozen occupied states, and let $e_{n,i}$ be terminal
+vertex energies relative to $\mu$. Define the affine cut volume
+
+$$
+\Phi_S(a;e_{n,0},\ldots,e_{n,d})
+=
+\operatorname{vol}\left\{
+ k\in S:
+ \sum_i\lambda_i(k)e_{n,i}\leq a
+\right\}.
+$$
+
+The leaf interval is
+
+$$
+Q_S^-
+=
+(n_0+L_S)|S|
++
+\sum_{n=L_S}^{U_S-1}\Phi_S(-\beta_S;e_{n,0},\ldots,e_{n,d}),
+$$
+
+$$
+Q_S^+
+=
+(n_0+L_S)|S|
++
+\sum_{n=L_S}^{U_S-1}\Phi_S(+\beta_S;e_{n,0},\ldots,e_{n,d}).
+$$
+
+The signs follow because the effective energies are measured relative to
+$\mu$: lowering the cut level gives the lower occupied volume. A leaf whose
+$\beta_S$ certificate remains fixed has $L_S=U_S$ and contributes its integer
+occupation exactly within the sampled model. A candidate layer with a zero or
+non-finite anchor safe eigenvalue is discarded, leaving the current small
+matrix. A non-finite corrected sample uses the last
+valid sampled occupation range.
+
+Sum the leaf endpoints to obtain $Q_T^-$ and $Q_T^+$. The root estimate remains
 
 $$
 \boxed{
-B_{\mathrm{cert}}
-=
-\sum_{T\in\mathcal P}(U_T-L_T)|T|.
+\eta_T=\max\left(
+|\widetilde Q_T-Q_T^-|,
+|Q_T^+-\widetilde Q_T|
+\right).
 }
 $$
 
-This is reported as `certified_error_bound`. It is rigorous when the supplied
-residual bounds are valid, but it is intentionally coarse: it uses only the
-number of uncertain bands and the simplex volume. It is not the adaptive
-stopping criterion.
-
-## The sampled projected charge-error estimator
-
-Efficient charge refinement needs a more informative estimate of how the
-ordered eigenvalues depart from their vertex-linear interpolation. The
-certificate has already identified the only potentially relevant band
-interval
-
-$$
-J=[L,U),
-\qquad
-m=U-L.
-$$
-
-No guard bands are added.
-
-At vertex $i$, collect the selected eigenvectors in
-
-$$
-V_i\in\mathbb C^{N\times m}
-$$
-
-and write the corresponding ordered eigenvalues as
-
-$$
-\varepsilon_{i,r}
-=
-\varepsilon_{i,L+r},
-\qquad r=0,\ldots,m-1.
-$$
-
-### Probe values
-
-For dimensions $d\geq2$, the simplex barycenter is evaluated by a full
-Hermitian eigenvalues-only solve. If its ordered spectrum is
-
-$$
-\eta_{c,0}\leq\cdots\leq\eta_{c,N-1},
-$$
-
-the selected values are
-
-$$
-\theta_{c,r}=\eta_{c,L+r}.
-$$
-
-At the midpoint of edge $(i,j)$, the endpoint frames are aligned through the
-principal-angle SVD
-
-$$
-V_i^\dagger V_j=A\Sigma C^\dagger.
-$$
-
-The orthonormal midpoint frame is
-
-$$
-Q_{ij}
-=
-(V_iA+V_jC)(2I+2\Sigma)^{-1/2}.
-$$
-
-This construction depends on the endpoint subspaces rather than arbitrary
-phases or unitary gauge choices within their frames. The edge Hamiltonian is
-projected,
-
-$$
-H_{ij}^{\mathrm{proj}}
-=
-Q_{ij}^\dagger H(k_{ij})Q_{ij},
-$$
-
-and only the $m$ eigenvalues of this projected matrix are computed.
-
-In one dimension the simplex center is the only edge midpoint, so there is one
-edge-style probe. If $m=N$, the projected space is the full Hilbert space and
-the implementation directly performs the equivalent full eigenvalues-only
-solve.
-
-For a $d$-simplex with $d\geq2$, this gives one barycenter and
-$\binom{d+1}{2}$ edge midpoints. The common probe counts are:
-
-| Dimension | Distinct probes |
-|---:|---|
-| 1D | one edge midpoint |
-| 2D | barycenter and three edge midpoints |
-| 3D | barycenter and six edge midpoints |
-
-Edge midpoints are natural samples because the scalar error of linear
-interpolation of a quadratic along an edge is proportional to $t(1-t)$ and
-has its largest magnitude at $t=1/2$. Together with the vertices, edge
-midpoints are also the nodes of standard quadratic simplex interpolation. The
-barycenter adds one symmetric interior test; no quadratic reconstruction is
-performed.
-
-### Directional spectral deviations
-
-At probe $p$, compare the sampled ordered value with vertex-linear
-interpolation:
-
-$$
-\ell_{p,r}
-=
-\sum_i\lambda_i(k_p)\varepsilon_{i,r},
-\qquad
-\delta_{p,r}
-=
-\theta_{p,r}-\ell_{p,r}.
-$$
-
-The largest sampled upward and downward deviations are
-
-$$
-\rho_+
-=
-\max_{p,r}[\delta_{p,r}]_+,
-\qquad
-\rho_-
-=
-\max_{p,r}[-\delta_{p,r}]_+.
-$$
-
-A positive deviation raises the sampled energy relative to interpolation and
-can reduce occupation. A negative deviation can increase it. FermiSimplex
-therefore converts the two numbers into an occupation-volume shell:
-
-$$
-E_{\mathrm{proj},T}
-=
-\sum_{n=L}^{U-1}
-\left[
-V_{n,T}(\mu+\rho_-)
--
-V_{n,T}(\mu-\rho_+)
-\right]_+,
-$$
-
-where $V_{n,T}(a)$ is the cut volume of interpolated band $n$ below level
-$a$.
-
-Shared edge estimates are cached across neighboring simplices.
-
-This estimator is **not** a continuous certificate. It can miss unsampled
-interior extrema, and a projected edge space can miss components outside that
-space. The exact barycenter removes projection error at the interior probe but
-does not change the sampled nature of the result.
-
-### Adaptive stopping
-
-Production charge calculations use `preview_depth=0`. The returned charge is
-then the current-mesh piecewise-linear charge, and the local stopping estimate
-is
-
-$$
-E_T=E_{\mathrm{proj},T}.
-$$
-
-The global stopping estimate is
+The global stopping estimate and refinement priority use
 
 $$
 \boxed{
-E_{\mathrm{stop}}=\sum_T E_T.
+E_{\mathrm{stop}}=\sum_T\eta_T.
 }
 $$
 
-The same local values prioritize refinement. A positive preview depth remains
-available for diagnostics: the returned value is computed on preview leaves,
-and the stopping estimate combines their projected errors with the absolute
-preview correction.
+`charge.value` remains the current-mesh linear-tetrahedron charge.
+`stats.target_reached` means only that this sampled sum met `target_error`.
+The separate `estimate_charge_on_current_mesh` operation evaluates the same
+linear-simplex charge and derivative without running this estimator; its result
+therefore contains no `stopping_error`.
 
-`stats.target_reached` means that this sampled stopping estimate met
-`target_error`. It does not mean that the rigorous
-`certified_error_bound` met the same target.
+### Expected scaling and limitations
+
+For a smooth regular Fermi crossing, midpoint defects are normally $O(h^2)$.
+The shifted shell is then $O(h^{d+1})$ on each cut $d$-simplex, giving roughly
+$O(h^2)$ global decay. The full unresolved-volume fallback is instead $O(h^d)$
+locally and usually only $O(h)$ globally.
+
+Actual-Hamiltonian microvertex evaluations catch non-affinity and higher Fourier
+modes whenever those modes are visible at the samples. They cannot prevent
+exact finite-stencil aliasing. For example, on a unit root interval,
+
+$$
+E(k)=\frac12+\sin(4\pi k)
+$$
+
+is positive at both vertices and the edge midpoint but crosses zero between
+them. That root appears fixed and terminates, so increasing `error_depth` adds
+no samples there. Greater depth improves resistance only along branches that
+remain unresolved; a continuous guarantee requires an independent variation
+bound.
+
+`charge.error_stats` exposes the work and failure modes: root, micro-, and
+terminal-simplex counts; actual Hamiltonian evaluations; full, reduced, and
+norm eigensystems; corrected Schur evaluations and Schur reductions; the
+`conservative_fallbacks` and `schur_failures` counters; and initial,
+terminal, and minimum active dimensions. A `minimum_active_dimension` value of
+zero means that no Schur reduction was recorded.
 
 ## Density matrices
 
@@ -877,6 +958,14 @@ Their `stopping_error` is an adaptive quadrature estimate. The occupation
 certificate alone does not bound the variation of the spectral projector; a
 rigorous density-matrix certificate would require additional gap-dependent
 control. Density matrices are therefore not currently certified.
+`integrate_density_components` applies the same rule only to requested entries
+$(r,i,j)$. Requests with the same $(i,j)$ share the projector contraction and
+differ only by the lattice phase for $r$. The stopping estimate then covers
+only those requested entries. Full density matrices are the special case that
+requests every $(r,i,j)$.
+With `preview_depth=0`, no parent-child correction is sampled: the current mesh
+is integrated directly, `stopping_error` is zero by construction, and no
+refinement occurs.
 
 ## What the reported quantities mean
 
@@ -886,10 +975,16 @@ control. Density matrices are therefore not currently certified.
 | `CertifiedGapped` | The occupation is constant and no Fermi-level state exists in the simplex | Yes, if $\epsilon_T$ is valid |
 | `VisibleGapless` | Vertex data show a contact or force an occupation change | Yes, assuming a continuous Hamiltonian |
 | `Inconclusive` | The sufficient proof did not decide | No gap or crossing conclusion |
-| `certified_error_bound` | Global charge bound from occupation widths | Yes, if every $\epsilon_T$ is valid |
-| `stopping_error` for charge | Center-and-edge sampled interpolation estimate | No |
+| charge `stopping_error` | Sum of recursive Schur shifted-volume estimates | No |
+| current-mesh charge `value` | Direct linear-simplex integral with no accompanying error estimate | No |
+| `charge.error_stats` | Estimator work, active-space, and fallback counters | Diagnostic only |
 | `coverage_certified` | The run completed with no terminal inconclusive or unrepresentable contact | Conditional on valid $\epsilon_T$; not a topology guarantee |
 | density-matrix `stopping_error` | Adaptive quadrature estimate | No |
+
+The certificate rows apply to the direct interface and Fermi-surface path when a
+valid residual bound is supplied. Charge reuses the same statuses to organize
+its sampled active space; it does not turn them into a continuous charge
+certificate.
 
 The rigorous statements also assume finite ascending vertex eigenvalues and
 finite column-orthonormal eigenvectors. The direct certification interface

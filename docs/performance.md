@@ -1,12 +1,12 @@
 # Performance measurement
 
-FermiSimplex measures computational cost relative to the same complex
-Hermitian LAPACK eigensolve used by the library. The benchmark suite is C++
-only; Python startup, callbacks, and bindings are deliberately excluded.
+FermiSimplex measures C++ cost relative to the same complex Hermitian LAPACK
+eigensolve used by the library. Python startup, callbacks, and bindings are
+deliberately excluded.
 
 ## Build and run
 
-Use an optimized build and one BLAS/LAPACK thread:
+Use a Release build and one BLAS/LAPACK thread:
 
 ```sh
 cmake -S . -B build/cpp-benchmarks -G Ninja \
@@ -19,145 +19,149 @@ cmake --build build/cpp-benchmarks \
 ```
 
 The custom target writes
-`build/cpp-benchmarks/benchmarks/fermisimplex-performance.json`. The
-equivalent Pixi command is:
+`build/cpp-benchmarks/benchmarks/fermisimplex-performance.json`.
+The equivalent command is:
 
 ```sh
 pixi run benchmark-cpp
 ```
 
-The executable also supports direct use:
+The executable can also be run directly:
 
 ```sh
 build/cpp-benchmarks/cpp/fermisimplex_performance_benchmark \
-  --preset quick \
-  --output result.json
+  --preset quick --output result.json
 ```
 
-Use the focused larger-matrix charge benchmark when only end-to-end charge
-scaling and its phase breakdown are needed:
+Available presets are `quick`, `ci`, and `full`. Use `quick` as a smoke
+test, `ci` for repeatable version tracking, and `full` for larger matrices
+and hopping sets. Every preset performs an untimed LAPACK warm-up.
+
+The larger-matrix charge scaling mode remains available:
 
 ```sh
 build/cpp-benchmarks/cpp/fermisimplex_performance_benchmark \
   --preset ci --only charge-scaling --output charge-scaling.json
 ```
 
-Available presets are `quick`, `ci`, and `full`. Use `quick` only as a smoke
-test. The `ci` preset has stable cases and sample counts intended for version
-tracking. `full` adds larger matrices and more tight-binding terms.
+## Charge-estimator benchmark
 
-Each preset performs an untimed LAPACK warm-up before collecting samples. This
-reduces process-start, dynamic-library, and CPU-frequency effects without
-mixing warm-up work into reported timings.
+Use the focused mode when changing recursive charge-error estimation:
 
-## Measurements
+```sh
+build/cpp-benchmarks/cpp/fermisimplex_performance_benchmark \
+  --preset quick --only charge-estimator \
+  --output charge-estimator.json
+```
 
-The headline metric is total LAPACK-equivalents per newly evaluated vertex:
-`total operation time / (new vertices * LAPACK time)`.
+This mode uses a deterministic 2D diagonal model containing an active cluster
+of requested width `q` embedded between separated occupied and empty spectator
+bands. The mesh is fixed at root level 2. For each matrix size it measures:
 
-This includes vertex evaluation, diagonalization, caching, every simplex-rule
-or classification call, refinement bookkeeping, and result construction. It
-excludes `SpectralMesh` construction. The target is therefore stated directly:
-`total_lapack_equivalents_per_vertex <= 2`.
+- `q = 1` at error depths 0 and 1;
+- a small multiband cluster, up to `q = 4`, at depth 1;
+- `q = N/2` at depth 1, which exercises the root large-active-space gate
+  wherever certification retains that many uncertain states;
+- for the largest non-quick matrix, the small cluster at depth 2.
 
-The secondary metric divides the same total time by actual simplex visits.
-Production charge cases use preview depth zero, so each estimate visits an
-active simplex once. Explicit diagnostic cases with positive preview depth
-also count preview contributions. For Fermi surfaces, visits count every
-classified frontier simplex. Neither metric uses the final active-simplex
-count as a proxy for work.
+The constructed cluster width is stored as `target_bands`. Certification may
+reduce the actual uncertain space on individual simplices, so
+`charge_initial_active_dimension_sum / charge_root_simplices` is the observed
+mean root width. `charge_conservative_fallbacks` records how often the root
+gate or a failed Schur layer selected the sampled occupation-range fallback.
 
-The terminal summary puts the primary metric first, reports the measured
-LAPACK time beside it, and marks whether each case meets the two-solve target.
-It also prints per-vertex pipeline and per-simplex phase scaling across every
-matrix size in the selected preset. Visit counts and refinement diagnostics
-are shown separately for the largest simplex matrix size.
+The terminal table reports total milliseconds and full-eigensolve equivalents
+per root simplex. One equivalent is the faster measured full `zheevd` path for
+the same matrix size. It also reports actual Hamiltonian evaluations, reduced
+eigensystems, corrected Schur evaluations, micro-simplices, and fallbacks.
+Depth changes
+the fixed microsimplex tree; it is not AdaptiveSimplex mesh refinement.
 
-The end-to-end workloads are:
+Each Schur layer stores a dense anchor resolvent and reuses two thin work
+buffers. At a terminal node, an unchanged certificate is reused when its
+chemical-potential interval contains the complete shifted-volume radius. These
+are algebraic and control-flow optimizations; they do not change the sampled
+charge interval.
 
-- `charge_current_mesh_total`: one complete previewless charge estimate on a
-  fixed level-2 mesh of the nonlinear crossing model. Every active simplex is
-  certificate-selected for projected-error estimation, so this includes the
-  exact center solve, edge projections, and occupation-shell conversion;
-- `charge_adaptive_total`: converged previewless integration of the same
-  crossing model from level 1 to the requested sampled stopping error;
-- `fermi_surface_total`: adaptive 2D Fermi-surface refinement of a crossing
-  dense model down to the requested feature size.
+Machine-readable charge fields include:
 
-Supporting diagnostic measurements report:
+- `error_depth` and `stopping_error`;
+- `charge_root_simplices`, `charge_micro_simplices`, and
+  `charge_terminal_simplices`;
+- `charge_hamiltonian_evaluations`;
+- full, reduced, and norm eigensystem counts;
+- corrected Schur-evaluation and Schur-reduction counts;
+- `charge_conservative_fallbacks` and Schur-failure counts;
+- initial and terminal active-dimension sums and the minimum reduced dimension.
 
-- `lapack_reused_workspace`: `zheevd` with one workspace query and reused work
-  arrays. Input matrices are prepared outside the timer, so this measures the
-  LAPACK call itself;
-- `lapack_current_wrapper`: the current FermiSimplex wrapper, including its
-  per-call workspace query and allocations;
-- `lapack_reference_best`: the faster of those two measured LAPACK paths for
-  the current matrix size and LAPACK provider;
-- cumulative vertex-pipeline stages: model evaluation, evaluated-and-validated
-  Hamiltonian, complete eigensystem, and eigensystem-cache insertion. Subtract
-  adjacent stages when an isolated incremental cost is needed;
-- direct per-simplex timings for certification, the eigenvalues-only exact
-  center, complete sampled projected error, occupation-shell conversion,
-  ordinary band integration, and complete charge integration, using the same
-  nonlinear crossing model and curvature as the overall charge workload;
-- a profiled adaptive charge run that records vertex eigensystems,
-  certificates, sampled projected error, occupation-shell conversion, band
-  integration, and adaptive-framework time over the actual varying-width
-  simplex visits. The terminal table also reports the maximum certificate-
-  selected width encountered;
-- Fermi classification per simplex;
-- controlled root-mesh evaluation and classification with deterministic
-  vertex and simplex counts;
-- the complete 3D projected-error estimator for a 60-band Hamiltonian and
-  selected widths $m=1,2,4,6,8,10,12,16,32,60$, including the eigenvalues-only
-  exact center and all six principal-angle projected edge-midpoint probes.
-  `--only projected-edges` runs just this focused diagnostic.
+`lapack_equivalents_per_operation` is the full timed mesh pass divided by one
+full eigensolve. Divide it by `charge_root_simplices` to recover the value shown
+as `eig/root` in the terminal summary.
 
-Within one charge integration, projected edge estimates are memoized by the
-two endpoint vertex IDs and the selected band interval. Neighboring simplices
-therefore reuse a shared edge calculation. When the selected interval is the
-full $N$-band space, the edge projection is unitarily equivalent to the full
-Hamiltonian, so the implementation skips frame construction and directly
-performs an eigenvalues-only $N\times N$ solve. Both paths are mathematically
-identical to the estimator described in [Mathematics](mathematics.md).
+## Accuracy and failure benchmark
 
-Diagnostic results include `lapack_equivalents_per_operation`, normalized to
-`lapack_reference_best`. End-to-end results additionally include total time,
-new vertices, actual simplex visits, refinements, time per vertex and visit,
-and LAPACK-equivalents per vertex and visit. Both raw LAPACK paths remain in
-the output because small-matrix behavior can depend on the LAPACK provider.
+The maintained public-API accuracy sweep is reproducible with:
 
-The JSON schema uses stable benchmark names and records the commit, dirty-tree
-state, compiler, build type, system, LAPACK linkage, thread settings, counts,
-charge stopping and certified errors, certificate-status counts, target status,
-median, range, and median absolute deviation. Compare
-`median_ns_per_operation` only between runs on the same runner. The
-LAPACK-equivalent ratios are more portable, but still require the same LAPACK
-implementation and thread configuration.
+```sh
+pixi run benchmark-charge-error
+```
+
+It compares current-mesh charge and the sampled estimate with dense off-dyadic
+references for 1D scalar convergence; 2D avoided and clustered systems; systems
+with nonzero active-safe Schur coupling embedded through 128 bands; root-gate
+boundaries; and visible versus exact dyadic aliasing. It writes JSON and a
+scalar convergence plot under `build/benchmarks/`. Reference-grid differences
+are recorded, so these are accuracy diagnostics rather than proofs. Its
+single-shot wall times are also diagnostic; use the repeated C++ benchmark for
+stable performance comparisons.
+
+## General measurements
+
+The ordinary presets retain these benchmark families:
+
+- reused-workspace and current-wrapper LAPACK eigensolves;
+- cumulative model evaluation, trusted Hamiltonian dispatch, eigensystem, and
+  cache insertion costs;
+- tight-binding evaluation and eigensystem costs for several hopping counts;
+- direct current-mesh charge and adaptive charge integration at the default
+  recursive error depth 2;
+- full-matrix and selected-component density integration through one grouped
+  contraction kernel;
+- adaptive Fermi-surface extraction;
+- controlled root-mesh evaluation and classification scaling;
+- the separate occupation-bounds benchmark executable.
+
+End-to-end results record total time, new spectral vertices, actual simplex
+visits, refinements, time per vertex and visit, and LAPACK equivalents per
+vertex and visit. Charge results additionally carry the recursive estimator
+counters above. The current-mesh charge pass performs only linear-simplex
+integration; the adaptive charge pass forces AdaptiveSimplex preview depth zero
+and refines using the separate recursive charge-error estimate.
+
+The benchmark excludes `SpectralMesh` construction from timed regions. Reference
+LAPACK matrices are prepared outside the timer. Raw timings should only be
+compared on the same runner; LAPACK-equivalent ratios still require the same
+LAPACK provider and thread configuration.
+
+Selected density requests are grouped by matrix element. For each simplex
+vertex, the band contraction for a unique `(row, column)` pair is evaluated
+once and reused for every requested lattice-vector phase. Its contraction cost
+therefore scales with the number of unique requested matrix elements rather
+than with the number of returned components.
 
 ## CI use
 
-Run performance jobs on a fixed or dedicated runner. Shared cloud runners can
-be useful for collecting artifacts, but their timing variance makes strict
-regression thresholds unreliable.
+On a fixed runner:
 
-For each revision:
+1. build in Release mode;
+2. run the CI preset with one BLAS/LAPACK thread;
+3. retain the JSON file as an artifact;
+4. compare cases by
+   `(name, ndim, ndof, root_level, target_bands, error_depth)`;
+5. compare deterministic operation counters exactly;
+6. report timing changes above 5% and fail only after a repeated change above
+   10%.
 
-1. build in `Release` mode;
-2. run `fermisimplex_run_performance_benchmark`;
-3. retain the JSON file as a CI artifact;
-4. compare cases by the tuple
-   `(name, ndim, ndof, hopping_terms, root_level, target_bands)`;
-5. graph `total_lapack_equivalents_per_vertex` for end-to-end workloads;
-6. use per-simplex and phase timings to diagnose changes;
-7. flag a regression only when it exceeds both a relative threshold and the
-   observed run-to-run dispersion.
-
-A practical initial policy is to report changes above 5% and fail only after a
-repeat confirms a change above 10%. Counts such as vertices and simplices are
-deterministic and may use exact comparisons.
-
-Very small absolute timings remain sensitive to clock resolution, CPU state,
-and allocator behavior even when operations are batched. Apply regression
-thresholds to the medium and large matrix cases first; retain the smallest
-cases primarily to track scaling and fixed overhead.
+Small matrices are dominated by fixed overhead and clock noise. Apply timing
+thresholds to medium and large cases first, while retaining small cases to
+track scaling and control flow.

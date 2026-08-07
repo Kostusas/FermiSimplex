@@ -4,7 +4,7 @@ set(FERMISIMPLEX_CPP_TOP_LEVEL OFF)
 if(CMAKE_SOURCE_DIR STREQUAL CMAKE_CURRENT_SOURCE_DIR)
   project(
     FermiSimplex
-    VERSION 0.1.0
+    VERSION 0.2.0
     LANGUAGES CXX
   )
   set(FERMISIMPLEX_CPP_TOP_LEVEL ON)
@@ -148,6 +148,7 @@ if(_fs_blas_symbol_prefix)
   # build environments; the extension link still verifies every symbol.
   set(FERMISIMPLEX_LAPACK_ZHEEVD_SYMBOL scipy_zheevd_)
   set(FERMISIMPLEX_LAPACK_ZGESVD_SYMBOL scipy_zgesvd_)
+  set(FERMISIMPLEX_LAPACK_ZGESV_SYMBOL scipy_zgesv_)
   set(FERMISIMPLEX_LAPACK_ZPOTRF_SYMBOL scipy_zpotrf_)
   set(FERMISIMPLEX_BLAS_ZGEMM_SYMBOL scipy_zgemm_)
   set(FERMISIMPLEX_BLAS_ZHER2K_SYMBOL scipy_zher2k_)
@@ -158,6 +159,7 @@ elseif(APPLE)
   # link successfully, so use the provider's documented ABI directly.
   set(FERMISIMPLEX_LAPACK_ZHEEVD_SYMBOL zheevd_)
   set(FERMISIMPLEX_LAPACK_ZGESVD_SYMBOL zgesvd_)
+  set(FERMISIMPLEX_LAPACK_ZGESV_SYMBOL zgesv_)
   set(FERMISIMPLEX_LAPACK_ZPOTRF_SYMBOL zpotrf_)
   set(FERMISIMPLEX_BLAS_ZGEMM_SYMBOL zgemm_)
   set(FERMISIMPLEX_BLAS_ZHER2K_SYMBOL zher2k_)
@@ -170,6 +172,10 @@ else()
   _fermisimplex_find_fortran_symbol(
     FERMISIMPLEX_LAPACK_ZGESVD_SYMBOL LAPACK_ZGESVD
     zgesvd_ zgesvd ZGESVD
+  )
+  _fermisimplex_find_fortran_symbol(
+    FERMISIMPLEX_LAPACK_ZGESV_SYMBOL LAPACK_ZGESV
+    zgesv_ zgesv ZGESV
   )
   _fermisimplex_find_fortran_symbol(
     FERMISIMPLEX_LAPACK_ZPOTRF_SYMBOL LAPACK_ZPOTRF
@@ -196,6 +202,9 @@ if(NOT FERMISIMPLEX_LAPACK_ZHEEVD_SYMBOL)
 endif()
 if(NOT FERMISIMPLEX_LAPACK_ZGESVD_SYMBOL)
   message(FATAL_ERROR "Could not find a callable LAPACK zgesvd symbol")
+endif()
+if(NOT FERMISIMPLEX_LAPACK_ZGESV_SYMBOL)
+  message(FATAL_ERROR "Could not find a callable LAPACK zgesv symbol")
 endif()
 if(NOT FERMISIMPLEX_LAPACK_ZPOTRF_SYMBOL)
   message(FATAL_ERROR "Could not find a callable LAPACK zpotrf symbol")
@@ -228,7 +237,7 @@ set(
   src/integration/charge.cpp
   src/integration/density.cpp
   src/integration/integration.cpp
-  src/integration/projected_error.cpp
+  src/integration/charge_error.cpp
   src/fermi_surface/adaptive_refinement.cpp
   src/fermi_surface/fermi_surface.cpp
   src/fermi_surface/simplex_classification.cpp
@@ -264,6 +273,7 @@ target_compile_definitions(
   fermisimplex_core PRIVATE
   FERMISIMPLEX_LAPACK_ZHEEVD=${FERMISIMPLEX_LAPACK_ZHEEVD_SYMBOL}
   FERMISIMPLEX_LAPACK_ZGESVD=${FERMISIMPLEX_LAPACK_ZGESVD_SYMBOL}
+  FERMISIMPLEX_LAPACK_ZGESV=${FERMISIMPLEX_LAPACK_ZGESV_SYMBOL}
   FERMISIMPLEX_LAPACK_ZPOTRF=${FERMISIMPLEX_LAPACK_ZPOTRF_SYMBOL}
   FERMISIMPLEX_BLAS_ZGEMM=${FERMISIMPLEX_BLAS_ZGEMM_SYMBOL}
   FERMISIMPLEX_BLAS_ZHER2K=${FERMISIMPLEX_BLAS_ZHER2K_SYMBOL}
@@ -279,7 +289,7 @@ if(FERMISIMPLEX_BUILD_TESTING)
     certificate_validation
     simplex_certificate
     spectral_mesh
-    projected_error
+    charge_error
     charge_certificates
   )
     set(_fs_test_target "fermisimplex_${_fs_test}_tests")

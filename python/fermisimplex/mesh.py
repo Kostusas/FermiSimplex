@@ -7,7 +7,10 @@ from collections.abc import Callable, Mapping
 import numpy as np
 
 from ._native import (
+    ChargeErrorStats,
     ChargeResult,
+    CurrentMeshChargeResult,
+    DensityComponentsResult,
     DensityMatrixResult,
     FermiSurfaceResult,
     FermiSurfaceStats,
@@ -81,6 +84,15 @@ def _lattice_vector_array(lattice_vectors, ndim: int) -> np.ndarray:
     return result
 
 
+def _density_component_array(components) -> np.ndarray:
+    result = np.asarray(components)
+    if result.ndim != 2 or result.shape[0] == 0 or result.shape[1] != 3:
+        raise ValueError("components must have shape (n, 3) with n > 0")
+    if not np.issubdtype(result.dtype, np.integer):
+        raise TypeError("components must contain only integers")
+    return np.ascontiguousarray(result, dtype=np.int64)
+
+
 def _adaptive_parameters(
     target_error: float,
     max_refinements: int | None,
@@ -135,6 +147,9 @@ class SpectralMesh:
 
     Notes
     -----
+    Callable models must return a finite Hermitian matrix of the inferred shape
+    at every point. Values are trusted after the one-time shape inference.
+
     The mesh is stateful. Calculations refine its geometry and cache vertex
     eigensystems, so later calculations on the same instance reuse earlier
     work.
@@ -196,9 +211,8 @@ class SpectralMesh:
         *,
         mu: float,
         target_error: float,
-        curvature_bound: float | None = None,
         max_refinements: int | None = None,
-        preview_depth: int = 0,
+        error_depth: int = 2,
         min_refinement_batch_size: int = 1,
         max_refinement_batch_size: int = 100,
     ) -> ChargeResult:
@@ -209,59 +223,62 @@ class SpectralMesh:
         mu
             Chemical potential.
         target_error
-            Target for the adaptive stopping estimate. This is distinct from
-            the rigorous ``certified_error_bound`` returned for charge.
-        curvature_bound
-            Uniform bound on directional second derivatives of the
-            Hamiltonian. ``None`` and ``0.0`` both assert zero curvature.
+            Target for the sampled adaptive stopping estimate.
         max_refinements
             Maximum number of simplex refinements, or ``None`` for no limit.
-        preview_depth
-            Optional refinement depth used to add a conventional preview
-            correction. The default ``0`` uses only the intrinsic sampled
-            projected-error estimate.
+        error_depth
+            Maximum number of complete temporary microsimplex subdivisions on
+            each unresolved branch. One subdivision produces ``2**ndim``
+            children; certified branches stop early. Temporary samples do not
+            refine the persistent mesh. The estimate is not a rigorous bound
+            and can miss structure between sampled microvertices. The frozen
+            safe-block approximation can also lose accuracy when its variation
+            is comparable with the anchor gap or its inertia changes.
         min_refinement_batch_size, max_refinement_batch_size
             Bounds on the number of simplices refined in one adaptive step.
 
         Returns
         -------
         ChargeResult
-            Charge, adaptive and certified errors, derivative with respect to
-            ``mu``, and integration statistics.
+            Charge, sampled stopping-error estimate, derivative with respect
+            to ``mu``, and integration and estimator statistics.
         """
         adaptive = _adaptive_parameters(
             target_error,
             max_refinements,
-            preview_depth,
+            0,
             min_refinement_batch_size,
             max_refinement_batch_size,
         )
+        (
+            target,
+            refinement_limit,
+            _,
+            minimum_batch,
+            maximum_batch,
+        ) = adaptive
         return self._native.integrate_charge(
             _finite_float(mu, "mu"),
-            *adaptive,
-            _curvature_bound(curvature_bound),
+            target,
+            refinement_limit,
+            _nonnegative_integer(error_depth, "error_depth"),
+            minimum_batch,
+            maximum_batch,
         )
 
     def estimate_charge_on_current_mesh(
         self,
         *,
         mu: float,
-        target_error: float,
-        preview_depth: int = 0,
-        curvature_bound: float | None = None,
-    ) -> ChargeResult:
-        """Estimate charge without committing further mesh refinement.
+    ) -> CurrentMeshChargeResult:
+        """Integrate charge directly on the current mesh.
 
-        With the default ``preview_depth=0``, only active-mesh vertices are
-        evaluated. A positive diagnostic depth may also evaluate preview
-        vertices and add them to the shared eigensystem cache.
+        This evaluates missing eigensystems at existing vertices and applies
+        the linear-simplex charge rule. It performs no certification, error
+        estimation, temporary subdivision, or persistent refinement.
         """
-        depth = _nonnegative_integer(preview_depth, "preview_depth")
         return self._native.estimate_charge_on_current_mesh(
             _finite_float(mu, "mu"),
-            _nonnegative_float(target_error, "target_error"),
-            depth,
-            _curvature_bound(curvature_bound),
         )
 
     def integrate_density_matrix(
@@ -288,7 +305,9 @@ class SpectralMesh:
         max_refinements
             Maximum number of simplex refinements, or ``None`` for no limit.
         preview_depth
-            Refinement depth used to estimate each simplex correction.
+            Refinement depth used to estimate each simplex correction. Zero
+            integrates directly on the current mesh without preview samples
+            or refinement.
         min_refinement_batch_size, max_refinement_batch_size
             Bounds on the number of simplices refined in one adaptive step.
 
@@ -302,13 +321,49 @@ class SpectralMesh:
         adaptive = _adaptive_parameters(
             target_error,
             max_refinements,
-            _positive_integer(preview_depth, "preview_depth"),
+            _nonnegative_integer(preview_depth, "preview_depth"),
             min_refinement_batch_size,
             max_refinement_batch_size,
         )
         return self._native.integrate_density_matrix(
             _finite_float(mu, "mu"),
             _lattice_vector_array(lattice_vectors, self.ndim),
+            *adaptive,
+        )
+
+    def integrate_density_components(
+        self,
+        *,
+        mu: float,
+        lattice_vectors,
+        components,
+        target_error: float,
+        max_refinements: int | None = None,
+        preview_depth: int = 1,
+        min_refinement_batch_size: int = 1,
+        max_refinement_batch_size: int = 100,
+    ) -> DensityComponentsResult:
+        """Adaptively integrate selected real-space density components.
+
+        ``components`` has shape ``(count, 3)``. Each row contains
+        ``(lattice_vector_index, matrix_row, matrix_column)``. Returned values
+        follow the request order; repeated components are allowed.
+
+        The adaptive arguments have the same meaning as for
+        :meth:`integrate_density_matrix`. The stopping error covers only the
+        requested components.
+        """
+        adaptive = _adaptive_parameters(
+            target_error,
+            max_refinements,
+            _nonnegative_integer(preview_depth, "preview_depth"),
+            min_refinement_batch_size,
+            max_refinement_batch_size,
+        )
+        return self._native.integrate_density_components(
+            _finite_float(mu, "mu"),
+            _lattice_vector_array(lattice_vectors, self.ndim),
+            _density_component_array(components),
             *adaptive,
         )
 
@@ -356,7 +411,10 @@ class SpectralMesh:
 
 
 __all__ = [
+    "ChargeErrorStats",
     "ChargeResult",
+    "CurrentMeshChargeResult",
+    "DensityComponentsResult",
     "DensityMatrixResult",
     "FermiSurfaceResult",
     "FermiSurfaceStats",

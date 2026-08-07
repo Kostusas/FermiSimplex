@@ -179,16 +179,6 @@ TightBindingModel::TightBindingModel(std::vector<HoppingTerm> hoppings) {
 std::vector<std::complex<double>> TightBindingModel::evaluate(
     std::span<const double> reduced_point
 ) const {
-    if (reduced_point.size() != ndim_) {
-        throw std::runtime_error("TightBindingModel: point dimension mismatch");
-    }
-    for (const auto coordinate : reduced_point) {
-        if (!std::isfinite(coordinate)) {
-            throw std::runtime_error(
-                "TightBindingModel: point coordinates must be finite"
-            );
-        }
-    }
     std::vector<std::complex<double>> h(ndof_ * ndof_, std::complex<double>(0.0, 0.0));
     for (const auto &term : hoppings_) {
         double phase_arg = 0.0;

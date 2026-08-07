@@ -25,8 +25,7 @@ introduction with real adaptive sampling traces, multiband examples, and a
 rotating noble-metal-inspired three-dimensional surface.
 
 - 🛡️ **Gapped-region proofs** combine cached eigensystems with rigorous spectral
-  bounds to exclude a Fermi-level crossing throughout a simplex and to bound
-  the remaining charge.
+  bounds to exclude a Fermi-level crossing throughout a simplex.
 - ⚡ **Adaptive sampling**, built on
   [AdaptiveSimplex](https://gitlab.kwant-project.org/qt/adaptivesimplex),
   concentrates diagonalizations near unresolved Fermi surfaces instead of
@@ -34,9 +33,9 @@ rotating noble-metal-inspired three-dimensional surface.
 - 🚀 **Numerical efficiency by design:** adaptive refinement, shared spectral
   caching, and the compiled numerical core avoid repeated work as the Fermi
   surface becomes progressively sharper.
-- 🎯 **Projected charge estimates** compare sampled projected eigenvalues with
-  vertex-linear interpolation only in the bands whose occupation is still
-  ambiguous.
+- 🎯 **Recursive charge estimates** use certificate-selected active spaces,
+  a corrected frozen-Schur reduction and actual-Hamiltonian microsimplex
+  samples to target interpolation error near the Fermi level.
 - 🧩 **Python and C++** share one numerical core; models can be dense callables
   or translation-invariant tight-binding Hamiltonians.
 
@@ -77,7 +76,8 @@ The coordinates are reduced coordinates in $[0,1]^d$. Here
 $M=(2\pi)^2$ bounds every directional second derivative of the scalar
 Hamiltonian. `SpectralMesh` infers the momentum-space dimension from the
 callable arguments and the matrix dimension by evaluating it at the origin.
-Callables receive separate coordinates: `hamiltonian(kx, ky, ...)`.
+Callables receive separate coordinates: `hamiltonian(kx, ky, ...)`. They are
+trusted to keep returning finite Hermitian matrices of the inferred shape.
 
 ![Two- and three-dimensional Fermi surfaces](https://raw.githubusercontent.com/Kostusas/FermiSimplex/main/docs/assets/fermi_surface_gallery.png)
 
@@ -89,7 +89,7 @@ charge = mesh.integrate_charge(
     mu=0.17,
     target_error=1e-2,
     max_refinements=10_000,
-    curvature_bound=(2 * np.pi) ** 2,
+    error_depth=2,
 )
 density = mesh.integrate_density_matrix(
     mu=0.17,
@@ -97,11 +97,18 @@ density = mesh.integrate_density_matrix(
     target_error=1e-2,
     max_refinements=10_000,
 )
+selected_density = mesh.integrate_density_components(
+    mu=0.17,
+    lattice_vectors=[(0, 0, 0), (1, 0, 0)],
+    components=[(0, 0, 0), (1, 0, 1)],
+    target_error=1e-2,
+)
 
 charge.value
 charge.stopping_error
-charge.certified_error_bound
+charge.error_stats
 density.matrices  # (number of lattice vectors, ndof, ndof)
+selected_density.values  # follows the component request order
 ```
 
 For a tight-binding model,
@@ -113,27 +120,33 @@ $$
 pass `{R: H_R, ...}` directly to `SpectralMesh`. Opposite hoppings are checked
 for $H_{-R}=H_R^\dagger$.
 
-## What does the certificate prove?
+## What is certified?
 
-At each simplex, FermiSimplex asks: **can the occupation change between the
-sampled vertices?** It combines their eigensystems with `curvature_bound`,
-which limits how much the Hamiltonian can bend in between. If occupied and
-unoccupied trial subspaces remain on opposite sides of $\mu$, the occupation
-is fixed everywhere—without sampling the interior.
+The direct certificate and Fermi-surface calculation ask whether occupation can
+change inside a simplex. They combine vertex eigensystems with
+`curvature_bound`, which limits the Hamiltonian between samples. With a valid
+bound, separated occupied and empty trial subspaces prove fixed occupation.
 
 - **Certified:** no Fermi surface crosses the simplex.
 - **Partially certified:** rigorous lower and upper occupation bounds remain.
 - **Inconclusive:** this is not a gapless verdict; FermiSimplex refines and
   tries again.
 
-Every charge and Fermi-surface simplex is checked. The remaining uncertainty
-becomes `charge.certified_error_bound`; `surface.coverage_certified` concerns
-classification down to `min_feature_size`, not topology or geometric accuracy.
-Density matrices currently use adaptive estimates instead.
+`surface.coverage_certified` concerns classification down to
+`min_feature_size`, not topology or geometric accuracy. Charge instead uses a
+sampled recursive error estimate: it evaluates the actual Hamiltonian on
+temporary microsimplices, reduces certificate-selected safe bands with one
+corrected frozen-Schur step, and converts terminal midpoint defects into
+shifted occupation volumes. `charge.stopping_error` is therefore useful for
+adaptive
+refinement but is not a rigorous bound; structure between sampled points can
+still alias, and the frozen safe block is only a local approximation and does
+not track its inertia away from the anchor. Density matrices also use adaptive
+estimates.
 
-The guarantee assumes a valid `curvature_bound`. Omitting it, `None`, and
-`0.0` all assert zero curvature; none disables certification. See the
-[mathematics guide][mathematics] for the proof and error bounds.
+Fermi-surface guarantees assume a valid `curvature_bound`. Omitting it, `None`,
+and `0.0` all assert zero curvature; none disables certification. Charge has no
+curvature argument. See the [mathematics guide][mathematics] for details.
 
 ## API at a glance
 
@@ -144,15 +157,26 @@ The guarantee assumes a valid `curvature_bound`. Omitting it, `None`, and
   orthonormal. These performance-sensitive numerical preconditions are not
   rechecked.
 - `mesh.integrate_charge`: adaptive filling and $dQ/d\mu$.
+- `mesh.estimate_charge_on_current_mesh`: direct linear-simplex filling and
+  $dQ/d\mu$ with no error estimation or refinement.
+- `mesh.integrate_density_components`: selected real-space density entries,
+  requested as `(lattice_vector_index, row, column)`.
 - `mesh.integrate_density_matrix`: real-space density-matrix components.
 - `mesh.fermi_surface`: band-labelled points and cells in reduced coordinates.
 
-Adaptive controls such as `target_error`, `max_refinements`, and
-`preview_depth` are ordinary keyword arguments on the calculation that uses
-them—there is no separate options object. Charge calculations default to
-`preview_depth=0` because their sampled projected-error estimate drives
-refinement intrinsically; positive depths are intended for explicit
-diagnostic comparisons.
+Adaptive controls are ordinary keyword arguments on the calculation that uses
+them—there is no separate options object. Charge defaults to `error_depth=2`.
+Each level permits one complete temporary subdivision into $2^d$
+microsimplices on each unresolved branch; certified branches stop early.
+Increasing the maximum depth adds actual-Hamiltonian samples without refining
+the persistent mesh.
+`charge.error_stats` reports the resulting reductions, solves, eigensystems,
+temporary simplices, and fallbacks.
+
+Density matrices default to `preview_depth=1`. Setting `preview_depth=0`
+integrates directly on the existing mesh, adds no preview vertices, and performs
+no refinement. This is useful after charge integration has already established
+and populated the desired mean-field mesh.
 
 See the [visual Python tour][visual-tour], runnable
 [quick start][quick-start], and

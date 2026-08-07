@@ -1,7 +1,6 @@
 #include "integration/charge.h"
 
 #include "certification/mesh_certificate.h"
-#include "integration/projected_error.h"
 
 #include <adaptivesimplex/cut/simplex_moments.h>
 
@@ -51,7 +50,7 @@ double occupied_fraction_derivative(
         }
     }
 
-    std::vector<double> divided_differences(energies.size());
+    auto divided_differences = std::vector<double>(energies.size());
     for (std::size_t index = 0; index < energies.size(); ++index) {
         divided_differences[index] = truncated_power_derivative(
             energies[index],
@@ -80,7 +79,8 @@ double occupied_fraction_derivative(
     const auto orientation = dimension % 2 == 0 ? 1.0 : -1.0;
     return std::max(
         0.0,
-        orientation * static_cast<double>(dimension) * divided_differences.front()
+        orientation * static_cast<double>(dimension) *
+            divided_differences.front()
     );
 }
 
@@ -91,7 +91,7 @@ std::vector<double> band_energies(
     std::size_t band
 ) {
     const auto &simplex = geometry.simplices().simplex(simplex_id);
-    std::vector<double> energies;
+    auto energies = std::vector<double>{};
     energies.reserve(simplex.vertex_ids.size());
     for (const auto vertex_id : simplex.vertex_ids) {
         energies.push_back(cache.get(vertex_id).eigenvalues[band]);
@@ -100,105 +100,14 @@ std::vector<double> band_energies(
     return energies;
 }
 
-double occupied_band_volume(
-    const core::Geometry &geometry,
-    core::SimplexId simplex_id,
-    const EigensystemCache &cache,
-    std::size_t band,
-    double mu,
-    double tolerance
-) {
-    const auto &simplex = geometry.simplices().simplex(simplex_id);
-    const auto moments = cut::simplex_moments(
-        geometry,
-        simplex_id,
-        [&](core::VertexId vertex_id) {
-            return cache.get(vertex_id).eigenvalues[band];
-        },
-        cut::LevelOptions{.level = mu, .level_tolerance = tolerance}
-    );
-    return moments.kind == cut::SimplexCutKind::on_level
-        ? 0.5 * simplex.volume
-        : moments.volume;
-}
-
 }  // namespace
-
-double projected_occupation_shell(
-    double mu,
-    const SpectralMesh &mesh,
-    const core::Geometry &geometry,
-    core::SimplexId simplex_id,
-    cert::OccupationBounds occupation_bounds,
-    ProjectedErrorEstimate projected_error
-) {
-    const auto &cache = mesh.eigensystems();
-
-    // A positive projected spectral difference raises actual energies relative
-    // to the interpolated bands and reduces occupation; a negative difference
-    // lowers them and increases occupation. The asymmetric pairing is:
-    const auto guaranteed_occupation_mu =
-        mu - projected_error.positive_estimate;
-    const auto possible_occupation_mu =
-        mu + projected_error.negative_estimate;
-
-    auto error = 0.0;
-    for (auto band = occupation_bounds.lower;
-         band < occupation_bounds.upper;
-         ++band) {
-        const auto guaranteed_volume = occupied_band_volume(
-            geometry,
-            simplex_id,
-            cache,
-            band,
-            guaranteed_occupation_mu,
-            mesh.tolerance()
-        );
-        const auto possible_volume = occupied_band_volume(
-            geometry,
-            simplex_id,
-            cache,
-            band,
-            possible_occupation_mu,
-            mesh.tolerance()
-        );
-        error += std::max(0.0, possible_volume - guaranteed_volume);
-    }
-    return error;
-}
-
-double projected_charge_error(
-    double mu,
-    const SpectralMesh &mesh,
-    const core::Geometry &geometry,
-    core::SimplexId simplex_id,
-    cert::OccupationBounds occupation_bounds,
-    ProjectedErrorCache *projected_error_cache
-) {
-    const auto projected_error = estimate_projected_error(
-        mesh,
-        simplex_id,
-        occupation_bounds.lower,
-        occupation_bounds.upper,
-        projected_error_cache
-    );
-    return projected_occupation_shell(
-        mu,
-        mesh,
-        geometry,
-        simplex_id,
-        occupation_bounds,
-        projected_error
-    );
-}
 
 ChargeContribution &ChargeContribution::operator+=(
     const ChargeContribution &other
 ) noexcept {
     value += other.value;
     dcharge_dmu += other.dcharge_dmu;
-    projected_error += other.projected_error;
-    certified_error_bound += other.certified_error_bound;
+    estimated_error += other.estimated_error;
     visible_gapless_simplices += other.visible_gapless_simplices;
     inconclusive_simplices += other.inconclusive_simplices;
     return *this;
@@ -209,8 +118,7 @@ ChargeContribution &ChargeContribution::operator-=(
 ) noexcept {
     value -= other.value;
     dcharge_dmu -= other.dcharge_dmu;
-    projected_error -= other.projected_error;
-    certified_error_bound -= other.certified_error_bound;
+    estimated_error -= other.estimated_error;
     visible_gapless_simplices -= other.visible_gapless_simplices;
     inconclusive_simplices -= other.inconclusive_simplices;
     return *this;
@@ -233,7 +141,10 @@ ChargeContribution band_charge_on_simplex(
             [&](core::VertexId vertex_id) {
                 return cache.get(vertex_id).eigenvalues[band];
             },
-            cut::LevelOptions{.level = mu, .level_tolerance = mesh.tolerance()}
+            cut::LevelOptions{
+                .level = mu,
+                .level_tolerance = mesh.tolerance(),
+            }
         );
 
         if (moments.kind == cut::SimplexCutKind::on_level) {
@@ -242,56 +153,50 @@ ChargeContribution band_charge_on_simplex(
         }
 
         result.value += moments.volume;
-        const auto energies = band_energies(geometry, simplex_id, cache, band);
-        result.dcharge_dmu += simplex.volume * occupied_fraction_derivative(
-            energies,
-            mu,
-            mesh.tolerance()
-        );
+        const auto energies =
+            band_energies(geometry, simplex_id, cache, band);
+        result.dcharge_dmu +=
+            simplex.volume * occupied_fraction_derivative(
+                energies,
+                mu,
+                mesh.tolerance()
+            );
     }
     return result;
 }
 
 ChargeContribution charge_on_simplex(
     double mu,
-    const SpectralMesh &mesh,
+    SpectralMesh &mesh,
     const core::Geometry &geometry,
     core::SimplexId simplex_id,
-    double curvature_bound,
-    ProjectedErrorCache *projected_error_cache
+    ChargeErrorEstimator &error_estimator
 ) {
-    const auto &simplex = geometry.simplices().simplex(simplex_id);
-    auto result = ChargeContribution{};
-
     const auto certificate = cert::certify_mesh_simplex(
         mesh,
         simplex_id,
         mu,
-        mesh.linearization_error_bound(simplex_id, curvature_bound),
+        0.0,
         mesh.tolerance()
     );
-    const auto occupation_bounds = certificate.occupation_bounds;
-    result.certified_error_bound =
-        static_cast<double>(cert::occupation_width(certificate)) *
-        simplex.volume;
-    if (certificate.status == cert::SimplexCertificateStatus::VisibleGapless) {
+
+    auto result =
+        band_charge_on_simplex(mu, mesh, geometry, simplex_id);
+    if (certificate.status ==
+        cert::SimplexCertificateStatus::VisibleGapless) {
         result.visible_gapless_simplices = 1;
-    } else if (certificate.status == cert::SimplexCertificateStatus::Inconclusive) {
+    } else if (
+        certificate.status ==
+        cert::SimplexCertificateStatus::Inconclusive
+    ) {
         result.inconclusive_simplices = 1;
     }
-
-    if (occupation_bounds.lower < occupation_bounds.upper) {
-        result.projected_error = projected_charge_error(
-            mu,
-            mesh,
-            geometry,
-            simplex_id,
-            occupation_bounds,
-            projected_error_cache
-        );
-    }
-
-    result += band_charge_on_simplex(mu, mesh, geometry, simplex_id);
+    result.estimated_error = error_estimator.estimate(
+        geometry,
+        simplex_id,
+        result.value,
+        certificate
+    );
     return result;
 }
 

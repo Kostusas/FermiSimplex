@@ -5,7 +5,25 @@ import pytest
 
 from fermisimplex import DensityComponentsResult, SpectralMesh
 
-from .helpers import constant_insulator, dense_reference, dimerized_chain
+from .helpers import (
+    constant_insulator,
+    dense_reference,
+    dimerized_chain,
+    qiwuzhang,
+    tb_k_matrix,
+)
+
+
+@pytest.fixture(params=("tight_binding", "callable"))
+def public_hamiltonian(request):
+    hoppings = dimerized_chain()
+    if request.param == "tight_binding":
+        return hoppings
+
+    def hamiltonian(k):
+        return tb_k_matrix(hoppings, np.asarray([k]))
+
+    return hamiltonian
 
 
 @pytest.mark.parametrize(
@@ -125,6 +143,36 @@ def test_density_matrix_matches_a_dense_reference():
     assert result.stopping_error <= 5e-3
 
 
+def test_adaptive_density_components_match_independently_refined_full_density():
+    hoppings = qiwuzhang()
+    keys = [(0, 0), (1, 0), (0, 1)]
+    components = [(0, 0, 0), (1, 1, 0), (2, 0, 1)]
+    common = {
+        "mu": 0.0,
+        "lattice_vectors": keys,
+        "max_refinements": 250,
+        "preview_depth": 2,
+    }
+
+    selected = SpectralMesh(hoppings, root_level=1).integrate_density_components(
+        components=components,
+        target_error=5e-2,
+        **common,
+    )
+    full = SpectralMesh(hoppings, root_level=1).integrate_density_matrix(
+        target_error=2e-2,
+        **common,
+    )
+    expected = np.asarray(
+        [full.matrices[key, row, column] for key, row, column in components]
+    )
+
+    assert selected.stats.refinements > 0
+    assert selected.stats.evaluations > 0
+    assert selected.stopping_error <= 5e-2
+    assert selected.values == pytest.approx(expected, abs=2e-3)
+
+
 def test_density_components_match_full_matrices_in_request_order():
     hoppings = dimerized_chain()
     keys = [(0,), (1,), (-1,)]
@@ -151,6 +199,49 @@ def test_density_components_match_full_matrices_in_request_order():
     assert selected.values[0] == pytest.approx(selected.values[3])
     assert selected.stopping_error <= full.stopping_error
     assert selected.stats.simplex_visits == full.stats.simplex_visits
+
+
+def test_shared_mesh_charge_and_selected_density_workflow():
+    mesh = SpectralMesh(qiwuzhang(), root_level=1)
+    charge = mesh.integrate_charge(
+        mu=0.2,
+        target_error=3e-2,
+        max_refinements=100,
+    )
+    assert charge.stats.refinements > 0
+
+    active_simplices = mesh.active_simplices
+    cached_vertices = mesh.cached_vertices
+    current_charge = mesh.estimate_charge_on_current_mesh(mu=-0.1)
+    assert np.isfinite(current_charge.value)
+    assert mesh.active_simplices == active_simplices
+    assert mesh.cached_vertices == cached_vertices
+
+    options = {
+        "mu": -0.1,
+        "lattice_vectors": [(0, 0), (1, 0)],
+        "components": [(0, 0, 0), (1, 0, 1)],
+        "target_error": 1e9,
+        "max_refinements": 0,
+    }
+    current_mesh_density = mesh.integrate_density_components(
+        preview_depth=0,
+        **options,
+    )
+    assert current_mesh_density.stats.evaluations == 0
+    assert current_mesh_density.stats.refinements == 0
+    assert mesh.active_simplices == active_simplices
+    assert mesh.cached_vertices == cached_vertices
+
+    preview_density = mesh.integrate_density_components(
+        preview_depth=1,
+        **options,
+    )
+    assert preview_density.stats.evaluations > 0
+    assert preview_density.stats.refinements == 0
+    assert mesh.active_simplices == active_simplices
+    assert np.all(np.isfinite(current_mesh_density.values))
+    assert np.all(np.isfinite(preview_density.values))
 
 
 def test_density_components_preview_zero_reuses_the_current_mesh():
@@ -210,3 +301,58 @@ def test_density_lattice_vectors_must_match_the_model_dimension():
             target_error=1.0,
             max_refinements=0,
         )
+
+
+@pytest.mark.parametrize("path", ("adaptive", "current_mesh"))
+def test_public_charge_integration_paths(public_hamiltonian, path):
+    mesh = SpectralMesh(public_hamiltonian)
+
+    if path == "adaptive":
+        result = mesh.integrate_charge(
+            mu=0.0,
+            target_error=1e6,
+            max_refinements=0,
+        )
+        assert np.isfinite(result.value)
+        assert np.isfinite(result.dcharge_dmu)
+        assert result.stats.simplex_visits > 0
+    else:
+        result = mesh.estimate_charge_on_current_mesh(mu=0.0)
+        assert np.isfinite(result.value)
+        assert np.isfinite(result.dcharge_dmu)
+
+
+@pytest.mark.parametrize("selected", (False, True), ids=("full", "components"))
+@pytest.mark.parametrize("preview_depth", (0, 1))
+def test_public_density_integration_paths(
+    public_hamiltonian,
+    selected,
+    preview_depth,
+):
+    mesh = SpectralMesh(public_hamiltonian)
+    mesh.estimate_charge_on_current_mesh(mu=0.0)
+    options = {
+        "mu": 0.0,
+        "lattice_vectors": [(0,), (1,)],
+        "target_error": 1e6,
+        "max_refinements": 0,
+        "preview_depth": preview_depth,
+    }
+
+    if selected:
+        result = mesh.integrate_density_components(
+            components=[(0, 0, 0), (1, 0, 1)],
+            **options,
+        )
+        assert result.values.shape == (2,)
+        assert np.all(np.isfinite(result.values))
+    else:
+        result = mesh.integrate_density_matrix(**options)
+        assert result.matrices.shape == (2, 2, 2)
+        assert np.all(np.isfinite(result.matrices))
+
+    assert result.stats.refinements == 0
+    if preview_depth == 0:
+        assert result.stats.evaluations == 0
+    else:
+        assert result.stats.evaluations > 0

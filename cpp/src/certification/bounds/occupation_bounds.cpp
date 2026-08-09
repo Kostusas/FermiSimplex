@@ -153,12 +153,25 @@ size_t estimate_ordered_subset_rank(
     double linearization_error_bound,
     double tolerance
 ) {
-    return estimate_ordered_subset_rank_with_mu_radius(
-        blocks,
-        size,
-        linearization_error_bound,
-        tolerance
-    ).rank;
+    if (size == 0 || blocks.empty()) {
+        return 0;
+    }
+    require_block_shape(blocks, size);
+    const auto order = ordered_subset_by_worst_margin(blocks, size);
+    auto rank = size;
+    for (const auto &block : blocks) {
+        auto permuted = permuted_block(block, order, size);
+        rank = std::min(
+            rank,
+            positive_definite(
+                std::move(permuted),
+                size,
+                certificate_margin(tolerance) +
+                    linearization_error_bound
+            ).accepted_rank
+        );
+    }
+    return rank;
 }
 
 }  // namespace fermisimplex::certification::detail

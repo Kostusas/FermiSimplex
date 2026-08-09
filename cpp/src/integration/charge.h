@@ -11,6 +11,8 @@
 
 namespace fermisimplex::integration_detail {
 
+struct ChargeProfile;
+
 struct ChargeContribution {
     double value = 0.0;
     double dcharge_dmu = 0.0;
@@ -34,7 +36,8 @@ ChargeContribution charge_on_simplex(
     SpectralMesh &mesh,
     const adaptivesimplex::core::Geometry &geometry,
     adaptivesimplex::core::SimplexId simplex_id,
-    ChargeErrorEstimator &error_estimator
+    ChargeErrorEstimator &error_estimator,
+    ChargeProfile *profile = nullptr
 );
 
 }  // namespace fermisimplex::integration_detail

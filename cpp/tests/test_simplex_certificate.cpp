@@ -5,6 +5,7 @@
 
 #include <adaptivesimplex/core/root_mesh.h>
 
+#include <array>
 #include <cmath>
 #include <exception>
 #include <iostream>
@@ -125,6 +126,69 @@ void test_mesh_linearization_error_bound_matches_direct_error() {
         mesh_certificate.occupation_bounds.upper,
         "direct upper bound"
     );
+}
+
+void test_prepared_mesh_certificate_matches_one_shot_calls() {
+    auto mesh = fermisimplex::SpectralMesh(winding_model(1), kTol, 4);
+    const auto &geometry = mesh.geometry();
+    const auto simplex_id = first_active_simplex(geometry);
+    fill_vertex_cache(
+        geometry, simplex_id, mesh, mesh.eigensystems()
+    );
+
+    const auto prepared = certificate::prepare_mesh_simplex_certificate(
+        mesh, simplex_id, 0.0, kTol
+    );
+    for (const auto radius : std::array{0.0, 0.25, 1.0e6}) {
+        const auto reused = prepared.certify(radius);
+        const auto bounds_only = prepared.occupation_bounds(radius);
+        const auto one_shot = certificate::certify_mesh_simplex(
+            mesh, simplex_id, 0.0, radius, kTol
+        );
+        expect(
+            reused.status == one_shot.status,
+            "prepared and one-shot certificate status"
+        );
+        expect_eq(
+            reused.occupation_bounds.lower,
+            one_shot.occupation_bounds.lower,
+            "prepared and one-shot lower occupation bound"
+        );
+        expect_eq(
+            reused.occupation_bounds.upper,
+            one_shot.occupation_bounds.upper,
+            "prepared and one-shot upper occupation bound"
+        );
+        expect_eq(
+            bounds_only.lower,
+            reused.occupation_bounds.lower,
+            "bounds-only and full lower occupation bound"
+        );
+        expect_eq(
+            bounds_only.upper,
+            reused.occupation_bounds.upper,
+            "bounds-only and full upper occupation bound"
+        );
+        expect(
+            reused.mu_interval.has_value() ==
+                one_shot.mu_interval.has_value(),
+            "prepared and one-shot mu interval presence"
+        );
+        if (reused.mu_interval.has_value()) {
+            expect_near(
+                reused.mu_interval->lower,
+                one_shot.mu_interval->lower,
+                1e-12,
+                "prepared and one-shot lower mu limit"
+            );
+            expect_near(
+                reused.mu_interval->upper,
+                one_shot.mu_interval->upper,
+                1e-12,
+                "prepared and one-shot upper mu limit"
+            );
+        }
+    }
 }
 
 void test_large_linearization_error_bound_blocks_certification() {
@@ -290,6 +354,7 @@ int main() {
     try {
         test_certified_simplex_reports_mu_bounds();
         test_mesh_linearization_error_bound_matches_direct_error();
+        test_prepared_mesh_certificate_matches_one_shot_calls();
         test_large_linearization_error_bound_blocks_certification();
         test_occupation_bound_certificate_reports_mu_bounds();
         test_visible_gapless_reports_conservative_bounds();

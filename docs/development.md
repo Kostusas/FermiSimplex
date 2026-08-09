@@ -2,6 +2,8 @@
 
 See [Performance measurement](performance.md) for the C++ benchmark suite and
 CI artifact format.
+See [Charge-error algorithm and ownership](charge-error-algorithm.md) for the
+recursive estimator's numerical stages and temporary-cache lifetime.
 
 The upstream repository is
 [GitLab](https://gitlab.kwant-project.org/qt/lineartetrahedron). GitHub is a

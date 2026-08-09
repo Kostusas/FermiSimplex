@@ -8,6 +8,10 @@
 
 namespace fermisimplex {
 
+namespace core_detail {
+struct TightBindingModelAccess;
+}
+
 using LatticeVector = std::vector<std::int64_t>;
 
 class HamiltonianModel {
@@ -41,9 +45,12 @@ public:
     ) const override;
 
 private:
+    friend struct core_detail::TightBindingModelAccess;
+
     std::size_t ndim_ = 0;
     std::size_t ndof_ = 0;
     std::vector<HoppingTerm> hoppings_;
+    std::vector<std::complex<double>> packed_hoppings_;
 };
 
 }  // namespace fermisimplex

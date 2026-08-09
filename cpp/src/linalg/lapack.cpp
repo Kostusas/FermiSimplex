@@ -1,6 +1,7 @@
 #include "linalg/blas_lapack.h"
 
 #include <algorithm>
+#include <array>
 #include <cmath>
 #include <limits>
 #include <stdexcept>
@@ -101,6 +102,21 @@ int workspace_size(double value, const std::string &prefix) {
     return value < 1.0 ? 1 : static_cast<int>(value);
 }
 
+struct HermitianWorkspace {
+    size_t matrix_size = 0;
+    int lwork = 0;
+    int lrwork = 0;
+    int liwork = 0;
+    std::vector<Complex> work;
+    std::vector<double> rwork;
+    std::vector<int> iwork;
+};
+
+HermitianWorkspace &hermitian_workspace(bool compute_vectors) {
+    thread_local auto workspaces = std::array<HermitianWorkspace, 2>{};
+    return workspaces[compute_vectors ? 1 : 0];
+}
+
 }  // namespace
 
 int cholesky_factor_lower(Complex *matrix, size_t size) {
@@ -143,40 +159,47 @@ void diagonalize_hermitian_in_place(
         return;
     }
 
-    auto lwork = -1;
-    auto lrwork = -1;
-    auto liwork = -1;
-    Complex work_query = 0.0;
-    auto rwork_query = 0.0;
-    auto iwork_query = 0;
+    auto &workspace = hermitian_workspace(compute_vectors);
     auto info = 0;
-    FERMISIMPLEX_LAPACK_ZHEEVD(
-        &jobz,
-        &lower_triangle,
-        &n,
-        matrix.data(),
-        &lda,
-        eigenvalues.data(),
-        &work_query,
-        &lwork,
-        &rwork_query,
-        &lrwork,
-        &iwork_query,
-        &liwork,
-        &info
-    );
-    if (info != 0) {
-        throw std::runtime_error(
-            prefix + "zheevd workspace query failed with info=" + std::to_string(info)
+    if (workspace.matrix_size != size) {
+        auto lwork = -1;
+        auto lrwork = -1;
+        auto liwork = -1;
+        Complex work_query = 0.0;
+        auto rwork_query = 0.0;
+        auto iwork_query = 0;
+        FERMISIMPLEX_LAPACK_ZHEEVD(
+            &jobz,
+            &lower_triangle,
+            &n,
+            matrix.data(),
+            &lda,
+            eigenvalues.data(),
+            &work_query,
+            &lwork,
+            &rwork_query,
+            &lrwork,
+            &iwork_query,
+            &liwork,
+            &info
         );
-    }
+        if (info != 0) {
+            throw std::runtime_error(
+                prefix + "zheevd workspace query failed with info=" +
+                std::to_string(info)
+            );
+        }
 
-    lwork = workspace_size(std::real(work_query), prefix);
-    lrwork = workspace_size(rwork_query, prefix);
-    liwork = workspace_size(static_cast<double>(iwork_query), prefix);
-    std::vector<Complex> work(static_cast<size_t>(lwork));
-    std::vector<double> rwork(static_cast<size_t>(lrwork));
-    std::vector<int> iwork(static_cast<size_t>(liwork));
+        workspace.matrix_size = size;
+        workspace.lwork = workspace_size(std::real(work_query), prefix);
+        workspace.lrwork = workspace_size(rwork_query, prefix);
+        workspace.liwork = workspace_size(
+            static_cast<double>(iwork_query), prefix
+        );
+        workspace.work.resize(static_cast<size_t>(workspace.lwork));
+        workspace.rwork.resize(static_cast<size_t>(workspace.lrwork));
+        workspace.iwork.resize(static_cast<size_t>(workspace.liwork));
+    }
     FERMISIMPLEX_LAPACK_ZHEEVD(
         &jobz,
         &lower_triangle,
@@ -184,12 +207,12 @@ void diagonalize_hermitian_in_place(
         matrix.data(),
         &lda,
         eigenvalues.data(),
-        work.data(),
-        &lwork,
-        rwork.data(),
-        &lrwork,
-        iwork.data(),
-        &liwork,
+        workspace.work.data(),
+        &workspace.lwork,
+        workspace.rwork.data(),
+        &workspace.lrwork,
+        workspace.iwork.data(),
+        &workspace.liwork,
         &info
     );
     if (info != 0) {

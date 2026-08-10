@@ -118,12 +118,52 @@ void test_mesh_converts_user_curvature_to_simplex_error() {
     );
 }
 
+void test_occupied_weights_use_only_cached_active_eigensystems() {
+    auto mesh = SpectralMesh(constant_insulator(), kTol, 1);
+    expect_runtime_error(
+        [&mesh] { (void)mesh.occupied_weights(0.0); },
+        "not fully cached",
+        "occupied weights should not evaluate missing eigensystems"
+    );
+
+    const auto vertex_ids = mesh.active_vertex_ids();
+    for (const auto vertex_id : vertex_ids) {
+        const auto point =
+            mesh.geometry().vertices().dyadic_vertex(vertex_id).to_point();
+        mesh.eigensystems().insert(
+            vertex_id,
+            mesh.spectrum(std::span<const double>(point.data(), point.size()))
+        );
+    }
+
+    const auto weights = mesh.occupied_weights(0.0);
+    expect_eq(
+        weights.size(),
+        vertex_ids.size() * mesh.ndof(),
+        "occupied-weight shape"
+    );
+    auto particle_number = 0.0;
+    auto band_energy = 0.0;
+    for (std::size_t vertex = 0; vertex < vertex_ids.size(); ++vertex) {
+        const auto &eigenvalues =
+            mesh.eigensystems().get(vertex_ids[vertex]).eigenvalues;
+        for (std::size_t band = 0; band < mesh.ndof(); ++band) {
+            const auto weight = weights[vertex * mesh.ndof() + band];
+            particle_number += weight;
+            band_energy += weight * eigenvalues[band];
+        }
+    }
+    expect_near(particle_number, 1.0, kTol, "occupied-weight charge");
+    expect_near(band_energy, -1.0, kTol, "occupied-weight band energy");
+}
+
 }  // namespace
 
 int main() {
     try {
         test_tight_binding_consolidates_and_validates_hermiticity();
         test_mesh_converts_user_curvature_to_simplex_error();
+        test_occupied_weights_use_only_cached_active_eigensystems();
     } catch (const std::exception &error) {
         std::cerr << error.what() << "\n";
         return 1;

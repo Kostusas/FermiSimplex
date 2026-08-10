@@ -26,6 +26,12 @@ def _finite_float(value: float, name: str) -> float:
     return result
 
 
+def _readonly(array) -> np.ndarray:
+    result = np.asarray(array)
+    result.flags.writeable = False
+    return result
+
+
 def _nonnegative_float(value: float, name: str) -> float:
     result = _finite_float(value, name)
     if result < 0.0:
@@ -206,6 +212,30 @@ class SpectralMesh:
     def active_vertices(self) -> int:
         return int(self._native.active_vertices)
 
+    @property
+    def points(self) -> np.ndarray:
+        """Active mesh vertices in reduced coordinates, as a read-only array."""
+        return _readonly(self._native.points())
+
+    @property
+    def simplices(self) -> np.ndarray:
+        """Active simplex indices into points, as a read-only array."""
+        return _readonly(self._native.simplices())
+
+    @property
+    def eigenvalues(self) -> np.ndarray:
+        """Cached active-mesh eigenvalues, as a read-only array."""
+        return _readonly(self._native.eigenvalues())
+
+    @property
+    def eigenvectors(self) -> np.ndarray:
+        """Cached active-mesh eigenvector matrices, as a read-only array.
+
+        Each matrix uses the numpy.linalg.eigh convention: columns are
+        normalized eigenvectors and the last axis is the band index.
+        """
+        return _readonly(self._native.eigenvectors())
+
     def integrate_charge(
         self,
         *,
@@ -279,6 +309,25 @@ class SpectralMesh:
         """
         return self._native.estimate_charge_on_current_mesh(
             _finite_float(mu, "mu"),
+        )
+
+    def occupied_weights(self, mu: float) -> np.ndarray:
+        """Return occupied cut-simplex weights on the active mesh.
+
+        The result has shape (active_vertices, ndof) and its rows match
+        points, eigenvalues, and eigenvectors. It accumulates analytical
+        barycentric moments for every active simplex and band. All active
+        eigensystems must already be cached; this method never evaluates the
+        Hamiltonian or refines the mesh.
+
+        Consequently, weights.sum() is the current-mesh particle number and
+        np.sum(weights * mesh.eigenvalues) is the occupied band energy in the
+        same normalization as the other FermiSimplex integrals.
+        """
+        return np.asarray(
+            self._native.occupied_weights(
+                _finite_float(mu, "mu"),
+            )
         )
 
     def integrate_density_matrix(

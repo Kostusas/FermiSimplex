@@ -195,6 +195,90 @@ auto evaluate_hamiltonian(const SpectralMesh &mesh, PointArray point) {
     return make_array(std::move(row_major), {mesh.ndof(), mesh.ndof()});
 }
 
+auto active_mesh_points(const SpectralMesh &mesh) {
+    const auto vertex_ids = mesh.active_vertex_ids();
+    auto points = std::vector<double>{};
+    points.reserve(vertex_ids.size() * mesh.ndim());
+    for (const auto vertex_id : vertex_ids) {
+        const auto point =
+            mesh.geometry().vertices().dyadic_vertex(vertex_id).to_point();
+        points.insert(points.end(), point.begin(), point.end());
+    }
+    return make_array(
+        std::move(points),
+        {vertex_ids.size(), mesh.ndim()}
+    );
+}
+
+auto active_mesh_simplices(const SpectralMesh &mesh) {
+    const auto vertex_ids = mesh.active_vertex_ids();
+    auto compact_index = std::vector<std::size_t>(
+        mesh.geometry().vertices().size(), 0
+    );
+    for (std::size_t index = 0; index < vertex_ids.size(); ++index) {
+        compact_index[vertex_ids[index]] = index;
+    }
+
+    const auto active = mesh.geometry().simplices().active_simplices();
+    auto simplices = std::vector<std::int64_t>{};
+    simplices.reserve(active.size() * (mesh.ndim() + 1));
+    for (const auto simplex_id : active) {
+        for (const auto vertex_id :
+             mesh.geometry().simplices().simplex(simplex_id).vertex_ids) {
+            simplices.push_back(
+                static_cast<std::int64_t>(compact_index[vertex_id])
+            );
+        }
+    }
+    return make_array(
+        std::move(simplices),
+        {active.size(), mesh.ndim() + 1}
+    );
+}
+
+auto active_mesh_eigenvalues(const SpectralMesh &mesh) {
+    const auto vertex_ids = mesh.active_vertex_ids();
+    auto eigenvalues = std::vector<double>{};
+    eigenvalues.reserve(vertex_ids.size() * mesh.ndof());
+    for (const auto vertex_id : vertex_ids) {
+        const auto &values = mesh.eigensystems().get(vertex_id).eigenvalues;
+        eigenvalues.insert(eigenvalues.end(), values.begin(), values.end());
+    }
+    return make_array(
+        std::move(eigenvalues),
+        {vertex_ids.size(), mesh.ndof()}
+    );
+}
+
+auto active_mesh_eigenvectors(const SpectralMesh &mesh) {
+    const auto vertex_ids = mesh.active_vertex_ids();
+    auto eigenvectors = std::vector<std::complex<double>>(
+        vertex_ids.size() * mesh.ndof() * mesh.ndof()
+    );
+    for (std::size_t vertex = 0; vertex < vertex_ids.size(); ++vertex) {
+        const auto &vectors =
+            mesh.eigensystems().get(vertex_ids[vertex]).eigenvectors;
+        for (std::size_t row = 0; row < mesh.ndof(); ++row) {
+            for (std::size_t band = 0; band < mesh.ndof(); ++band) {
+                eigenvectors[(vertex * mesh.ndof() + row) * mesh.ndof() + band] =
+                    vectors[band * mesh.ndof() + row];
+            }
+        }
+    }
+    return make_array(
+        std::move(eigenvectors),
+        {vertex_ids.size(), mesh.ndof(), mesh.ndof()}
+    );
+}
+
+auto occupied_weight_array(const SpectralMesh &mesh, double mu) {
+    const auto vertex_count = mesh.active_vertex_ids().size();
+    return make_array(
+        mesh.occupied_weights(mu),
+        {vertex_count, mesh.ndof()}
+    );
+}
+
 int spectral_mesh_tp_traverse(PyObject *self, visitproc visit, void *arg) {
     Py_VISIT(Py_TYPE(self));
 
@@ -287,6 +371,10 @@ void bind_spectral_mesh(nb::module_ &module) {
         .def_prop_ro("cached_vertices", &SpectralMesh::cached_vertices)
         .def_prop_ro("active_simplices", &SpectralMesh::active_simplices)
         .def_prop_ro("active_vertices", &SpectralMesh::active_vertices)
+        .def("points", &active_mesh_points)
+        .def("simplices", &active_mesh_simplices)
+        .def("eigenvalues", &active_mesh_eigenvalues)
+        .def("eigenvectors", &active_mesh_eigenvectors)
         .def(
             "evaluate",
             &evaluate_hamiltonian,
@@ -332,6 +420,11 @@ void bind_spectral_mesh(nb::module_ &module) {
             },
             "mu"_a,
             nb::call_guard<nb::gil_scoped_release>()
+        )
+        .def(
+            "occupied_weights",
+            &occupied_weight_array,
+            "mu"_a
         )
         .def(
             "integrate_density_components",

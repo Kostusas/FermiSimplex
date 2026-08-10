@@ -6,6 +6,7 @@ import pytest
 from fermisimplex import DensityComponentsResult, SpectralMesh
 
 from .helpers import (
+    axis_cosine_band,
     constant_insulator,
     dense_reference,
     dimerized_chain,
@@ -63,6 +64,8 @@ def test_integration_requires_a_finite_chemical_potential(mu):
     with pytest.raises(ValueError, match="mu must be finite"):
         mesh.estimate_charge_on_current_mesh(mu=mu)
     with pytest.raises(ValueError, match="mu must be finite"):
+        mesh.occupied_weights(mu)
+    with pytest.raises(ValueError, match="mu must be finite"):
         mesh.integrate_density_matrix(
             mu=mu,
             lattice_vectors=[(0,)],
@@ -70,6 +73,125 @@ def test_integration_requires_a_finite_chemical_potential(mu):
             max_refinements=0,
         )
 
+
+@pytest.mark.parametrize(
+    ("mu", "occupation"),
+    (
+        (-2.0, "empty"),
+        (2.0, "full"),
+        (0.1, "partial"),
+    ),
+)
+def test_occupied_weights_match_charge_density_and_band_energy(mu, occupation):
+    hoppings = axis_cosine_band(1)
+    hoppings[(0,)] = np.array([[-0.3]], dtype=complex)
+    mesh = SpectralMesh(hoppings, root_level=1)
+
+    charge = mesh.estimate_charge_on_current_mesh(mu=mu)
+    weights = mesh.occupied_weights(mu)
+    density_vectors = [
+        tuple(-component for component in lattice_vector)
+        for lattice_vector in hoppings
+    ]
+    density = mesh.integrate_density_matrix(
+        mu=mu,
+        lattice_vectors=density_vectors,
+        target_error=0.0,
+        max_refinements=0,
+        preview_depth=0,
+    )
+
+    band_energy = np.sum(weights * mesh.eigenvalues)
+    density_band_energy = sum(
+        np.trace(hopping @ density.matrices[index])
+        for index, hopping in enumerate(hoppings.values())
+    )
+    projectors = np.einsum(
+        "vib,vjb->vbij",
+        mesh.eigenvectors,
+        mesh.eigenvectors.conj(),
+    )
+    onsite_density = np.einsum("vb,vbij->ij", weights, projectors)
+    zero_vector_index = density_vectors.index((0,))
+
+    assert weights.shape == (mesh.active_vertices, mesh.ndof)
+    assert weights.sum() == pytest.approx(charge.value)
+    assert band_energy == pytest.approx(density_band_energy)
+    assert onsite_density == pytest.approx(
+        density.matrices[zero_vector_index]
+    )
+    if occupation == "empty":
+        assert weights == pytest.approx(0.0)
+    elif occupation == "full":
+        assert weights.sum() == pytest.approx(1.0)
+    else:
+        assert 0.0 < weights.sum() < 1.0
+
+
+def test_occupied_weights_use_half_occupation_on_the_level():
+    mesh = SpectralMesh({(0,): np.zeros((1, 1), dtype=complex)})
+    charge = mesh.estimate_charge_on_current_mesh(mu=0.0)
+
+    weights = mesh.occupied_weights(0.0)
+
+    assert weights.sum() == pytest.approx(0.5)
+    assert weights.sum() == pytest.approx(charge.value)
+
+
+def test_public_mesh_arrays_are_read_only_and_do_not_evaluate():
+    evaluations = []
+
+    def hamiltonian(k):
+        evaluations.append(k)
+        return np.array([[np.cos(2.0 * np.pi * k)]], dtype=complex)
+
+    mesh = SpectralMesh(hamiltonian, root_level=1)
+    evaluations_before_access = len(evaluations)
+
+    points = mesh.points
+    simplices = mesh.simplices
+    assert len(evaluations) == evaluations_before_access
+    with pytest.raises(RuntimeError, match="not cached"):
+        _ = mesh.eigenvalues
+    with pytest.raises(RuntimeError, match="not fully cached"):
+        mesh.occupied_weights(0.0)
+    assert len(evaluations) == evaluations_before_access
+
+    mesh.estimate_charge_on_current_mesh(mu=0.0)
+    evaluations_before_access = len(evaluations)
+    cached_vertices = mesh.cached_vertices
+    points = mesh.points
+    simplices = mesh.simplices
+    eigenvalues = mesh.eigenvalues
+    eigenvectors = mesh.eigenvectors
+    weights = mesh.occupied_weights(0.0)
+
+    assert points.shape == (mesh.active_vertices, mesh.ndim)
+    assert simplices.shape == (mesh.active_simplices, mesh.ndim + 1)
+    assert eigenvalues.shape == (mesh.active_vertices, mesh.ndof)
+    assert eigenvectors.shape == (
+        mesh.active_vertices,
+        mesh.ndof,
+        mesh.ndof,
+    )
+    assert np.min(simplices) >= 0
+    assert np.max(simplices) < mesh.active_vertices
+    assert np.einsum(
+        "vib,vic->vbc",
+        eigenvectors.conj(),
+        eigenvectors,
+    ) == pytest.approx(
+        np.broadcast_to(
+            np.eye(mesh.ndof), (mesh.active_vertices, mesh.ndof, mesh.ndof)
+        )
+    )
+    for array in (points, simplices, eigenvalues, eigenvectors):
+        assert not array.flags.writeable
+        with pytest.raises(ValueError, match="read-only"):
+            array.flat[0] = 0
+    assert weights.shape == eigenvalues.shape
+    assert len(evaluations) == evaluations_before_access
+    assert mesh.cached_vertices == cached_vertices
 
 def test_density_matrix_preview_zero_reuses_the_current_mesh():
     mesh = SpectralMesh(constant_insulator(1))

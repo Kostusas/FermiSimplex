@@ -60,6 +60,14 @@ public:
     // Evaluates and diagonalizes the trusted model at one reduced coordinate.
     Eigensystem spectrum(std::span<const double> reduced_point) const;
 
+    // Active vertex ids in ascending order. Occupied-weight rows use this
+    // same ordering.
+    std::vector<adaptivesimplex::core::VertexId> active_vertex_ids() const;
+
+    // Accumulates analytical cut-simplex barycentric weights over the current
+    // active mesh. All active eigensystems must already be cached.
+    std::vector<double> occupied_weights(double mu) const;
+
     double linearization_error_bound(
         adaptivesimplex::core::SimplexId simplex_id,
         double curvature_bound

@@ -1,10 +1,13 @@
 #include "integration/charge.h"
 
+#include "integration/charge_profile.h"
+
 #include "certification/mesh_certificate.h"
 
 #include <adaptivesimplex/cut/simplex_moments.h>
 
 #include <algorithm>
+#include <chrono>
 #include <cmath>
 #include <span>
 #include <vector>
@@ -170,18 +173,43 @@ ChargeContribution charge_on_simplex(
     SpectralMesh &mesh,
     const core::Geometry &geometry,
     core::SimplexId simplex_id,
-    ChargeErrorEstimator &error_estimator
+    ChargeErrorEstimator &error_estimator,
+    ChargeProfile *profile
 ) {
-    const auto certificate = cert::certify_mesh_simplex(
-        mesh,
-        simplex_id,
-        mu,
-        0.0,
-        mesh.tolerance()
+    using Clock = std::chrono::steady_clock;
+    const auto certification_started = profile == nullptr
+        ? Clock::time_point{}
+        : Clock::now();
+    const auto prepared_certificate =
+        cert::prepare_mesh_simplex_certificate(
+            mesh,
+            simplex_id,
+            mu,
+            mesh.tolerance()
+        );
+    const auto certificate = prepared_certificate.certify(
+        0.0
     );
+    if (profile != nullptr) {
+        profile->root_certification_seconds +=
+            std::chrono::duration<double>(
+                Clock::now() - certification_started
+            ).count();
+    }
 
-    auto result =
-        band_charge_on_simplex(mu, mesh, geometry, simplex_id);
+    const auto charge_started = profile == nullptr
+        ? Clock::time_point{}
+        : Clock::now();
+    const auto linear_charge_started = charge_started;
+    auto result = band_charge_on_simplex(
+        mu, mesh, geometry, simplex_id
+    );
+    if (profile != nullptr) {
+        profile->linear_charge_seconds +=
+            std::chrono::duration<double>(
+                Clock::now() - linear_charge_started
+            ).count();
+    }
     if (certificate.status ==
         cert::SimplexCertificateStatus::VisibleGapless) {
         result.visible_gapless_simplices = 1;
@@ -191,12 +219,26 @@ ChargeContribution charge_on_simplex(
     ) {
         result.inconclusive_simplices = 1;
     }
+    const auto error_estimation_started = profile == nullptr
+        ? Clock::time_point{}
+        : Clock::now();
     result.estimated_error = error_estimator.estimate(
         geometry,
         simplex_id,
         result.value,
-        certificate
+        certificate,
+        prepared_certificate
     );
+    if (profile != nullptr) {
+        profile->error_estimation_seconds +=
+            std::chrono::duration<double>(
+                Clock::now() - error_estimation_started
+            ).count();
+        profile->charge_and_error_seconds +=
+            std::chrono::duration<double>(
+                Clock::now() - charge_started
+            ).count();
+    }
     return result;
 }
 

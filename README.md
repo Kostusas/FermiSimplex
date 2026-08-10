@@ -109,7 +109,21 @@ charge.stopping_error
 charge.error_stats
 density.matrices  # (number of lattice vectors, ndof, ndof)
 selected_density.values  # follows the component request order
+
+weights = mesh.occupied_weights(0.17)
+mesh.points        # (active_vertices, ndim), read-only
+mesh.simplices     # (active_simplices, ndim + 1), read-only
+mesh.eigenvalues   # (active_vertices, ndof), read-only
+mesh.eigenvectors  # (active_vertices, ndof, ndof), read-only
+particle_number = weights.sum()
+band_energy = np.sum(weights * mesh.eigenvalues)
+projectors = np.einsum("vib,vjb->vbij", mesh.eigenvectors, mesh.eigenvectors.conj())
+onsite_density = np.einsum("vb,vbij->ij", weights, projectors)
 ```
+
+`occupied_weights` only uses cached eigensystems on the current active mesh;
+it performs no Hamiltonian evaluations or refinement. If an active vertex
+has not been cached yet, it raises instead of filling the cache implicitly.
 
 For a tight-binding model,
 
@@ -159,6 +173,10 @@ curvature argument. See the [mathematics guide][mathematics] for details.
 - `mesh.integrate_charge`: adaptive filling and $dQ/d\mu$.
 - `mesh.estimate_charge_on_current_mesh`: direct linear-simplex filling and
   $dQ/d\mu$ with no error estimation or refinement.
+- `mesh.points`, `mesh.simplices`, `mesh.eigenvalues`, and
+  `mesh.eigenvectors`: read-only snapshots of the current active mesh and
+  its cached eigensystems.
+- `mesh.occupied_weights`: current-mesh occupied barycentric weights.
 - `mesh.integrate_density_components`: selected real-space density entries,
   requested as `(lattice_vector_index, row, column)`.
 - `mesh.integrate_density_matrix`: real-space density-matrix components.

@@ -4,6 +4,29 @@ All notable changes to FermiSimplex are documented in this file.
 
 ## Unreleased
 
+- Reduced recursive charge-estimation cost by sharing sampled Hamiltonians and
+  spectra across each root's microsimplices, reusing prepared
+  root-certification data,
+  requesting eigenvalues only when midpoint eigenvectors are unused, and using
+  analytic spectral norms for one- and two-dimensional midpoint defects.
+- Added scalar certification and one-dimensional reduced-model fast paths,
+  reused LAPACK eigensolver workspaces, and packed native tight-binding
+  Hamiltonian evaluation.
+- Reduced newly reopened terminal regions before exact defect work, avoiding
+  full-dimensional midpoint and defect eigensystems, and added a bounds-only
+  prepared-certificate path that skips unused chemical-potential-radius work.
+- Added an exact native tight-binding matrix-valued evaluator for corrected
+  frozen Schur models at any retained band count, including batched eigenbasis
+  projections and adjoint hopping reuse, so reduced point evaluations avoid
+  full Hamiltonian construction.
+- Replaced native tight-binding full-space Frobenius defect construction with
+  an exact hopping-Gram quadratic form, eliminating dense Hamiltonian work from
+  the profiled one-band charge-error sweep.
+- Unified per-point Hamiltonian and spectral storage into lazy records and made
+  one root-simplex-local workspace the sole cache lifetime. This gives the
+  estimator a clear per-root memory bound while allowing temporary data to be
+  shared throughout that root's recursive microsimplices.
+
 ## 0.2.0 - 2026-08-07
 
 - Replaced the projected charge-error heuristic with a fixed-depth recursive

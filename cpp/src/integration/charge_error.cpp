@@ -1,5 +1,10 @@
 #include "integration/charge_error.h"
 
+#include "integration/charge_error/cached_model.h"
+#include "integration/charge_error/diagnostics.h"
+#include "integration/charge_profile.h"
+
+#include "certification/mesh_certificate.h"
 #include "linalg/blas_lapack.h"
 
 #include <adaptivesimplex/core/dyadic_vertex.h>
@@ -8,6 +13,7 @@
 #include <adaptivesimplex/cut/simplex_moments.h>
 
 #include <algorithm>
+#include <chrono>
 #include <cmath>
 #include <complex>
 #include <cstddef>
@@ -16,8 +22,6 @@
 #include <memory>
 #include <optional>
 #include <span>
-#include <stdexcept>
-#include <unordered_map>
 #include <utility>
 #include <vector>
 
@@ -28,11 +32,15 @@ namespace cut = adaptivesimplex::cut;
 
 namespace {
 
+using charge_error_detail::ProfileTimer;
 using Complex = std::complex<double>;
 using Matrix = std::vector<Complex>;
 using Point = core::DyadicVertex;
+using Clock = std::chrono::steady_clock;
 
-struct SchurFailure {};
+double elapsed_seconds(Clock::time_point started) {
+    return std::chrono::duration<double>(Clock::now() - started).count();
+}
 
 struct ChargeInterval {
     double lower = 0.0;
@@ -55,46 +63,12 @@ std::size_t matrix_index(
     return row + column * rows;
 }
 
-bool finite(Complex value) {
-    return std::isfinite(value.real()) && std::isfinite(value.imag());
-}
-
 bool covers_radius(
     const cert::SimplexCertificate &certificate,
     double radius
 ) {
     return cert::occupation_bounds_valid_at(certificate, -radius) &&
            cert::occupation_bounds_valid_at(certificate, radius);
-}
-
-Matrix multiply(
-    char left_operation,
-    char right_operation,
-    std::size_t rows,
-    std::size_t columns,
-    std::size_t inner_dimension,
-    std::span<const Complex> left,
-    std::size_t left_leading_dimension,
-    std::span<const Complex> right,
-    std::size_t right_leading_dimension
-) {
-    auto result = Matrix(rows * columns, Complex{0.0, 0.0});
-    linalg::matrix_multiply(
-        left_operation,
-        right_operation,
-        rows,
-        columns,
-        inner_dimension,
-        Complex{1.0, 0.0},
-        left.data(),
-        left_leading_dimension,
-        right.data(),
-        right_leading_dimension,
-        Complex{0.0, 0.0},
-        result.data(),
-        rows
-    );
-    return result;
 }
 
 void make_hermitian(Matrix &matrix, std::size_t size) {
@@ -111,235 +85,9 @@ void make_hermitian(Matrix &matrix, std::size_t size) {
     }
 }
 
-Eigensystem diagonalize(
-    Matrix matrix,
-    std::size_t size,
-    bool compute_vectors,
-    const char *context
-) {
-    auto result = Eigensystem{};
-    linalg::diagonalize_hermitian_in_place(
-        matrix,
-        result.eigenvalues,
-        size,
-        compute_vectors,
-        context
-    );
-    if (compute_vectors) {
-        result.eigenvectors = std::move(matrix);
-    }
-    return result;
-}
-
-Matrix selected_columns(
-    const Eigensystem &eigensystem,
-    std::span<const std::size_t> columns
-) {
-    const auto size = eigensystem.eigenvalues.size();
-    auto result = Matrix(size * columns.size());
-    for (std::size_t output = 0; output < columns.size(); ++output) {
-        for (std::size_t row = 0; row < size; ++row) {
-            result[matrix_index(row, output, size)] =
-                eigensystem.eigenvectors[
-                    matrix_index(row, columns[output], size)
-                ];
-        }
-    }
-    return result;
-}
-
-struct SchurLayer {
-    std::size_t parent_dimension = 0;
-    std::size_t active_dimension = 0;
-    Matrix active_basis;
-    Matrix safe_resolvent;
-    mutable Matrix x_buffer;
-    mutable Matrix y_buffer;
-};
-
-Matrix apply_layer(
-    std::span<const Complex> matrix,
-    const SchurLayer &layer,
-    ChargeErrorStats &stats
-) {
-    const auto size = layer.parent_dimension;
-    const auto active = layer.active_dimension;
-    auto &x = layer.x_buffer;
-    auto &y = layer.y_buffer;
-    auto result = Matrix(active * active);
-    auto frozen_shift = Matrix(active * active);
-
-    // X = H U?, A = U?^H X.
-    linalg::matrix_multiply(
-        'N', 'N', size, active, size, Complex{1.0, 0.0},
-        matrix.data(), size, layer.active_basis.data(), size,
-        Complex{0.0, 0.0}, x.data(), size
-    );
-    linalg::matrix_multiply(
-        'C', 'N', active, active, size, Complex{1.0, 0.0},
-        layer.active_basis.data(), size, x.data(), size,
-        Complex{0.0, 0.0}, result.data(), active
-    );
-
-    // Y = R X and F = X^H Y, where R = Us D0^-1 Us^H.
-    linalg::matrix_multiply(
-        'N', 'N', size, active, size, Complex{1.0, 0.0},
-        layer.safe_resolvent.data(), size, x.data(), size,
-        Complex{0.0, 0.0}, y.data(), size
-    );
-    linalg::matrix_multiply(
-        'C', 'N', active, active, size, Complex{1.0, 0.0},
-        x.data(), size, y.data(), size,
-        Complex{0.0, 0.0}, frozen_shift.data(), active
-    );
-
-    // Reuse X for H Y and accumulate Y^H H Y into A.
-    linalg::matrix_multiply(
-        'N', 'N', size, active, size, Complex{1.0, 0.0},
-        matrix.data(), size, y.data(), size,
-        Complex{0.0, 0.0}, x.data(), size
-    );
-    linalg::matrix_multiply(
-        'C', 'N', active, active, size, Complex{1.0, 0.0},
-        y.data(), size, x.data(), size,
-        Complex{1.0, 0.0}, result.data(), active
-    );
-
-    ++stats.schur_evaluations;
-    for (std::size_t index = 0; index < result.size(); ++index) {
-        result[index] -= Complex{2.0, 0.0} * frozen_shift[index];
-        if (!finite(result[index])) {
-            throw SchurFailure{};
-        }
-    }
-    make_hermitian(result, active);
-    return result;
-}
-
-class SharedHamiltonians {
-public:
-    SharedHamiltonians(
-        SpectralMesh &mesh,
-        double mu,
-        ChargeErrorStats &stats
-    ) : mesh_(mesh), mu_(mu), stats_(stats) {}
-
-    void remember_spectrum(const Point &point, const Eigensystem &spectrum) {
-        auto shifted = spectrum;
-        for (auto &value : shifted.eigenvalues) {
-            value -= mu_;
-        }
-        spectra_.insert_or_assign(point, std::move(shifted));
-    }
-
-    const Matrix &matrix(const Point &point) {
-        const auto found = matrices_.find(point);
-        if (found != matrices_.end()) {
-            return found->second;
-        }
-
-        auto value = mesh_.hamiltonian(point.to_point());
-        for (std::size_t index = 0; index < mesh_.ndof(); ++index) {
-            value[matrix_index(index, index, mesh_.ndof())] -= mu_;
-        }
-        ++stats_.hamiltonian_evaluations;
-        return matrices_.emplace(point, std::move(value)).first->second;
-    }
-
-    const Eigensystem &spectrum(const Point &point) {
-        const auto found = spectra_.find(point);
-        if (found != spectra_.end()) {
-            return found->second;
-        }
-
-        auto result = diagonalize(
-            matrix(point),
-            mesh_.ndof(),
-            true,
-            "charge-error full Hamiltonian"
-        );
-        ++stats_.full_eigensystems;
-        return spectra_.emplace(point, std::move(result)).first->second;
-    }
-
-    SpectralMesh &mesh() const noexcept {
-        return mesh_;
-    }
-
-private:
-    SpectralMesh &mesh_;
-    double mu_ = 0.0;
-    ChargeErrorStats &stats_;
-    std::unordered_map<Point, Matrix, Point::Hash> matrices_;
-    std::unordered_map<Point, Eigensystem, Point::Hash> spectra_;
-};
-
-class EffectiveModel {
-public:
-    EffectiveModel(
-        SharedHamiltonians &hamiltonians,
-        ChargeErrorStats &stats
-    ) : hamiltonians_(hamiltonians),
-        stats_(stats),
-        dimension_(hamiltonians.mesh().ndof()) {}
-
-    EffectiveModel(
-        std::shared_ptr<const EffectiveModel> parent,
-        SchurLayer layer,
-        ChargeErrorStats &stats
-    ) : hamiltonians_(parent->hamiltonians_),
-        stats_(stats),
-        parent_(std::move(parent)),
-        layer_(std::move(layer)),
-        dimension_(layer_->active_dimension) {}
-
-    std::size_t dimension() const noexcept {
-        return dimension_;
-    }
-
-    const Matrix &matrix(const Point &point) const {
-        if (!parent_) {
-            return hamiltonians_.matrix(point);
-        }
-        const auto found = matrices_.find(point);
-        if (found != matrices_.end()) {
-            return found->second;
-        }
-        auto value = apply_layer(parent_->matrix(point), *layer_, stats_);
-        return matrices_.emplace(point, std::move(value)).first->second;
-    }
-
-    const Eigensystem &spectrum(const Point &point) const {
-        if (!parent_) {
-            return hamiltonians_.spectrum(point);
-        }
-        const auto found = spectra_.find(point);
-        if (found != spectra_.end()) {
-            return found->second;
-        }
-        auto result = diagonalize(
-            matrix(point),
-            dimension_,
-            true,
-            "charge-error reduced Hamiltonian"
-        );
-        ++stats_.reduced_eigensystems;
-        return spectra_.emplace(point, std::move(result)).first->second;
-    }
-
-private:
-    SharedHamiltonians &hamiltonians_;
-    ChargeErrorStats &stats_;
-    std::shared_ptr<const EffectiveModel> parent_;
-    std::optional<SchurLayer> layer_;
-    std::size_t dimension_ = 0;
-    mutable std::unordered_map<Point, Matrix, Point::Hash> matrices_;
-    mutable std::unordered_map<Point, Eigensystem, Point::Hash> spectra_;
-};
-
 struct SimplexState {
     std::vector<Point> points;
-    std::vector<const Eigensystem *> spectra;
+    std::vector<const CachedSpectrum *> spectra;
 };
 
 SimplexState simplex_state(
@@ -363,7 +111,8 @@ SimplexState simplex_state(
 cert::SimplexCertificate certify(
     const SimplexState &state,
     double radius,
-    double tolerance
+    double tolerance,
+    ChargeProfile *profile
 ) {
     auto eigenvalues = std::vector<std::span<const double>>{};
     auto eigenvectors =
@@ -372,15 +121,40 @@ cert::SimplexCertificate certify(
     eigenvectors.reserve(state.spectra.size());
     for (const auto *spectrum : state.spectra) {
         eigenvalues.emplace_back(spectrum->eigenvalues);
-        eigenvectors.emplace_back(spectrum->eigenvectors);
+        eigenvectors.emplace_back(*spectrum->eigenvectors);
     }
-    return cert::certify_simplex(
+    const auto preparation_started = profile == nullptr
+        ? Clock::time_point{}
+        : Clock::now();
+    const auto prepared = cert::prepare_simplex_certificate(
         eigenvalues,
         eigenvectors,
         0.0,
-        radius,
         tolerance
     );
+    const auto preparation_seconds = profile == nullptr
+        ? 0.0
+        : elapsed_seconds(preparation_started);
+    const auto application_started = profile == nullptr
+        ? Clock::time_point{}
+        : Clock::now();
+    auto result = prepared.certify(radius);
+    if (profile != nullptr) {
+        const auto application_seconds = elapsed_seconds(application_started);
+        const auto total_seconds = preparation_seconds + application_seconds;
+        profile->error_certification_seconds += total_seconds;
+        profile->error_certification_prepare_seconds += preparation_seconds;
+        profile->error_certification_apply_seconds += application_seconds;
+        ++profile->error_certification_calls;
+        ++profile->error_certification_direct_calls;
+        profile->record_certification(
+            state.spectra.front()->eigenvalues.size(),
+            result.occupation_bounds.upper - result.occupation_bounds.lower,
+            radius,
+            total_seconds
+        );
+    }
+    return result;
 }
 
 std::size_t best_anchor(
@@ -405,54 +179,6 @@ std::size_t best_anchor(
     return best;
 }
 
-SchurLayer make_layer(
-    const Eigensystem &anchor,
-    cert::OccupationBounds bounds
-) {
-    const auto size = anchor.eigenvalues.size();
-    auto active_columns = std::vector<std::size_t>{};
-    auto safe_columns = std::vector<std::size_t>{};
-    auto inverse_safe_eigenvalues = std::vector<double>{};
-    const auto active = bounds.upper - bounds.lower;
-    active_columns.reserve(active);
-    safe_columns.reserve(size - active);
-    inverse_safe_eigenvalues.reserve(size - active);
-    for (std::size_t band = 0; band < size; ++band) {
-        if (bounds.lower <= band && band < bounds.upper) {
-            active_columns.push_back(band);
-        } else {
-            const auto value = anchor.eigenvalues[band];
-            if (!std::isfinite(value) || value == 0.0) {
-                throw SchurFailure{};
-            }
-            safe_columns.push_back(band);
-            inverse_safe_eigenvalues.push_back(1.0 / value);
-        }
-    }
-    auto active_basis = selected_columns(anchor, active_columns);
-    const auto safe_basis = selected_columns(anchor, safe_columns);
-    auto scaled_safe_basis = safe_basis;
-    for (std::size_t column = 0; column < safe_columns.size(); ++column) {
-        for (std::size_t row = 0; row < size; ++row) {
-            scaled_safe_basis[matrix_index(row, column, size)] *=
-                inverse_safe_eigenvalues[column];
-        }
-    }
-    auto safe_resolvent = multiply(
-        'N', 'C', size, size, safe_columns.size(),
-        scaled_safe_basis, size, safe_basis, size
-    );
-    make_hermitian(safe_resolvent, size);
-    return SchurLayer{
-        .parent_dimension = size,
-        .active_dimension = active_columns.size(),
-        .active_basis = std::move(active_basis),
-        .safe_resolvent = std::move(safe_resolvent),
-        .x_buffer = Matrix(size * active),
-        .y_buffer = Matrix(size * active),
-    };
-}
-
 struct MicroMesh {
     core::Geometry geometry;
     std::vector<core::SimplexId> simplex_ids;
@@ -461,8 +187,12 @@ struct MicroMesh {
 MicroMesh subdivide(
     const core::Geometry &source_geometry,
     core::SimplexId source_id,
-    std::uint32_t binary_depth
+    std::uint32_t binary_depth,
+    ChargeProfile *profile
 ) {
+    const auto started = profile == nullptr
+        ? Clock::time_point{}
+        : Clock::now();
     const auto &source =
         source_geometry.simplices().simplex(source_id);
     auto vertices = core::VertexTable(source_geometry.ndim());
@@ -484,7 +214,12 @@ MicroMesh subdivide(
         std::move(simplices)
     );
     auto simplex_ids = geometry.preview_active(root_id, binary_depth);
-    return {std::move(geometry), std::move(simplex_ids)};
+    auto result = MicroMesh{std::move(geometry), std::move(simplex_ids)};
+    if (profile != nullptr) {
+        profile->error_subdivision_seconds += elapsed_seconds(started);
+        ++profile->error_subdivision_calls;
+    }
+    return result;
 }
 
 double occupied_volume(
@@ -510,23 +245,68 @@ double defect_norm(
     Matrix matrix,
     std::size_t size,
     bool exact,
-    ChargeErrorStats &stats
+    ChargeErrorStats &stats,
+    ChargeProfile *profile
 ) {
+    const auto overhead_started = profile == nullptr
+        ? Clock::time_point{}
+        : Clock::now();
     make_hermitian(matrix, size);
     if (!exact) {
         auto squared_norm = 0.0;
         for (const auto value : matrix) {
             squared_norm += std::norm(value);
         }
+        if (profile != nullptr) {
+            profile->error_defect_norm_overhead_seconds +=
+                elapsed_seconds(overhead_started);
+        }
         return std::sqrt(squared_norm);
     }
     if (std::all_of(matrix.begin(), matrix.end(), [](Complex value) {
             return value == Complex{0.0, 0.0};
         })) {
+        if (profile != nullptr) {
+            profile->error_defect_norm_overhead_seconds +=
+                elapsed_seconds(overhead_started);
+        }
         return 0.0;
     }
+    if (size == 1) {
+        if (profile != nullptr) {
+            profile->error_defect_norm_overhead_seconds +=
+                elapsed_seconds(overhead_started);
+        }
+        return std::abs(matrix.front().real());
+    }
+    if (size == 2) {
+        const auto first = matrix[matrix_index(0, 0, size)].real();
+        const auto second = matrix[matrix_index(1, 1, size)].real();
+        const auto off_diagonal = matrix[matrix_index(1, 0, size)];
+        const auto center = 0.5 * (first + second);
+        const auto half_difference = 0.5 * (first - second);
+        const auto radius = std::sqrt(
+            half_difference * half_difference + std::norm(off_diagonal)
+        );
+        const auto result = std::max(
+            std::abs(center - radius),
+            std::abs(center + radius)
+        );
+        if (profile != nullptr) {
+            profile->error_defect_norm_overhead_seconds +=
+                elapsed_seconds(overhead_started);
+        }
+        return result;
+    }
 
+    if (profile != nullptr) {
+        profile->error_defect_norm_overhead_seconds +=
+            elapsed_seconds(overhead_started);
+    }
     auto values = std::vector<double>{};
+    const auto started = profile == nullptr
+        ? Clock::time_point{}
+        : Clock::now();
     linalg::diagonalize_hermitian_in_place(
         matrix,
         values,
@@ -534,10 +314,22 @@ double defect_norm(
         false,
         "charge-error midpoint defect"
     );
+    if (profile != nullptr) {
+        const auto seconds = elapsed_seconds(started);
+        profile->error_norm_eigensystem_seconds += seconds;
+        profile->record_norm(size, seconds);
+    }
     ++stats.norm_eigensystems;
     auto result = 0.0;
+    const auto postprocess_started = profile == nullptr
+        ? Clock::time_point{}
+        : Clock::now();
     for (const auto value : values) {
         result = std::max(result, std::abs(value));
+    }
+    if (profile != nullptr) {
+        profile->error_defect_norm_overhead_seconds +=
+            elapsed_seconds(postprocess_started);
     }
     return result;
 }
@@ -546,21 +338,29 @@ double defect_norm(
 
 struct ChargeErrorEstimator::Impl {
     SpectralMesh &mesh;
-    double mu = 0.0;
     std::uint32_t depth = 0;
     ChargeErrorStats &stats;
+    ChargeProfile *profile = nullptr;
+    ModelBackend backend;
 
     Impl(
         SpectralMesh &mesh_,
         double mu_,
         std::uint32_t depth_,
-        ChargeErrorStats &stats_
+        ChargeErrorStats &stats_,
+        ChargeProfile *profile_
     ) : mesh(mesh_),
-        mu(mu_),
         depth(depth_),
-        stats(stats_) {}
+        stats(stats_),
+        profile(profile_),
+        backend(mesh_, mu_, stats_, profile_) {}
 
-    ChargeInterval fallback(
+    struct ActiveSpaceReduction {
+        std::unique_ptr<EffectiveModel> model;
+        SimplexState state;
+    };
+
+    ChargeInterval conservative_interval(
         OccupationRange range,
         double volume
     ) {
@@ -571,27 +371,25 @@ struct ChargeErrorEstimator::Impl {
         };
     }
 
-    std::optional<std::pair<
-        std::shared_ptr<EffectiveModel>,
-        SimplexState
-    >> reduce(
-        const std::shared_ptr<EffectiveModel> &model,
+    std::optional<ActiveSpaceReduction> try_reduce_active_space(
+        const EffectiveModel &model,
         const core::Geometry &geometry,
         core::SimplexId simplex_id,
         const SimplexState &state,
         cert::OccupationBounds bounds
     ) {
         const auto active = bounds.upper - bounds.lower;
-        if (active == 0 || active == model->dimension()) {
+        if (active == 0 || active == model.dimension()) {
             return std::nullopt;
         }
 
         const auto anchor = best_anchor(state, bounds);
         try {
-            auto candidate = std::make_shared<EffectiveModel>(
+            auto candidate = make_active_space_model(
                 model,
-                make_layer(*state.spectra[anchor], bounds),
-                stats
+                *state.spectra[anchor],
+                bounds.lower,
+                bounds.upper
             );
             auto candidate_state =
                 simplex_state(geometry, simplex_id, *candidate);
@@ -602,9 +400,9 @@ struct ChargeErrorEstimator::Impl {
                 stats.minimum_active_dimension =
                     std::min(stats.minimum_active_dimension, active);
             }
-            return std::pair{
-                std::move(candidate),
-                std::move(candidate_state),
+            return ActiveSpaceReduction{
+                .model = std::move(candidate),
+                .state = std::move(candidate_state),
             };
         } catch (const SchurFailure &) {
             ++stats.schur_failures;
@@ -618,108 +416,223 @@ struct ChargeErrorEstimator::Impl {
             static_cast<std::int64_t>(active);
     }
 
-    ChargeInterval terminal(
-        const std::shared_ptr<EffectiveModel> &model,
-        const core::Geometry &geometry,
-        core::SimplexId simplex_id,
+    struct MidpointDefects {
+        double matrix = 0.0;
+        double band = 0.0;
+    };
+
+    MidpointDefects measure_midpoint_defects(
+        const EffectiveModel &model,
         const SimplexState &state,
-        std::size_t fixed_occupied,
-        bool include_band_defect,
-        const cert::SimplexCertificate *reusable_certificate
+        bool include_band_defect
     ) {
-        const auto &simplex =
-            geometry.simplices().simplex(simplex_id);
         const auto vertex_count = state.points.size();
-        const auto size = model->dimension();
-        const auto sample_defects = [&](bool include_bands) {
-            auto maximum_matrix_defect = 0.0;
-            auto maximum_band_defect = 0.0;
-            for (std::size_t first = 0; first < vertex_count; ++first) {
-                const auto &first_matrix =
-                    model->matrix(state.points[first]);
-                for (std::size_t second = first + 1;
-                     second < vertex_count;
-                     ++second) {
-                    const auto midpoint = Point::midpoint(
-                        state.points[first], state.points[second]
+        const auto size = model.dimension();
+        auto result = MidpointDefects{};
+        const auto use_hopping_gram =
+            !include_band_defect && model.supports_frobenius_defect();
+
+        for (std::size_t first = 0; first < vertex_count; ++first) {
+            for (std::size_t second = first + 1;
+                 second < vertex_count;
+                 ++second) {
+                const auto midpoint = Point::midpoint(
+                    state.points[first], state.points[second]
+                );
+                if (use_hopping_gram) {
+                    auto matrix_defect = 0.0;
+                    {
+                        const ProfileTimer timer(
+                            profile,
+                            &ChargeProfile::error_defect_norm_overhead_seconds
+                        );
+                        matrix_defect = model.frobenius_defect(
+                            state.points[first],
+                            state.points[second],
+                            midpoint
+                        );
+                    }
+                    if (profile != nullptr) {
+                        ++profile->error_defect_samples;
+                    }
+                    result.matrix = std::max(
+                        result.matrix, matrix_defect
                     );
-                    const auto &midpoint_matrix = model->matrix(midpoint);
-                    const auto &second_matrix =
-                        model->matrix(state.points[second]);
-                    auto defect = Matrix(size * size);
+                    continue;
+                }
+
+                const auto &first_matrix =
+                    model.matrix(state.points[first]);
+                const auto &midpoint_matrix = model.matrix(midpoint);
+                const auto &second_matrix =
+                    model.matrix(state.points[second]);
+                auto defect = Matrix{};
+                {
+                    const ProfileTimer timer(
+                        profile,
+                        &ChargeProfile::error_defect_assembly_seconds
+                    );
+                    defect.resize(size * size);
                     for (std::size_t index = 0;
                          index < defect.size();
                          ++index) {
                         defect[index] = midpoint_matrix[index] -
-                            0.5 * (first_matrix[index] + second_matrix[index]);
-                    }
-                    maximum_matrix_defect = std::max(
-                        maximum_matrix_defect,
-                        defect_norm(
-                            std::move(defect),
-                            size,
-                            include_bands,
-                            stats
-                        )
-                    );
-
-                    if (include_bands) {
-                        const auto &midpoint_spectrum =
-                            model->spectrum(midpoint);
-                        const auto &first_values =
-                            state.spectra[first]->eigenvalues;
-                        const auto &second_values =
-                            state.spectra[second]->eigenvalues;
-                        for (std::size_t band = 0; band < size; ++band) {
-                            maximum_band_defect = std::max(
-                                maximum_band_defect,
-                                std::abs(
-                                    midpoint_spectrum.eigenvalues[band] -
-                                    0.5 * (
-                                        first_values[band] +
-                                        second_values[band]
-                                    )
-                                )
+                            0.5 * (
+                                first_matrix[index] +
+                                second_matrix[index]
                             );
-                        }
                     }
                 }
-            }
-            return std::pair{
-                maximum_matrix_defect,
-                maximum_band_defect,
-            };
-        };
-        const auto make_beta = [&](const auto &defects) {
-            const auto dimension = static_cast<double>(mesh.ndim());
-            return 2.0 * dimension / (dimension + 1.0) *
-                   std::max(defects.first, defects.second);
-        };
+                if (profile != nullptr) {
+                    ++profile->error_defect_samples;
+                }
 
-        const auto certify_with_beta = [&](double beta) {
-            if (
-                reusable_certificate != nullptr &&
-                covers_radius(*reusable_certificate, beta)
-            ) {
-                return *reusable_certificate;
-            }
-            return certify(state, beta, mesh.tolerance());
-        };
+                const auto matrix_defect = defect_norm(
+                    std::move(defect),
+                    size,
+                    include_band_defect,
+                    stats,
+                    profile
+                );
+                result.matrix = std::max(
+                    result.matrix, matrix_defect
+                );
 
-        auto beta = make_beta(sample_defects(include_band_defect));
-        auto certificate = certify_with_beta(beta);
-        auto bounds = certificate.occupation_bounds;
-        auto active = bounds.upper - bounds.lower;
-        if (!include_band_defect && active != 0) {
-            beta = make_beta(sample_defects(true));
-            certificate = certify_with_beta(beta);
-            bounds = certificate.occupation_bounds;
-            active = bounds.upper - bounds.lower;
+                if (!include_band_defect) {
+                    continue;
+                }
+                if (size == 1) {
+                    result.band = std::max(
+                        result.band, matrix_defect
+                    );
+                    continue;
+                }
+
+                const auto &midpoint_values =
+                    model.eigenvalues(midpoint);
+                const auto &first_values =
+                    state.spectra[first]->eigenvalues;
+                const auto &second_values =
+                    state.spectra[second]->eigenvalues;
+                {
+                    const ProfileTimer timer(
+                        profile,
+                        &ChargeProfile::error_band_comparison_seconds
+                    );
+                    for (std::size_t band = 0; band < size; ++band) {
+                        result.band = std::max(
+                            result.band,
+                            std::abs(
+                                midpoint_values[band] -
+                                0.5 * (
+                                    first_values[band] +
+                                    second_values[band]
+                                )
+                            )
+                        );
+                    }
+                }
+                if (profile != nullptr) {
+                    ++profile->error_band_comparisons;
+                }
+            }
         }
-        record_terminal(active);
+        return result;
+    }
 
-        const auto fixed =
-            fixed_occupied + bounds.lower;
+    double defect_radius(const MidpointDefects &defects) const {
+        const auto dimension = static_cast<double>(mesh.ndim());
+        return 2.0 * dimension / (dimension + 1.0) *
+               std::max(defects.matrix, defects.band);
+    }
+
+    cert::SimplexCertificate certify_terminal_radius(
+        const SimplexState &state,
+        std::size_t model_dimension,
+        double radius,
+        const cert::SimplexCertificate *reusable_certificate,
+        const cert::PreparedSimplexCertificate *reusable_preparation
+    ) {
+        if (
+            reusable_certificate != nullptr &&
+            covers_radius(*reusable_certificate, radius)
+        ) {
+            if (profile != nullptr) {
+                ++profile->error_certification_reused_calls;
+            }
+            return *reusable_certificate;
+        }
+        if (reusable_preparation != nullptr) {
+            const auto started = profile == nullptr
+                ? Clock::time_point{}
+                : Clock::now();
+            const auto occupation_bounds =
+                reusable_preparation->occupation_bounds(radius);
+            auto result = cert::SimplexCertificate{
+                .status = cert::SimplexCertificateStatus::Inconclusive,
+                .occupation_bounds = occupation_bounds,
+            };
+            if (profile != nullptr) {
+                const auto seconds = elapsed_seconds(started);
+                profile->error_certification_seconds += seconds;
+                profile->error_certification_apply_seconds += seconds;
+                ++profile->error_certification_calls;
+                ++profile->error_certification_prepared_calls;
+                profile->record_certification(
+                    model_dimension,
+                    result.occupation_bounds.upper -
+                        result.occupation_bounds.lower,
+                    radius,
+                    seconds
+                );
+            }
+            return result;
+        }
+        return certify(state, radius, mesh.tolerance(), profile);
+    }
+
+    std::optional<ChargeInterval> try_terminal_reduction(
+        const EffectiveModel &model,
+        const core::Geometry &geometry,
+        core::SimplexId simplex_id,
+        const SimplexState &state,
+        std::size_t fixed_occupied,
+        cert::OccupationBounds bounds
+    ) {
+        const auto active = bounds.upper - bounds.lower;
+        if (active == 0 || active == model.dimension()) {
+            return std::nullopt;
+        }
+        if (const auto reduction = try_reduce_active_space(
+                model,
+                geometry,
+                simplex_id,
+                state,
+                bounds
+            )) {
+            return estimate_terminal_interval(
+                *reduction->model,
+                geometry,
+                simplex_id,
+                reduction->state,
+                fixed_occupied + bounds.lower,
+                true,
+                nullptr,
+                nullptr
+            );
+        }
+        return std::nullopt;
+    }
+
+    ChargeInterval integrate_charge_interval(
+        const core::Simplex &simplex,
+        const SimplexState &state,
+        std::size_t fixed_occupied,
+        cert::OccupationBounds bounds,
+        double radius
+    ) {
+        const auto fixed = fixed_occupied + bounds.lower;
+        const auto active = bounds.upper - bounds.lower;
         if (active == 0) {
             const auto charge =
                 static_cast<double>(fixed) * simplex.volume;
@@ -729,63 +642,141 @@ struct ChargeErrorEstimator::Impl {
         auto lower_charge =
             static_cast<double>(fixed) * simplex.volume;
         auto upper_charge = lower_charge;
-        auto energies = std::vector<double>(vertex_count);
+        auto energies = std::vector<double>(state.points.size());
         for (std::size_t band = bounds.lower;
              band < bounds.upper;
              ++band) {
             for (std::size_t vertex = 0;
-                 vertex < vertex_count;
+                 vertex < state.points.size();
                  ++vertex) {
                 energies[vertex] =
                     state.spectra[vertex]->eigenvalues[band];
             }
-            lower_charge += occupied_volume(
-                simplex.volume,
-                energies,
-                -beta,
-                mesh.tolerance()
-            );
-            upper_charge += occupied_volume(
-                simplex.volume,
-                energies,
-                beta,
-                mesh.tolerance()
-            );
+            {
+                const ProfileTimer timer(
+                    profile,
+                    &ChargeProfile::error_occupied_volume_seconds
+                );
+                lower_charge += occupied_volume(
+                    simplex.volume,
+                    energies,
+                    -radius,
+                    mesh.tolerance()
+                );
+                upper_charge += occupied_volume(
+                    simplex.volume,
+                    energies,
+                    radius,
+                    mesh.tolerance()
+                );
+            }
+            if (profile != nullptr) {
+                profile->error_occupied_volume_calls += 2;
+            }
         }
         return {lower_charge, upper_charge};
     }
 
-    ChargeInterval visit(
-        const std::shared_ptr<EffectiveModel> &model,
+    ChargeInterval estimate_terminal_interval(
+        const EffectiveModel &model,
+        const core::Geometry &geometry,
+        core::SimplexId simplex_id,
+        const SimplexState &state,
+        std::size_t fixed_occupied,
+        bool include_band_defect,
+        const cert::SimplexCertificate *reusable_certificate,
+        const cert::PreparedSimplexCertificate *reusable_preparation
+    ) {
+        auto radius = defect_radius(
+            measure_midpoint_defects(
+                model, state, include_band_defect
+            )
+        );
+        auto certificate = certify_terminal_radius(
+            state,
+            model.dimension(),
+            radius,
+            reusable_certificate,
+            reusable_preparation
+        );
+        auto bounds = certificate.occupation_bounds;
+        auto active = bounds.upper - bounds.lower;
+
+        if (!include_band_defect && active != 0) {
+            if (auto reduced = try_terminal_reduction(
+                    model,
+                    geometry,
+                    simplex_id,
+                    state,
+                    fixed_occupied,
+                    bounds
+                )) {
+                return *reduced;
+            }
+
+            radius = defect_radius(
+                measure_midpoint_defects(model, state, true)
+            );
+            certificate = certify_terminal_radius(
+                state,
+                model.dimension(),
+                radius,
+                reusable_certificate,
+                reusable_preparation
+            );
+            bounds = certificate.occupation_bounds;
+            active = bounds.upper - bounds.lower;
+        }
+
+        record_terminal(active);
+        return integrate_charge_interval(
+            geometry.simplices().simplex(simplex_id),
+            state,
+            fixed_occupied,
+            bounds,
+            radius
+        );
+    }
+
+    ChargeInterval estimate_micro_simplex(
+        const EffectiveModel &model,
         const core::Geometry &geometry,
         core::SimplexId simplex_id,
         std::size_t fixed_occupied,
         OccupationRange fallback_range,
         std::uint32_t logical_depth,
-        std::optional<cert::SimplexCertificate> known_certificate = std::nullopt
+        std::optional<cert::SimplexCertificate> known_certificate = std::nullopt,
+        const cert::PreparedSimplexCertificate *known_preparation = nullptr
     ) {
         ++stats.micro_simplices;
+        if (profile != nullptr) {
+            ChargeProfile::increment_at(
+                profile->error_visit_depth_counts, logical_depth
+            );
+        }
         const auto volume =
             geometry.simplices().simplex(simplex_id).volume;
 
         SimplexState state;
         try {
-            state = simplex_state(geometry, simplex_id, *model);
+            state = simplex_state(geometry, simplex_id, model);
         } catch (const SchurFailure &) {
             ++stats.schur_failures;
             record_terminal(fallback_range.upper - fallback_range.lower);
-            return fallback(fallback_range, volume);
+            return conservative_interval(fallback_range, volume);
         }
 
         const auto certificate = known_certificate.has_value()
             ? *known_certificate
-            : certify(state, 0.0, mesh.tolerance());
+            : certify(state, 0.0, mesh.tolerance(), profile);
         const auto bounds = certificate.occupation_bounds;
         const auto active = bounds.upper - bounds.lower;
 
-        auto current_model = model;
+        const auto *current_model = &model;
+        auto reduced_model = std::unique_ptr<EffectiveModel>{};
         auto current_state = std::move(state);
         const cert::SimplexCertificate *current_certificate = &certificate;
+        const auto *current_preparation = known_preparation;
         auto current_fixed = fixed_occupied;
         const auto certified_fallback = OccupationRange{
             .lower = std::max(
@@ -801,48 +792,66 @@ struct ChargeErrorEstimator::Impl {
         if (certified_fallback.lower <= certified_fallback.upper) {
             current_fallback = certified_fallback;
         }
-        if (const auto reduction = reduce(
+        if (auto reduction = try_reduce_active_space(
                 model,
                 geometry,
                 simplex_id,
                 current_state,
                 bounds
             )) {
-            current_model = reduction->first;
-            current_state = reduction->second;
+            current_state = std::move(reduction->state);
+            reduced_model = std::move(reduction->model);
+            current_model = reduced_model.get();
             current_fixed += bounds.lower;
             current_certificate = nullptr;
+            current_preparation = nullptr;
         }
 
         if (active == 0 || logical_depth == depth) {
+            if (profile != nullptr) {
+                ChargeProfile::increment_at(
+                    profile->error_terminal_dimension_counts,
+                    current_model->dimension()
+                );
+                ChargeProfile::increment_at(
+                    profile->error_terminal_depth_counts, logical_depth
+                );
+            }
             try {
-                return terminal(
-                    current_model,
+                return estimate_terminal_interval(
+                    *current_model,
                     geometry,
                     simplex_id,
                     current_state,
                     current_fixed,
                     active != 0,
-                    current_certificate
+                    current_certificate,
+                    current_preparation
                 );
             } catch (const SchurFailure &) {
                 ++stats.schur_failures;
                 record_terminal(
                     current_fallback.upper - current_fallback.lower
                 );
-                return fallback(current_fallback, volume);
+                return conservative_interval(current_fallback, volume);
             }
         }
 
         auto result = ChargeInterval{};
+        if (profile != nullptr) {
+            ChargeProfile::increment_at(
+                profile->error_subdivision_depth_counts, logical_depth
+            );
+        }
         auto children = subdivide(
             geometry,
             simplex_id,
-            static_cast<std::uint32_t>(mesh.ndim())
+            static_cast<std::uint32_t>(mesh.ndim()),
+            profile
         );
         for (const auto child : children.simplex_ids) {
-            result += visit(
-                current_model,
+            result += estimate_micro_simplex(
+                *current_model,
                 children.geometry,
                 child,
                 current_fixed,
@@ -857,8 +866,10 @@ struct ChargeErrorEstimator::Impl {
         const core::Geometry &source_geometry,
         core::SimplexId source_id,
         double linear_charge,
-        cert::SimplexCertificate root_certificate
+        cert::SimplexCertificate root_certificate,
+        const cert::PreparedSimplexCertificate &root_preparation
     ) {
+        auto workspace = RootErrorWorkspace(backend);
         ++stats.root_simplices;
         const auto &source =
             source_geometry.simplices().simplex(source_id);
@@ -872,7 +883,7 @@ struct ChargeErrorEstimator::Impl {
         if (active > 2 && active >= half_dimension) {
             ++stats.micro_simplices;
             record_terminal(active);
-            const auto interval = fallback(
+            const auto interval = conservative_interval(
                 {root_bounds.lower, root_bounds.upper},
                 source.volume
             );
@@ -882,26 +893,25 @@ struct ChargeErrorEstimator::Impl {
             );
         }
 
-        auto hamiltonians = SharedHamiltonians(mesh, mu, stats);
         for (const auto source_vertex_id : source.vertex_ids) {
             const auto &point =
                 source_geometry.vertices().dyadic_vertex(source_vertex_id);
-            hamiltonians.remember_spectrum(
+            workspace.remember_spectrum(
                 point,
                 mesh.eigensystems().get(source_vertex_id)
             );
         }
-        auto root = subdivide(source_geometry, source_id, 0);
-        auto model =
-            std::make_shared<EffectiveModel>(hamiltonians, stats);
-        const auto interval = visit(
+        auto root = subdivide(source_geometry, source_id, 0, profile);
+        auto model = EffectiveModel(workspace);
+        const auto interval = estimate_micro_simplex(
             model,
             root.geometry,
             root.simplex_ids.front(),
             0,
             {root_bounds.lower, root_bounds.upper},
             0,
-            root_certificate
+            root_certificate,
+            &root_preparation
         );
         return std::max(
             std::abs(linear_charge - interval.lower),
@@ -914,8 +924,11 @@ ChargeErrorEstimator::ChargeErrorEstimator(
     SpectralMesh &mesh,
     double mu,
     std::uint32_t depth,
-    ChargeErrorStats &stats
-) : impl_(std::make_unique<Impl>(mesh, mu, depth, stats)) {}
+    ChargeErrorStats &stats,
+    ChargeProfile *profile
+) : impl_(std::make_unique<Impl>(
+        mesh, mu, depth, stats, profile
+    )) {}
 
 ChargeErrorEstimator::~ChargeErrorEstimator() = default;
 
@@ -923,13 +936,15 @@ double ChargeErrorEstimator::estimate(
     const core::Geometry &geometry,
     core::SimplexId simplex_id,
     double linear_charge,
-    cert::SimplexCertificate root_certificate
+    cert::SimplexCertificate root_certificate,
+    const cert::PreparedSimplexCertificate &root_preparation
 ) {
     return impl_->estimate(
         geometry,
         simplex_id,
         linear_charge,
-        std::move(root_certificate)
+        std::move(root_certificate),
+        root_preparation
     );
 }
 

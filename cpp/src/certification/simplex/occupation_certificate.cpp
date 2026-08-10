@@ -80,6 +80,41 @@ OccupationSectorCheck check_oriented_sector(
     };
 }
 
+bool oriented_sector_passes(
+    std::span<const Complex> base_block,
+    double base_scale,
+    std::span<const Complex> opposite_block,
+    std::span<const Complex> coupling,
+    std::span<const Complex> rotation,
+    double quadratic_scale,
+    double linearization_error_bound,
+    double tolerance
+) {
+    const auto size = square_matrix_size(base_block);
+    const auto opposite_size = square_matrix_size(opposite_block);
+    auto block = rotated_block(
+        base_block,
+        base_scale,
+        opposite_block,
+        coupling,
+        rotation,
+        size,
+        opposite_size,
+        1.0,
+        quadratic_scale
+    );
+    subtract_frame_margin(
+        block,
+        rotation,
+        size,
+        opposite_size,
+        linearization_error_bound
+    );
+    return positive_definite(
+        std::move(block), size, certificate_margin(tolerance)
+    ).passed;
+}
+
 }  // namespace
 
 OccupationSectorCheck check_unoccupied_sector(
@@ -127,6 +162,85 @@ OccupationSectorCheck check_occupied_sector(
         linearization_error_bound,
         tolerance
     );
+}
+
+bool unoccupied_sector_passes(
+    const VertexBlocks &blocks,
+    std::span<const Complex> rotation,
+    double linearization_error_bound,
+    double tolerance
+) {
+    return oriented_sector_passes(
+        blocks.unoccupied_block,
+        1.0,
+        blocks.occupied_block,
+        blocks.coupling_block,
+        rotation,
+        1.0,
+        linearization_error_bound,
+        tolerance
+    );
+}
+
+bool occupied_sector_passes(
+    const VertexBlocks &blocks,
+    std::span<const Complex> rotation,
+    double linearization_error_bound,
+    double tolerance
+) {
+    const auto occupied_size = square_matrix_size(blocks.occupied_block);
+    const auto unoccupied_size = square_matrix_size(blocks.unoccupied_block);
+    const auto coupling = adjoint_rectangular_copy(
+        blocks.coupling_block,
+        unoccupied_size,
+        occupied_size
+    );
+    return oriented_sector_passes(
+        blocks.occupied_block,
+        -1.0,
+        blocks.unoccupied_block,
+        coupling,
+        rotation,
+        -1.0,
+        linearization_error_bound,
+        tolerance
+    );
+}
+
+OccupationBounds make_unresolved_occupation_bounds(
+    const std::vector<VertexBlocks> &blocks,
+    double linearization_error_bound,
+    double tolerance
+) {
+    if (blocks.empty()) {
+        throw std::logic_error(
+            "occupation certificate: simplex blocks must not be empty"
+        );
+    }
+    const auto nocc = square_matrix_size(blocks.front().occupied_block);
+    const auto nunocc = square_matrix_size(blocks.front().unoccupied_block);
+    const auto ndof = nocc + nunocc;
+    auto unoccupied_blocks = std::vector<std::vector<Complex>>{};
+    auto occupied_blocks = std::vector<std::vector<Complex>>{};
+    unoccupied_blocks.reserve(blocks.size());
+    occupied_blocks.reserve(blocks.size());
+    for (const auto &block : blocks) {
+        unoccupied_blocks.push_back(block.unoccupied_block);
+        auto occupied_block = block.occupied_block;
+        for (auto &value : occupied_block) {
+            value = -value;
+        }
+        occupied_blocks.push_back(std::move(occupied_block));
+    }
+    const auto lower = estimate_ordered_subset_rank(
+        occupied_blocks, nocc, linearization_error_bound, tolerance
+    );
+    const auto upper = ndof - estimate_ordered_subset_rank(
+        unoccupied_blocks, nunocc, linearization_error_bound, tolerance
+    );
+    return lower <= upper
+        ? OccupationBounds{.lower = lower, .upper = upper}
+        : unconstrained_occupation(ndof);
 }
 
 SimplexCertificate make_unresolved_certificate(

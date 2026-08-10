@@ -31,6 +31,26 @@ OccupationSectorCheck check_occupied_sector(
     double tolerance
 );
 
+bool unoccupied_sector_passes(
+    const VertexBlocks &blocks,
+    std::span<const Complex> rotation,
+    double linearization_error_bound,
+    double tolerance
+);
+
+bool occupied_sector_passes(
+    const VertexBlocks &blocks,
+    std::span<const Complex> rotation,
+    double linearization_error_bound,
+    double tolerance
+);
+
+OccupationBounds make_unresolved_occupation_bounds(
+    const std::vector<VertexBlocks> &blocks,
+    double linearization_error_bound,
+    double tolerance
+);
+
 SimplexCertificate make_unresolved_certificate(
     SimplexCertificateStatus status,
     double mu,

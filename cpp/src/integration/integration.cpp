@@ -1,6 +1,7 @@
 #include <fermisimplex/integration.h>
 
 #include "integration/charge.h"
+#include "integration/charge_profile.h"
 #include "integration/density.h"
 
 #include <adaptivesimplex/adaptive/adaptive_loop.h>
@@ -8,6 +9,7 @@
 #include <adaptivesimplex/adaptive/simplex_integrand.h>
 
 #include <algorithm>
+#include <chrono>
 #include <cmath>
 #include <cstdint>
 #include <memory>
@@ -115,17 +117,33 @@ auto charge_integrand(
     double mu,
     std::uint32_t error_depth,
     std::int64_t &simplex_visits,
-    ChargeErrorStats &error_stats
+    ChargeErrorStats &error_stats,
+    integration_detail::ChargeProfile *profile
 ) {
     auto error_estimator = std::make_shared<
         integration_detail::ChargeErrorEstimator
-    >(mesh, mu, error_depth, error_stats);
+    >(
+        mesh,
+        mu,
+        error_depth,
+        error_stats,
+        profile
+    );
     return adaptive::simplex_integrand(
         mesh.eigensystems(),
-        [&mesh](std::span<const double> point) {
-            return mesh.spectrum(point);
+        [&mesh, profile](std::span<const double> point) {
+            if (profile == nullptr) {
+                return mesh.spectrum(point);
+            }
+            const auto started = std::chrono::steady_clock::now();
+            auto spectrum = mesh.spectrum(point);
+            profile->vertex_cache_seconds +=
+                std::chrono::duration<double>(
+                    std::chrono::steady_clock::now() - started
+                ).count();
+            return spectrum;
         },
-        [&mesh, mu, &simplex_visits, error_estimator](
+        [&mesh, mu, &simplex_visits, error_estimator, profile](
             const core::Geometry &geometry,
             core::SimplexId simplex_id,
             EigensystemCache &
@@ -136,7 +154,8 @@ auto charge_integrand(
                 mesh,
                 geometry,
                 simplex_id,
-                *error_estimator
+                *error_estimator,
+                profile
             );
         },
         adaptive::estimation_policies<
@@ -290,16 +309,21 @@ DensityMatrixResult density_matrix_result(
     };
 }
 
-}  // namespace
-
-ChargeResult integrate_charge(
+ChargeResult integrate_charge_impl(
     SpectralMesh &mesh,
     double mu,
     const adaptive::Options &options,
-    std::uint32_t error_depth
+    std::uint32_t error_depth,
+    integration_detail::ChargeProfile *profile
 ) {
     validate_mu(mu);
     validate_options(options);
+    auto total_started = std::chrono::steady_clock::time_point{};
+    if (profile != nullptr) {
+        *profile = integration_detail::ChargeProfile{};
+        total_started = std::chrono::steady_clock::now();
+    }
+
     auto simplex_visits = std::int64_t{0};
     auto error_stats = ChargeErrorStats{};
     auto integrand = charge_integrand(
@@ -307,7 +331,8 @@ ChargeResult integrate_charge(
         mu,
         error_depth,
         simplex_visits,
-        error_stats
+        error_stats,
+        profile
     );
     auto charge_options = options;
     charge_options.preview_depth = 0;
@@ -316,13 +341,50 @@ ChargeResult integrate_charge(
         integrand,
         charge_options
     );
-    return charge_result(
+    auto result = charge_result(
         mesh,
         raw,
         simplex_visits,
         error_stats
     );
+    if (profile != nullptr) {
+        profile->total_seconds = std::chrono::duration<double>(
+            std::chrono::steady_clock::now() - total_started
+        ).count();
+    }
+    return result;
 }
+
+}  // namespace
+
+ChargeResult integrate_charge(
+    SpectralMesh &mesh,
+    double mu,
+    const adaptive::Options &options,
+    std::uint32_t error_depth
+) {
+    return integrate_charge_impl(
+        mesh,
+        mu,
+        options,
+        error_depth,
+        nullptr
+    );
+}
+
+namespace integration_detail {
+
+ChargeResult integrate_charge_profiled(
+    SpectralMesh &mesh,
+    double mu,
+    const adaptive::Options &options,
+    std::uint32_t error_depth,
+    ChargeProfile &profile
+) {
+    return integrate_charge_impl(mesh, mu, options, error_depth, &profile);
+}
+
+}  // namespace integration_detail
 
 CurrentMeshChargeResult estimate_charge_on_current_mesh(
     SpectralMesh &mesh,

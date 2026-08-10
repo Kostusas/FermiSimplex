@@ -9,7 +9,13 @@
 #include <cstdint>
 #include <memory>
 
+namespace fermisimplex::certification {
+class PreparedSimplexCertificate;
+}
+
 namespace fermisimplex::integration_detail {
+
+struct ChargeProfile;
 
 class ChargeErrorEstimator {
 public:
@@ -17,7 +23,8 @@ public:
         SpectralMesh &mesh,
         double mu,
         std::uint32_t depth,
-        ChargeErrorStats &stats
+        ChargeErrorStats &stats,
+        ChargeProfile *profile = nullptr
     );
     ~ChargeErrorEstimator();
 
@@ -28,7 +35,8 @@ public:
         const adaptivesimplex::core::Geometry &geometry,
         adaptivesimplex::core::SimplexId simplex_id,
         double linear_charge,
-        certification::SimplexCertificate root_certificate
+        certification::SimplexCertificate root_certificate,
+        const certification::PreparedSimplexCertificate &root_preparation
     );
 
 private:

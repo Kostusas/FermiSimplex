@@ -1,5 +1,7 @@
 #include <fermisimplex/hamiltonian.h>
 
+#include "linalg/blas_lapack.h"
+
 #include <algorithm>
 #include <cmath>
 #include <limits>
@@ -11,7 +13,8 @@
 namespace fermisimplex {
 namespace {
 
-using Matrix = std::vector<std::complex<double>>;
+using Complex = std::complex<double>;
+using Matrix = std::vector<Complex>;
 
 bool is_finite(std::complex<double> value) {
     return std::isfinite(value.real()) && std::isfinite(value.imag());
@@ -174,27 +177,49 @@ TightBindingModel::TightBindingModel(std::vector<HoppingTerm> hoppings) {
             .matrix = std::move(matrix),
         });
     }
+    packed_hoppings_.reserve(hoppings_.size() * ndof_ * ndof_);
+    for (const auto &term : hoppings_) {
+        packed_hoppings_.insert(
+            packed_hoppings_.end(),
+            term.matrix.begin(),
+            term.matrix.end()
+        );
+    }
 }
 
 std::vector<std::complex<double>> TightBindingModel::evaluate(
     std::span<const double> reduced_point
 ) const {
-    std::vector<std::complex<double>> h(ndof_ * ndof_, std::complex<double>(0.0, 0.0));
-    for (const auto &term : hoppings_) {
+    auto phases = Matrix(hoppings_.size());
+    for (std::size_t term_index = 0;
+         term_index < hoppings_.size();
+         ++term_index) {
+        const auto &term = hoppings_[term_index];
         double phase_arg = 0.0;
         for (size_t axis = 0; axis < ndim_; ++axis) {
             phase_arg +=
                 2.0 * std::numbers::pi_v<double> * reduced_point[axis] *
                 static_cast<double>(term.lattice_vector[axis]);
         }
-        const std::complex<double> phase = std::exp(std::complex<double>(0.0, -phase_arg));
-        for (size_t row = 0; row < ndof_; ++row) {
-            for (size_t col = 0; col < ndof_; ++col) {
-                h[col * ndof_ + row] +=
-                    phase * term.matrix[col * ndof_ + row];
-            }
-        }
+        phases[term_index] = std::exp(Complex{0.0, -phase_arg});
     }
+    const auto matrix_size = ndof_ * ndof_;
+    auto h = Matrix(matrix_size);
+    linalg::matrix_multiply(
+        'N',
+        'N',
+        matrix_size,
+        1,
+        hoppings_.size(),
+        Complex{1.0, 0.0},
+        packed_hoppings_.data(),
+        matrix_size,
+        phases.data(),
+        hoppings_.size(),
+        Complex{0.0, 0.0},
+        h.data(),
+        matrix_size
+    );
     return h;
 }
 

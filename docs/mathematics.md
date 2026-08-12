@@ -954,10 +954,19 @@ zero means that no Schur reduction was recorded.
 ## Density matrices
 
 Density matrices reuse the adaptive geometry and cached vertex eigensystems.
-Their `stopping_error` is an adaptive quadrature estimate. The occupation
-certificate alone does not bound the variation of the spectral projector; a
-rigorous density-matrix certificate would require additional gap-dependent
-control. Density matrices are therefore not currently certified.
+For active parent-child corrections $\Delta_T$, their stopping estimate is
+
+$$
+\max\left(
+    \sqrt{\sum_T \lVert\Delta_T\rVert_\infty^2},
+    \left\lVert\sum_T\Delta_T\right\rVert_\infty
+\right).
+$$
+
+The first term guards against complete cancellation and the second retains the
+signed componentwise correction. This estimate is not rigorous: the occupation
+certificate does not bound variation of the spectral projector, so density
+matrices are not currently certified.
 `integrate_density_components` applies the same rule only to requested entries
 $(r,i,j)$. Requests with the same $(i,j)$ share the projector contraction and
 differ only by the lattice phase for $r$. The stopping estimate then covers

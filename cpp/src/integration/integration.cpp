@@ -116,13 +116,31 @@ struct ChargeSimplexError {
     }
 };
 
-struct DensitySimplexError {
-    bool has_preview = true;
+struct DensityGlobalError {
+    template <class Value>
+    using state_type = adaptive::empty_stopping_accumulator;
 
-    double operator()(const DensityRule::Value &local_estimate) const {
-        return has_preview ? local_estimate.max_abs() : 0.0;
+    template <class Value>
+    state_type<Value> zero() const {
+        return {};
     }
 
+    template <class Value>
+    void add_local_estimate(state_type<Value> &, const Value &) const {}
+
+    template <class Value>
+    void remove_local_estimate(state_type<Value> &, const Value &) const {}
+
+    template <class Value>
+    double error(
+        const state_type<Value> &,
+        const Value &global_correction
+    ) const {
+        return global_correction.max_abs();
+    }
+};
+
+struct DensitySimplexError {
     template <class Value, class Cache>
     double operator()(
         const adaptive::SimplexEstimateContext<Value, Cache> &estimate
@@ -188,12 +206,8 @@ auto density_integrand(
     SpectralMesh &mesh,
     double mu,
     DensityRule &rule,
-    std::int64_t &simplex_visits,
-    std::uint32_t preview_depth
+    std::int64_t &simplex_visits
 ) {
-    const auto simplex_error = DensitySimplexError{
-        .has_preview = preview_depth > 0,
-    };
     return adaptive::simplex_integrand(
         mesh.eigensystems(),
         [&mesh](std::span<const double> point) {
@@ -208,8 +222,8 @@ auto density_integrand(
             return rule.on_simplex(mu, mesh, geometry, simplex_id);
         },
         adaptive::estimation_policies{
-            SumSimplexErrors<DensitySimplexError>{simplex_error},
-            simplex_error,
+            DensityGlobalError{},
+            DensitySimplexError{},
         }
     );
 }
@@ -293,8 +307,7 @@ adaptive::IntegrationResult<DensityRule::Value> integrate_density_rule(
         mesh,
         mu,
         rule,
-        simplex_visits,
-        options.preview_depth
+        simplex_visits
     );
     return adaptive::run(mesh.geometry(), integrand, options);
 }

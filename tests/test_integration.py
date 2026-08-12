@@ -213,6 +213,30 @@ def test_density_matrix_preview_zero_reuses_the_current_mesh():
     assert mesh.cached_vertices == cached_vertices
 
 
+def test_density_stopping_error_uses_cancelled_global_correction():
+    hoppings = dimerized_chain()
+    keys = [(0,), (1,), (-1,)]
+    common = {
+        "mu": 0.0,
+        "lattice_vectors": keys,
+        "target_error": 1e6,
+        "max_refinements": 0,
+    }
+
+    coarse = SpectralMesh(hoppings, root_level=1).integrate_density_matrix(
+        preview_depth=0,
+        **common,
+    )
+    preview = SpectralMesh(hoppings, root_level=1).integrate_density_matrix(
+        preview_depth=1,
+        **common,
+    )
+    global_correction = np.max(np.abs(preview.matrices - coarse.matrices))
+
+    assert global_correction > 0.0
+    assert preview.stopping_error == pytest.approx(global_correction)
+
+
 def test_density_matrix_rejects_negative_preview_depth():
     mesh = SpectralMesh(constant_insulator(1))
 
@@ -278,11 +302,11 @@ def test_adaptive_density_components_match_independently_refined_full_density():
 
     selected = SpectralMesh(hoppings, root_level=1).integrate_density_components(
         components=components,
-        target_error=5e-2,
+        target_error=5e-3,
         **common,
     )
     full = SpectralMesh(hoppings, root_level=1).integrate_density_matrix(
-        target_error=2e-2,
+        target_error=5e-3,
         **common,
     )
     expected = np.asarray(
@@ -291,7 +315,8 @@ def test_adaptive_density_components_match_independently_refined_full_density():
 
     assert selected.stats.refinements > 0
     assert selected.stats.evaluations > 0
-    assert selected.stopping_error <= 5e-2
+    assert selected.stopping_error <= 5e-3
+    assert full.stopping_error <= 5e-3
     assert selected.values == pytest.approx(expected, abs=2e-3)
 
 

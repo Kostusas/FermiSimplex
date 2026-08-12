@@ -118,25 +118,46 @@ struct ChargeSimplexError {
 
 struct DensityGlobalError {
     template <class Value>
-    using state_type = adaptive::empty_stopping_accumulator;
+    using state_type = double;
+
+    bool has_preview = true;
 
     template <class Value>
     state_type<Value> zero() const {
-        return {};
+        return 0.0;
     }
 
     template <class Value>
-    void add_local_estimate(state_type<Value> &, const Value &) const {}
+    void add_local_estimate(
+        state_type<Value> &state,
+        const Value &local_estimate
+    ) const {
+        if (has_preview) {
+            const auto error = local_estimate.max_abs();
+            state += error * error;
+        }
+    }
 
     template <class Value>
-    void remove_local_estimate(state_type<Value> &, const Value &) const {}
+    void remove_local_estimate(
+        state_type<Value> &state,
+        const Value &local_estimate
+    ) const {
+        if (has_preview) {
+            const auto error = local_estimate.max_abs();
+            state -= error * error;
+        }
+    }
 
     template <class Value>
     double error(
-        const state_type<Value> &,
+        const state_type<Value> &state,
         const Value &global_correction
     ) const {
-        return global_correction.max_abs();
+        return std::max(
+            std::sqrt(std::max(0.0, state)),
+            global_correction.max_abs()
+        );
     }
 };
 
@@ -206,7 +227,8 @@ auto density_integrand(
     SpectralMesh &mesh,
     double mu,
     DensityRule &rule,
-    std::int64_t &simplex_visits
+    std::int64_t &simplex_visits,
+    std::uint32_t preview_depth
 ) {
     return adaptive::simplex_integrand(
         mesh.eigensystems(),
@@ -222,7 +244,7 @@ auto density_integrand(
             return rule.on_simplex(mu, mesh, geometry, simplex_id);
         },
         adaptive::estimation_policies{
-            DensityGlobalError{},
+            DensityGlobalError{.has_preview = preview_depth > 0},
             DensitySimplexError{},
         }
     );
@@ -307,7 +329,8 @@ adaptive::IntegrationResult<DensityRule::Value> integrate_density_rule(
         mesh,
         mu,
         rule,
-        simplex_visits
+        simplex_visits,
+        options.preview_depth
     );
     return adaptive::run(mesh.geometry(), integrand, options);
 }

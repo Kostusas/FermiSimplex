@@ -213,7 +213,7 @@ def test_density_matrix_preview_zero_reuses_the_current_mesh():
     assert mesh.cached_vertices == cached_vertices
 
 
-def test_density_stopping_error_uses_cancelled_global_correction():
+def test_density_stopping_error_combines_l2_and_signed_correction():
     hoppings = dimerized_chain()
     keys = [(0,), (1,), (-1,)]
     common = {
@@ -234,7 +234,7 @@ def test_density_stopping_error_uses_cancelled_global_correction():
     global_correction = np.max(np.abs(preview.matrices - coarse.matrices))
 
     assert global_correction > 0.0
-    assert preview.stopping_error == pytest.approx(global_correction)
+    assert preview.stopping_error > global_correction
 
 
 def test_density_matrix_rejects_negative_preview_depth():

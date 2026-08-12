@@ -81,33 +81,52 @@ struct SumSimplexErrors {
     }
 
     template <class Value>
-    state_type<Value> contribution(const adaptive::SimplexEstimate<Value> &estimate) const {
-        return simplex_error(estimate);
+    void add_local_estimate(
+        state_type<Value> &state,
+        const Value &local_estimate
+    ) const {
+        state += simplex_error(local_estimate);
     }
 
     template <class Value>
-    void add(state_type<Value> &state, const state_type<Value> &contribution) const {
-        state += contribution;
+    void remove_local_estimate(
+        state_type<Value> &state,
+        const Value &local_estimate
+    ) const {
+        state -= simplex_error(local_estimate);
     }
 
     template <class Value>
-    void remove(state_type<Value> &state, const state_type<Value> &contribution) const {
-        state -= contribution;
-    }
-
-    template <class Value> double error(const state_type<Value> &state) const {
+    double error(const state_type<Value> &state, const Value &) const {
         return std::max(0.0, state);
     }
 };
 
 struct ChargeSimplexError {
-    template <class Estimate> double operator()(const Estimate &estimate) const {
-        return estimate.preview.estimated_error;
+    double operator()(const ChargeContribution &local_estimate) const {
+        return local_estimate.estimated_error;
+    }
+
+    template <class Value, class Cache>
+    double operator()(
+        const adaptive::SimplexEstimateContext<Value, Cache> &estimate
+    ) const {
+        return estimate.coarse.estimated_error +
+               estimate.correction.estimated_error;
     }
 };
 
 struct DensitySimplexError {
-    template <class Estimate> double operator()(const Estimate &estimate) const {
+    bool has_preview = true;
+
+    double operator()(const DensityRule::Value &local_estimate) const {
+        return has_preview ? local_estimate.max_abs() : 0.0;
+    }
+
+    template <class Value, class Cache>
+    double operator()(
+        const adaptive::SimplexEstimateContext<Value, Cache> &estimate
+    ) const {
         return estimate.correction.max_abs();
     }
 };
@@ -169,8 +188,12 @@ auto density_integrand(
     SpectralMesh &mesh,
     double mu,
     DensityRule &rule,
-    std::int64_t &simplex_visits
+    std::int64_t &simplex_visits,
+    std::uint32_t preview_depth
 ) {
+    const auto simplex_error = DensitySimplexError{
+        .has_preview = preview_depth > 0,
+    };
     return adaptive::simplex_integrand(
         mesh.eigensystems(),
         [&mesh](std::span<const double> point) {
@@ -184,10 +207,10 @@ auto density_integrand(
             ++simplex_visits;
             return rule.on_simplex(mu, mesh, geometry, simplex_id);
         },
-        adaptive::estimation_policies<
-            SumSimplexErrors<DensitySimplexError>,
-            DensitySimplexError
-        >{}
+        adaptive::estimation_policies{
+            SumSimplexErrors<DensitySimplexError>{simplex_error},
+            simplex_error,
+        }
     );
 }
 
@@ -266,7 +289,13 @@ adaptive::IntegrationResult<DensityRule::Value> integrate_density_rule(
     const adaptive::Options &options,
     std::int64_t &simplex_visits
 ) {
-    auto integrand = density_integrand(mesh, mu, rule, simplex_visits);
+    auto integrand = density_integrand(
+        mesh,
+        mu,
+        rule,
+        simplex_visits,
+        options.preview_depth
+    );
     return adaptive::run(mesh.geometry(), integrand, options);
 }
 

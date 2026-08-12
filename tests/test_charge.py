@@ -87,6 +87,9 @@ def test_error_depth_increases_temporary_estimator_work():
         error_depth=1,
     )
 
+    # Charge uses AdaptiveSimplex's depth-zero path and stores its intrinsic
+    # estimator in the coarse contribution rather than a preview correction.
+    assert shallow.stopping_error > 0.0
     assert shallow.error_stats.terminal_simplices > 0
     assert (
         subdivided.error_stats.terminal_simplices

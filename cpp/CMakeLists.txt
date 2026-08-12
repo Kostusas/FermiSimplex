@@ -114,7 +114,7 @@ if(NOT TARGET adaptivesimplex::adaptive)
   FetchContent_Declare(
     adaptivesimplex
     GIT_REPOSITORY https://gitlab.kwant-project.org/qt/adaptivesimplex.git
-    GIT_TAG e8ae7afd9a2dd7c0769cbbeea511ff07461b05a7
+    GIT_TAG 57df88574cf9726c97b01fc29688ed4d8896e827
     ${_fs_adaptivesimplex_fetch_options}
   )
   FetchContent_MakeAvailable(adaptivesimplex)

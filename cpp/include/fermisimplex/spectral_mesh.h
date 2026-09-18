@@ -1,5 +1,6 @@
 #pragma once
 
+#include <fermisimplex/evaluated_snapshot.h>
 #include <fermisimplex/hamiltonian.h>
 
 #include <adaptivesimplex/core/geometry.h>
@@ -67,6 +68,10 @@ public:
     // Accumulates analytical cut-simplex barycentric weights over the current
     // active mesh. All active eigensystems must already be cached.
     std::vector<double> occupied_weights(double mu) const;
+
+    // All retained spectra and the finest complete evaluated partition.
+    // Throws if no evaluated covering exists; never evaluates or refines.
+    EvaluatedSnapshot evaluated_snapshot(bool include_eigenvectors = true) const;
 
     double linearization_error_bound(
         adaptivesimplex::core::SimplexId simplex_id,

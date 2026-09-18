@@ -44,7 +44,10 @@ int main() {
             .preview_depth = 0,
         }
     );
-    return eigensystem.eigenvalues.size() == 1 &&
+    const auto snapshot = mesh.evaluated_snapshot();
+    return snapshot.vertex_ids.size() == mesh.cached_vertices() &&
+                   snapshot.simplex_ids.size() == 1 &&
+                   eigensystem.eigenvalues.size() == 1 &&
                    eigensystem.eigenvalues.front() == 2.0 &&
                    charge.value == 0.0 &&
                    charge.dcharge_dmu == 0.0 &&

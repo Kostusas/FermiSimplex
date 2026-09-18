@@ -1,6 +1,6 @@
 #include <fermisimplex/spectral_mesh.h>
 
-#include <adaptivesimplex/core/evaluated_partition.h>
+#include "core/evaluated_partition.h"
 
 #include <limits>
 #include <stdexcept>
@@ -11,7 +11,7 @@ EvaluatedSnapshot SpectralMesh::evaluated_snapshot(bool include_eigenvectors) co
     namespace core = adaptivesimplex::core;
     const auto &geometry = this->geometry();
     const auto &cache = eigensystems();
-    const auto partition = core::evaluated_partition(geometry, cache);
+    const auto partition = detail::evaluated_partition(geometry, cache);
     auto result = EvaluatedSnapshot{};
     result.ndim = ndim();
     result.ndof = ndof();

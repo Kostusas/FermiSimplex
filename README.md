@@ -248,4 +248,5 @@ fall back to complete evaluated ancestors while their cached points remain
 available. A mesh without an evaluated covering raises an error. Exact dyadic
 coordinate keys support downstream midpoint/centroid deduplication. Temporary
 charge-error data is excluded. See the [snapshot design](docs/evaluated-snapshot.md)
-for fields, guarantees, and the coordinated AdaptiveSimplex dependency.
+for fields and guarantees. This API works with the existing AdaptiveSimplex
+dependency; no changes to AdaptiveSimplex are required.

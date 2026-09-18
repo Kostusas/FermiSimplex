@@ -16,12 +16,22 @@ does not reference it. Existing `points`, `simplices`, `eigenvalues`,
 
 ## Representation and algorithm
 
-AdaptiveSimplex's `core::evaluated_partition` selects complete evaluated child
+FermiSimplex's internal `detail::evaluated_partition` reads AdaptiveSimplex's
+existing public geometry and cache interfaces. It selects complete evaluated child
 coverings recursively, retaining a parent if deeper data is incomplete. Its
 frontier covers the active domain once, without overlapping parents and
 children, in any simplex dimension. A mesh without an evaluated covering raises
 an error; export never fills missing data. Selection assumes Geometry's valid
 bisection trees and a spectral cache belonging to that geometry/model.
+
+For each active simplex, descend into its stored children only when both child
+branches provide evaluated coverings. Otherwise discard tentative descendants
+and keep the evaluated parent. Bisection preserves parent vertices across its
+children, so a missing parent vertex also rules out a complete descendant
+covering. Selecting only this frontier guarantees coverage without ancestor
+overlap. The traversal reads const state, never calls `preview_active`, and
+works in any dimension. Cost is linear in visited tree nodes times vertices per
+cell, with a result vector and recursion stack.
 
 FermiSimplex enumerates cached vertex IDs in ascending order and copies spectra,
 coordinates and exact dyadic keys. A single ID-to-row map translates connectivity
@@ -53,19 +63,17 @@ shared across both rules before any new diagonalizations.
 
 ## Validation and development
 
-Core tests establish tree coverage, incomplete-preview fallback and arbitrary
-dimension traversal. Python tests check all retained spectra against known
-Hamiltonians, zero evaluator calls, metadata/indexing, read-only lifetime,
+FermiSimplex C++ tests establish tree coverage, incomplete-preview fallback and
+dimension-general traversal. Each root-to-leaf path must cross exactly one
+selected cell, independently checking coverage and non-overlap beyond volume
+sums. Python tests check all retained spectra against known Hamiltonians, zero evaluator calls, metadata/indexing, read-only lifetime,
 repeated exports and subsequent integration, plus exact midpoint/centroid reuse.
 Illustrative trapezoid/Simpson energy quadrature has an exact polynomial integral,
-with absolute tolerance
-1e-12 for floating-point accumulation in the small test fixtures.
+with absolute tolerance 1e-12 for floating-point accumulation in the small test fixtures.
 
-The CMake dependency pin includes the AdaptiveSimplex evaluated-partition API
-(commit `5ea4787abf801b15fc42c374da4c9418cba2f556`). For development against a
-local checkout, use
-`-DFETCHCONTENT_SOURCE_DIR_ADAPTIVESIMPLEX=/path/to/adaptivesimplex`.
-No new dependencies are introduced.
+This feature requires no AdaptiveSimplex changes. CMake retains the original
+AdaptiveSimplex pin `57df88574cf9726c97b01fc29688ed4d8896e827`; partition selection
+and its tests live entirely in FermiSimplex. No new dependencies are introduced.
 
 Validation on the implementation: dimensions 1 through 4 have worst volume
 error 1.45e-15. For the polynomial x^2 - 2 on [0, 1], composite trapezoid error

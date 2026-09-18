@@ -21,6 +21,7 @@ nanobind_add_module(
   src/bindings/certification.cpp
   src/bindings/fermi_surface.cpp
   src/bindings/spectral_mesh.cpp
+  src/bindings/evaluated_snapshot.cpp
   src/bindings/integration_types.cpp
   src/bindings/module.cpp
 )

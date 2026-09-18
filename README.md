@@ -228,3 +228,24 @@ research, please cite the metadata in [CITATION.cff][citation].
 [development]: https://github.com/Kostusas/FermiSimplex/blob/main/docs/development.md
 [stress-benchmark]: https://github.com/Kostusas/FermiSimplex/blob/main/benchmarks/fermi_surface_60.py
 [citation]: https://github.com/Kostusas/FermiSimplex/blob/main/CITATION.cff
+
+### Reusing retained density-preview spectra
+
+The `points`, `simplices`, `eigenvalues` and `eigenvectors` properties describe
+only the active mesh. After density integration, use:
+
+```python
+snapshot = mesh.evaluated_snapshot(include_eigenvectors=True)
+cell_points = snapshot.points[snapshot.simplices]
+cell_energies = snapshot.eigenvalues[snapshot.simplices]
+print(snapshot.cached_vertices, snapshot.preview_vertices)
+```
+
+This independent read-only snapshot exports all cached full spectra, including
+preview points, and the finest complete already-evaluated partition. Export
+never evaluates the Hamiltonian, diagonalizes, or refines. Incomplete previews
+fall back to complete evaluated ancestors while their cached points remain
+available. A mesh without an evaluated covering raises an error. Exact dyadic
+coordinate keys support downstream midpoint/centroid deduplication. Temporary
+charge-error data is excluded. See the [snapshot design](docs/evaluated-snapshot.md)
+for fields, guarantees, and the coordinated AdaptiveSimplex dependency.

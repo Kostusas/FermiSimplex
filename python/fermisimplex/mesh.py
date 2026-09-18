@@ -17,6 +17,7 @@ from ._native import (
     IntegrationStats,
 )
 from .hamiltonian import _coordinates_array, _create_spectral_mesh
+from .snapshot import EvaluatedSnapshot
 
 
 def _finite_float(value: float, name: str) -> float:
@@ -235,6 +236,21 @@ class SpectralMesh:
         normalized eigenvectors and the last axis is the band index.
         """
         return _readonly(self._native.eigenvectors())
+
+    def evaluated_snapshot(
+        self, *, include_eigenvectors: bool = True
+    ) -> EvaluatedSnapshot:
+        """Copy all retained spectra and the finest evaluated partition.
+
+        Includes density-preview points and complete existing subdivisions.
+        Does not evaluate, diagonalize, refine, or mutate the mesh. Raises
+        RuntimeError if no complete evaluated covering exists. Eigenvectors
+        can be omitted to reduce copying. Temporary charge-error data is
+        excluded. See EvaluatedSnapshot for indexing and exact coordinate keys.
+        """
+        return EvaluatedSnapshot._from_native(
+            self._native.evaluated_snapshot(include_eigenvectors)
+        )
 
     def integrate_charge(
         self,

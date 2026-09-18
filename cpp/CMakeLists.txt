@@ -114,7 +114,7 @@ if(NOT TARGET adaptivesimplex::adaptive)
   FetchContent_Declare(
     adaptivesimplex
     GIT_REPOSITORY https://gitlab.kwant-project.org/qt/adaptivesimplex.git
-    GIT_TAG 57df88574cf9726c97b01fc29688ed4d8896e827
+    GIT_TAG 5ea4787abf801b15fc42c374da4c9418cba2f556
     ${_fs_adaptivesimplex_fetch_options}
   )
   FetchContent_MakeAvailable(adaptivesimplex)
@@ -222,6 +222,7 @@ endif()
 set(
   _fermisimplex_core_sources
   src/core/spectral_mesh.cpp
+  src/core/evaluated_snapshot.cpp
   src/core/tight_binding.cpp
   src/linalg/blas.cpp
   src/linalg/lapack.cpp
@@ -291,6 +292,7 @@ if(FERMISIMPLEX_BUILD_TESTING)
     certificate_validation
     simplex_certificate
     spectral_mesh
+    evaluated_snapshot
     charge_error
     charge_certificates
   )

@@ -7,6 +7,7 @@ from .certification import (
     SimplexCertificate,
     certify_simplex,
 )
+from .snapshot import EvaluatedSnapshot
 from .mesh import (
     ChargeErrorStats,
     ChargeResult,
@@ -26,6 +27,7 @@ __all__ = [
     "CurrentMeshChargeResult",
     "DensityComponentsResult",
     "DensityMatrixResult",
+    "EvaluatedSnapshot",
     "FermiSurfaceResult",
     "FermiSurfaceStats",
     "IntegrationStats",

@@ -1,5 +1,6 @@
 #include "arrays.h"
 #include "bindings.h"
+#include "evaluated_snapshot.h"
 
 #include <fermisimplex/fermi_surface.h>
 #include <fermisimplex/hamiltonian.h>
@@ -371,6 +372,8 @@ void bind_spectral_mesh(nb::module_ &module) {
         .def_prop_ro("cached_vertices", &SpectralMesh::cached_vertices)
         .def_prop_ro("active_simplices", &SpectralMesh::active_simplices)
         .def_prop_ro("active_vertices", &SpectralMesh::active_vertices)
+        .def("evaluated_snapshot", &evaluated_snapshot_arrays,
+             "include_eigenvectors"_a = true)
         .def("points", &active_mesh_points)
         .def("simplices", &active_mesh_simplices)
         .def("eigenvalues", &active_mesh_eigenvalues)

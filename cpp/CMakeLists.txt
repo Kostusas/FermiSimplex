@@ -114,7 +114,7 @@ if(NOT TARGET adaptivesimplex::adaptive)
   FetchContent_Declare(
     adaptivesimplex
     GIT_REPOSITORY https://gitlab.kwant-project.org/qt/adaptivesimplex.git
-    GIT_TAG 5ea4787abf801b15fc42c374da4c9418cba2f556
+    GIT_TAG 57df88574cf9726c97b01fc29688ed4d8896e827
     ${_fs_adaptivesimplex_fetch_options}
   )
   FetchContent_MakeAvailable(adaptivesimplex)
@@ -293,6 +293,7 @@ if(FERMISIMPLEX_BUILD_TESTING)
     simplex_certificate
     spectral_mesh
     evaluated_snapshot
+    evaluated_partition
     charge_error
     charge_certificates
   )

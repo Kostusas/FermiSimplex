@@ -237,6 +237,7 @@ set(
   src/certification/simplex_certificate.cpp
   src/integration/charge.cpp
   src/integration/density.cpp
+  src/integration/density_p.cpp
   src/integration/integration.cpp
   src/integration/charge_error.cpp
   src/integration/charge_error/cached_model.cpp
@@ -288,6 +289,7 @@ if(FERMISIMPLEX_BUILD_TESTING)
 
   set(_fs_cpp_test_targets)
   foreach(_fs_test IN ITEMS
+    simplex_cubature
     occupation_bounds
     certificate_validation
     simplex_certificate

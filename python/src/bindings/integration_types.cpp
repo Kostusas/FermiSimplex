@@ -13,6 +13,9 @@ void bind_integration_types(nb::module_ &module) {
         .def_ro("cached_vertices", &IntegrationStats::cached_vertices)
         .def_ro("active_simplices", &IntegrationStats::active_simplices)
         .def_ro("active_vertices", &IntegrationStats::active_vertices)
+        .def_ro("p_refinements", &IntegrationStats::p_refinements)
+        .def_ro("cubature_evaluations", &IntegrationStats::cubature_evaluations)
+        .def_ro("max_degree", &IntegrationStats::max_degree)
         .def_ro("target_reached", &IntegrationStats::target_reached);
 
     nb::class_<ChargeErrorStats>(

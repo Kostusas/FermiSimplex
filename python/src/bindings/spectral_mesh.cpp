@@ -430,6 +430,21 @@ void bind_spectral_mesh(nb::module_ &module) {
             "mu"_a
         )
         .def(
+            "integrate_density_components_p",
+            [](SpectralMesh &mesh, double mu, LatticeVectorArray lattice_vectors,
+               LatticeVectorArray components, double target_error,
+               std::int64_t max_refinements, std::uint32_t max_degree) {
+                return fermisimplex::integrate_density_components_p(
+                    mesh, mu, copy_lattice_vectors(lattice_vectors),
+                    copy_density_components(components), target_error,
+                    max_refinements, max_degree
+                );
+            },
+            "mu"_a, "lattice_vectors"_a, "components"_a, "target_error"_a,
+            "max_refinements"_a, "max_degree"_a,
+            nb::call_guard<nb::gil_scoped_release>()
+        )
+        .def(
             "integrate_density_components",
             [](SpectralMesh &mesh,
                double mu,

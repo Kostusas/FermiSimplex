@@ -189,6 +189,26 @@ DensityRule::DensityRule(
     }
 }
 
+DensityRule::Value DensityRule::at_point(
+    const Eigensystem &spectra,
+    std::span<const double> point,
+    std::span<const double> band_weights
+) const {
+    const auto phases = lattice_phases(lattice_vectors_, lattice_vector_count_, point);
+    auto result = Value(output_size_);
+    for (const auto &pair : pairs_) {
+        const auto element = density_element(
+            spectra, band_weights, pair.row, pair.column, ndof_
+        );
+        for (auto i = pair.contribution_begin; i < pair.contribution_end; ++i) {
+            const auto &contribution = contributions_[i];
+            result[contribution.output_index] +=
+                phases[contribution.lattice_vector_index] * element;
+        }
+    }
+    return result;
+}
+
 DensityRule::Value DensityRule::on_simplex(
     double mu,
     const SpectralMesh &mesh,

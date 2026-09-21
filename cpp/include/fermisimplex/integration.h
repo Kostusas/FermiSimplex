@@ -110,7 +110,8 @@ DensityComponentsResult integrate_density_components(
 );
 
 // Integrates on the fixed active mesh using nested polynomial cubature.
-// Frozen band occupation fractions do not resolve cut-occupation covariance.
+// Cut barycentric moments correct the vertex-linear occupation covariance;
+// higher-order cut and charge-geometry errors remain outside the p estimate.
 DensityComponentsResult integrate_density_components_p(
     SpectralMesh &mesh,
     double mu,

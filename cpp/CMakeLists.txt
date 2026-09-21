@@ -120,6 +120,12 @@ if(NOT TARGET adaptivesimplex::adaptive)
   FetchContent_MakeAvailable(adaptivesimplex)
 endif()
 
+set(FERMISIMPLEX_DENSITY_OPENMP_ENABLED OFF)
+option(FERMISIMPLEX_ENABLE_DENSITY_OPENMP "Parallel density p-refinement batches" ON)
+if(FERMISIMPLEX_ENABLE_DENSITY_OPENMP)
+  find_package(OpenMP QUIET COMPONENTS CXX)
+endif()
+
 include(CheckCXXSourceCompiles)
 
 set(_fs_check_required_libraries "${CMAKE_REQUIRED_LIBRARIES}")
@@ -283,6 +289,19 @@ target_compile_definitions(
   FERMISIMPLEX_BLAS_ZHER2K=${FERMISIMPLEX_BLAS_ZHER2K_SYMBOL}
   FERMISIMPLEX_BLAS_ZHEMM=${FERMISIMPLEX_BLAS_ZHEMM_SYMBOL}
 )
+
+# Compile only density_p.cpp with OpenMP: leave charge and the generic adaptive
+# engine's existing compilation/threading behavior unchanged. If OpenMP is not
+# available, the same source retains the serial controller.
+if(FERMISIMPLEX_ENABLE_DENSITY_OPENMP AND OpenMP_CXX_FOUND)
+  separate_arguments(_fs_density_openmp_flags NATIVE_COMMAND "${OpenMP_CXX_FLAGS}")
+  set_property(SOURCE src/integration/density_p.cpp APPEND PROPERTY
+    COMPILE_OPTIONS ${_fs_density_openmp_flags})
+  set_property(SOURCE src/integration/density_p.cpp APPEND PROPERTY
+    INCLUDE_DIRECTORIES ${OpenMP_CXX_INCLUDE_DIRS})
+  target_link_libraries(fermisimplex_core PRIVATE "$<LINK_ONLY:OpenMP::OpenMP_CXX>")
+  set(FERMISIMPLEX_DENSITY_OPENMP_ENABLED ON)
+endif()
 
 if(FERMISIMPLEX_BUILD_TESTING)
   enable_testing()

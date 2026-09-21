@@ -117,18 +117,108 @@ def test_degree_validation(degree):
         integrate(mesh, max_degree=degree)
 
 
-def test_frozen_cut_error_is_separate_from_cubature_error():
-    # An affine band gives exact linear charge, but replacing the occupied
-    # subinterval by a fractional weight misses its correlation with exp(ik).
+@pytest.mark.parametrize("ndim", [1, 2, 3])
+def test_linear_projector_components_are_integrated_exactly_on_cuts(ndim):
+    def h(k):
+        # Lower energy k, with affine diagonal projector components.
+        g = 0.2 + 0.4 * k
+        x = 2 * np.sqrt(g * (1 - g))
+        return np.array([[2 * g - 1, x], [x, 1 - 2 * g]]) + (k + 1) * np.eye(2)
+
+    def h1(k):
+        return h(k)
+
+    def h2(k, y):
+        return h(k)
+
+    def h3(k, y, z):
+        return h(k)
+
+    mesh = SpectralMesh([h1, h2, h3][ndim - 1])
+    mu = 0.37
+    mesh.estimate_charge_on_current_mesh(mu=mu)
+    before = mesh.cached_vertices
+    result = integrate(
+        mesh, mu=mu, components=[[0, 0, 0], [0, 1, 1]], target_error=1e-12
+    )
+    np.testing.assert_allclose(
+        result.values, [0.8 * mu - 0.2 * mu**2, 0.2 * mu + 0.2 * mu**2], atol=2e-14
+    )
+    assert result.stats.target_reached
+    assert result.stats.p_refinements == 0
+    assert mesh.cached_vertices == before
+    occupied_cells = np.any(mesh.eigenvalues[mesh.simplices, 0] < mu, axis=1)
+    assert result.stats.evaluations == np.count_nonzero(occupied_cells)
+
+
+def test_cut_correction_has_no_new_samples_and_removes_linear_error():
     def model(k):
         return np.array([[k]], complex)
 
+    errors = []
+    for level in [2, 3, 4, 5]:
+        mesh = SpectralMesh(model, root_level=level)
+        h = 2.0 ** (-level)
+        mu = 0.37 * h
+        charge = mesh.estimate_charge_on_current_mesh(mu=mu)
+        assert charge.value == pytest.approx(mu)
+        result = integrate(mesh, mu=mu, keys=[(1,)], target_error=1e-12)
+        exact = np.expm1(2j * np.pi * mu) / (2j * np.pi)
+        frozen = 0.37 * np.expm1(2j * np.pi * h) / (2j * np.pi)
+        m1 = mu**2 / (2 * h)
+        correction = (m1 - mu / 2) * np.expm1(2j * np.pi * h)
+        assert result.stats.target_reached
+        np.testing.assert_allclose(result.values[0], frozen + correction, atol=1e-12)
+        errors.append(abs(result.values[0] - exact))
+        assert errors[-1] < abs(frozen - exact)
+        assert result.stats.refinements == 0
+    # The cut-cell residual is now O(h^3), rather than O(h^2).
+    assert errors[-1] < errors[-2] / 7
+    # Higher-order occupation error remains outside the cubature estimate.
+    assert errors[-1] > result.stopping_error
+
+
+def test_parallel_large_matrix_is_deterministic_and_respects_budget():
+    threadpoolctl = pytest.importorskip("threadpoolctl")
+    hopping = np.array([[0, 1], [0, 0]], complex)
+    tb = {
+        (1,): np.kron(np.eye(16), hopping),
+        (-1,): np.kron(np.eye(16), hopping.conj().T),
+    }
+    mesh = SpectralMesh(tb)
+    mesh.estimate_charge_on_current_mesh(mu=0.0)
+    geometry = mesh.simplices.copy()
+    request = dict(
+        keys=[(0,), (1,)],
+        components=[[0, 0, 0], [1, 0, 1], [1, 0, 0]],
+        target_error=1e-9,
+    )
+    with threadpoolctl.threadpool_limits(limits=1):
+        serial = integrate(mesh, **request)
+    with threadpoolctl.threadpool_limits(limits=4, user_api="openmp"):
+        parallel = integrate(mesh, **request)
+        repeat = integrate(mesh, **request)
+        limited = integrate(mesh, **{**request, "max_refinements": 1})
+    assert serial.stats.target_reached and parallel.stats.target_reached
+    np.testing.assert_allclose(serial.values, [0.5, -0.5, 0.0], atol=1e-9)
+    np.testing.assert_allclose(parallel.values, serial.values, atol=1e-9)
+    np.testing.assert_array_equal(parallel.values, repeat.values)
+    assert parallel.stats.evaluations == repeat.stats.evaluations
+    assert limited.stats.p_refinements == 1
+    assert not limited.stats.target_reached
+    np.testing.assert_array_equal(mesh.simplices, geometry)
+
+
+def test_parallel_callback_exception_is_propagated():
+    threadpoolctl = pytest.importorskip("threadpoolctl")
+
+    def model(k):
+        if abs(k - 0.125) < 1e-12:
+            raise ValueError("interior sample failed")
+        return -np.eye(32, dtype=complex)
+
     mesh = SpectralMesh(model)
-    mu = 0.37
-    charge = mesh.estimate_charge_on_current_mesh(mu=mu)
-    assert charge.value == pytest.approx(mu)
-    result = integrate(mesh, mu=mu, keys=[(1,)], target_error=1e-9)
-    exact = np.expm1(2j * np.pi * mu) / (2j * np.pi)
-    assert result.stats.target_reached
-    assert result.stopping_error < 1e-9
-    assert abs(result.values[0] - exact) > 0.05
+    mesh.estimate_charge_on_current_mesh(mu=0.0)
+    with threadpoolctl.threadpool_limits(limits=4, user_api="openmp"):
+        with pytest.raises(ValueError, match="interior sample failed"):
+            integrate(mesh, keys=[(1,)], components=[[0, 0, 0]], target_error=1e-9)

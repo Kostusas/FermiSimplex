@@ -1,4 +1,7 @@
+#include <complex>
 #include "integration/simplex_cubature.h"
+#include "integration/density_error.h"
+#include <adaptivesimplex/adaptive/dense_value.h>
 #include <cmath>
 #include <iostream>
 #include <stdexcept>
@@ -42,6 +45,21 @@ void moments(const Cubature &rule, unsigned d, unsigned degree) {
 }
 
 int main() {
+    using Value = adaptivesimplex::adaptive::DenseValue<std::complex<double>>;
+    DensityGlobalError policy;
+    double state = 0;
+    Value positive(2), negative(2), coherent(2), cancelled(2);
+    positive[0] = 3.; negative[0] = -3.; coherent[0] = 6.;
+    policy.add_local_estimate(state, positive);
+    policy.add_local_estimate(state, negative);
+    if (std::abs(policy.error(state, cancelled)-std::sqrt(18.)) > 1e-14 ||
+        policy.error(state, coherent) != 6.) {
+        throw std::runtime_error("statistical/coherent density error mismatch");
+    }
+    policy.remove_local_estimate(state, negative);
+    if (policy.error(state, positive) != 3.) {
+        throw std::runtime_error("density error removal mismatch");
+    }
     for (unsigned d = 1; d <= 3; ++d) {
         moments(vertices_centroid(d), d, 2);
         Cubature previous;

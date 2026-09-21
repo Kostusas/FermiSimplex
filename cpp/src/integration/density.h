@@ -34,6 +34,12 @@ public:
     std::size_t ndof() const noexcept { return ndof_; }
     std::size_t output_size() const noexcept { return output_size_; }
 
+    Value at_point(
+        const Eigensystem &spectra,
+        std::span<const double> point,
+        std::span<const double> band_weights
+    ) const;
+
     Value on_simplex(
         double mu,
         const SpectralMesh &mesh,

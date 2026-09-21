@@ -37,11 +37,27 @@ Coefficients are constructed once per dimension and requested degree per
 integration call. No fitted tables or external cubature dependency is needed.
 See [Grundmann and Moeller (1978)](https://doi.org/10.1137/0715019).
 
-Each node evaluates sum_b f_b P_b(k) times the real-space Fourier phase,
-where f_b is that band's linear-simplex occupied volume fraction, held fixed
-on the cell. The same formula is used for bulk and cut simplices. It
-preserves the onsite trace of the linear-simplex charge. Empty cells need
-no interior evaluations. An exactly on-level band has half occupation.
+Each interior node evaluates sum_b f_b P_b(k) times the real-space Fourier
+phase, where f_b is that band's linear-simplex occupied volume fraction.
+For cut bands, let M_bi be the existing barycentric occupied moments and
+F_b(v_i) the projector times Fourier phase at vertex i. The returned integral is
+
+```
+Q_p + sum_bi [M_bi - f_b*V/(d+1)] F_b(v_i).
+```
+
+Equivalently, integrate the vertex-linear interpolant over the occupied region
+exactly, and apply fraction-weighted p-cubature only to its nonlinear remainder.
+This removes the lowest-order occupation/projector correlation error and is
+exact when F_b is affine on the simplex. The same moments and vertex spectra
+are already available, so there are no additional Hamiltonian evaluations or
+diagonalizations. Partial cells require a small additional component contraction;
+full, empty and on-level bands need no correction. The correction is independent
+of degree, so it cancels from consecutive p differences. The onsite trace remains
+the linear-simplex charge, and exactly on-level bands retain half occupation.
+Higher-order occupation correlation and charge-geometry errors remain outside
+the cubature estimate. A degeneracy between bands with unequal frozen fractions
+can also make individual-band projectors nonsmooth.
 
 Only requested complex components are retained at interior nodes. Vertex
 eigensystems come from the shared charge cache; interior eigensystems are
@@ -50,16 +66,35 @@ orders within a call, not across calls, chemical potentials or component
 selections. The geometry and its persistent vertex cache do not gain any
 interior cubature nodes.
 
-The stopping estimate is the sum over cells of the maximum component-wise
-absolute difference between consecutive rules, with a floating-point floor
-scaled by the absolute weight sum. There is no cancellation of cell errors.
-Signed higher-order weights are accumulated in long double. They can amplify
-roundoff and the result is not guaranteed positive semidefinite.
-The estimate is empirical, not a rigorous error bound, and can miss aliased
-features. It excludes both charge/occupation error and covariance between
-the cut occupation and the varying projector/Fourier phase. Tightening p
-alone cannot remove this cut error. A degeneracy between bands with unequal
-frozen fractions can also make individual-band projectors nonsmooth.
+For complex component correction vectors delta_sigma between successive rules,
+the stopping estimate reuses the h-adaptive density policy:
+
+```
+max(sqrt(sum_sigma ||delta_sigma||_infinity^2),
+    ||sum_sigma delta_sigma||_infinity,
+    sum_sigma roundoff_sigma).
+```
+
+The coherent term retains systematic error; the statistical term guards against
+cancellation between cells. This is less conservative than summing local norms,
+but remains empirical and can miss aliased features. AdaptiveSimplex's existing
+RefinementQueue selects the largest local indicators. Signed higher-order weights
+are accumulated in long double, with a floating-point floor scaled by their
+absolute weight sum. Results are not guaranteed positive semidefinite.
+
+Promotions are serial by default. If OpenMP is available, the requested OpenMP
+thread count exceeds one, and the Hamiltonian has at least 32 orbitals, batches
+of up to 16 cells run in parallel. The size threshold reflects the measured
+scheduling overhead for small eigensystems. Cells, accumulators and exceptions
+are private to each worker; global error updates and queue changes are serial.
+The batch cannot exceed the remaining promotion budget. One-cell batches use a
+serial fast path. Python callback exceptions are rethrown on the calling thread.
+Only density_p.cpp is compiled with OpenMP; charge threading stays unchanged.
+Build with `FERMISIMPLEX_ENABLE_DENSITY_OPENMP=OFF` to disable this optional path;
+missing OpenMP also falls back to serial compilation. Control native threads via
+OpenMP or threadpoolctl; MeanFi's `num_threads=1` default keeps promotions serial.
+OpenMP-based BLAS libraries may share the same runtime/thread limit, so benchmark
+thread settings should be recorded and nested oversubscription avoided.
 
 `max_refinements` bounds promotions after initial Q2 evaluation;
 `max_degree=2` limits evaluation to the requested vertices-plus-centroid pair.

@@ -400,11 +400,20 @@ class SpectralMesh:
         ``max_refinements`` limits promotions beyond the initial degree-two
         estimate. Exhaustion returns ``stats.target_reached == False``.
 
-        Each band's linear-simplex occupied volume fraction is held fixed at
-        every cubature point, including cut simplices. The stopping estimate
-        sums local maximum absolute differences between successive rules; it
-        excludes occupation/geometry error and is not a rigorous bound.
-        The caller must first resolve charge on this mesh.
+        Interior samples use fixed band occupation fractions. The existing
+        cut barycentric moments correct the vertex-linear contribution,
+        removing the leading occupation/projector correlation error without
+        new samples. Higher-order cut and charge-geometry errors remain outside
+        the cubature estimate, which is not a rigorous bound.
+
+        The stopping estimate uses the same policy as h-refinement: the maximum
+        of the root-sum-square of local correction norms and the norm of their
+        coherent sum, with a separate floating-point floor. The caller must
+        first resolve charge on this mesh.
+
+        With OpenMP available, multiple requested OpenMP threads enable batches
+        of up to 16 cells for Hamiltonians with at least 32 orbitals. Otherwise
+        promotions remain serial. Worker exceptions propagate to the caller.
         """
         degree = _positive_integer(max_degree, "max_degree")
         if degree != 2 and (degree < 3 or degree > 21 or degree % 2 == 0):

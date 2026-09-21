@@ -396,6 +396,46 @@ class SpectralMesh:
             *adaptive,
         )
 
+    def integrate_density_components_p(
+        self,
+        *,
+        mu: float,
+        lattice_vectors,
+        components,
+        target_error: float,
+        max_refinements: int | None = None,
+        max_degree: int = 21,
+    ) -> DensityComponentsResult:
+        """Raise cubature degree on the fixed active mesh, without splitting.
+
+        Starts with the degree-two vertices-plus-centroid rule, compared to
+        the vertex average. Subsequent rules have degrees 3, 5, ..., 21 and
+        reuse nested Grundmann-Moeller samples within this call. Only requested
+        density components are retained at interior nodes, not eigensystems.
+        ``max_degree`` is 2 or an odd integer from 3 through 21.
+        ``max_refinements`` limits promotions beyond the initial degree-two
+        estimate. Exhaustion returns ``stats.target_reached == False``.
+
+        Each band's linear-simplex occupied volume fraction is held fixed at
+        every cubature point, including cut simplices. The stopping estimate
+        sums local maximum absolute differences between successive rules; it
+        excludes occupation/geometry error and is not a rigorous bound.
+        The caller must first resolve charge on this mesh.
+        """
+        degree = _positive_integer(max_degree, "max_degree")
+        if degree != 2 and (degree < 3 or degree > 21 or degree % 2 == 0):
+            raise ValueError("max_degree must be 2 or an odd integer in [3, 21]")
+        limit = (-1 if max_refinements is None else
+                 _nonnegative_integer(max_refinements, "max_refinements"))
+        return self._native.integrate_density_components_p(
+            _finite_float(mu, "mu"),
+            _lattice_vector_array(lattice_vectors, self.ndim),
+            _density_component_array(components),
+            _nonnegative_float(target_error, "target_error"),
+            limit,
+            degree,
+        )
+
     def integrate_density_components(
         self,
         *,

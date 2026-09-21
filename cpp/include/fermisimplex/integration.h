@@ -21,6 +21,10 @@ struct IntegrationStats {
     std::int64_t active_simplices = 0;
     std::int64_t active_vertices = 0;
     bool target_reached = false;
+    // Density p-adaptation changes polynomial degree, never geometry.
+    std::int64_t p_refinements = 0;
+    std::int64_t cubature_evaluations = 0;
+    std::uint32_t max_degree = 0;
 };
 
 struct ChargeErrorStats {
@@ -103,6 +107,18 @@ DensityComponentsResult integrate_density_components(
     std::vector<LatticeVector> lattice_vectors,
     std::vector<DensityComponent> components,
     const adaptivesimplex::adaptive::Options &options
+);
+
+// Integrates on the fixed active mesh using nested polynomial cubature.
+// Frozen band occupation fractions do not resolve cut-occupation covariance.
+DensityComponentsResult integrate_density_components_p(
+    SpectralMesh &mesh,
+    double mu,
+    std::vector<LatticeVector> lattice_vectors,
+    std::vector<DensityComponent> components,
+    double target_error,
+    std::int64_t max_refinements = -1,
+    std::uint32_t max_degree = 21
 );
 
 // With preview_depth=0, integrates the current mesh without refinement.

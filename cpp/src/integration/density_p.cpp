@@ -107,7 +107,7 @@ DensityComponentsResult integrate_density_components_p(
 ) {
     if (!std::isfinite(mu) || !std::isfinite(target_error) || target_error < 0 ||
         max_refinements < -1 || max_h_refinements < -1 ||
-        (max_degree != 2 && (max_degree < 3 || max_degree > 21 || max_degree % 2 == 0))) {
+        max_degree < 3 || max_degree > 21 || max_degree % 2 == 0) {
         throw std::invalid_argument("invalid density hp-cubature options");
     }
     DensityRule rule(mesh.ndim(), mesh.ndof(), std::move(lattice_vectors),
@@ -135,9 +135,9 @@ DensityComponentsResult integrate_density_components_p(
         ++stats.evaluations;
         return local_cache.emplace(vertex, mesh.spectrum(point)).first->second;
     };
-    const unsigned levels = max_degree == 2 ? 1 : (max_degree + 1) / 2;
+    const unsigned levels = (max_degree - 1) / 2;
     std::vector<Cubature> rules(levels);
-    rules[0] = vertices_centroid(mesh.ndim());
+    rules[0] = grundmann_moeller(mesh.ndim(), 1);
     std::vector<Cell> cells;
     cells.reserve(geometry->simplices().n_active());
     adaptivesimplex::adaptive::RefinementQueue pending;
@@ -270,7 +270,7 @@ DensityComponentsResult integrate_density_components_p(
         cells.push_back(std::move(*cell));
         enqueue(cells.size() - 1);
     }
-    stats.max_degree = 2;
+    stats.max_degree = 3;
     int threads = 1;
 #ifdef _OPENMP
     if (mesh.ndof() >= 32) threads = std::min(omp_get_max_threads(), 16);
@@ -293,14 +293,14 @@ DensityComponentsResult integrate_density_components_p(
                 remove_error(cell);
                 ++cell.level;
                 if (rules[cell.level].empty()) {
-                    rules[cell.level] = grundmann_moeller(mesh.ndim(), cell.level);
+                    rules[cell.level] = grundmann_moeller(mesh.ndim(), cell.level + 1);
                 }
                 cell.value = cubature_value(
                     cell, rules[cell.level], *geometry, mesh, rule, stats
                 );
                 add_error(cell);
                 ++stats.p_refinements;
-                stats.max_degree = std::max(stats.max_degree, 2 * cell.level + 1);
+                stats.max_degree = std::max(stats.max_degree, 2 * cell.level + 3);
                 enqueue(index);
                 continue;
             }
@@ -332,7 +332,7 @@ DensityComponentsResult integrate_density_components_p(
             remove_error(cell);
             ++cell.level;
             if (rules[cell.level].empty()) {
-                rules[cell.level] = grundmann_moeller(mesh.ndim(), cell.level);
+                rules[cell.level] = grundmann_moeller(mesh.ndim(), cell.level + 1);
             }
         }
         std::vector<IntegrationStats> work(selected.size());
@@ -359,7 +359,7 @@ DensityComponentsResult integrate_density_components_p(
             stats.simplex_visits += work[i].simplex_visits;
             add_error(cell);
             ++stats.p_refinements;
-            stats.max_degree = std::max(stats.max_degree, 2 * cell.level + 1);
+            stats.max_degree = std::max(stats.max_degree, 2 * cell.level + 3);
             enqueue(selected[i]);
         }
     }

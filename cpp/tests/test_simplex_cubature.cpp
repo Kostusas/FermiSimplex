@@ -61,7 +61,6 @@ int main() {
         throw std::runtime_error("density error removal mismatch");
     }
     for (unsigned d = 1; d <= 3; ++d) {
-        moments(vertices_centroid(d), d, 2);
         Cubature previous;
         for (unsigned s = 0; s <= 10; ++s) {
             const auto rule = grundmann_moeller(d, s);

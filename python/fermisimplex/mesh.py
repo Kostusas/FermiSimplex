@@ -409,12 +409,12 @@ class SpectralMesh:
     ) -> DensityComponentsResult:
         """Raise cubature degree, then bisect stalled cells on a density-only tree.
 
-        Starts with the degree-two vertices-plus-centroid rule, compared to
-        the vertex average. Subsequent rules have degrees 3, 5, ..., 21 and
-        reuse nested Grundmann-Moeller samples within this call. Only requested
-        density components are retained at interior nodes, not eigensystems.
-        ``max_degree`` is 2 or an odd integer from 3 through 21.
-        ``max_refinements`` limits p promotions beyond the initial degree-two
+        Starts with degree three compared to the vertex average (degree one).
+        Subsequent rules have degrees 5, 7, ..., 21 and reuse nested
+        Grundmann-Moeller samples within this call. Only requested density
+        components are retained at interior nodes, not eigensystems.
+        ``max_degree`` is an odd integer from 3 through 21.
+        ``max_refinements`` limits p promotions beyond the initial Q3-Q1
         estimate. ``max_h_refinements`` limits density-only bisections; zero
         retains p-only behavior, and None permits unbounded bisection.
         Exhaustion returns ``stats.target_reached == False``.
@@ -438,8 +438,8 @@ class SpectralMesh:
         propagate to the caller.
         """
         degree = _positive_integer(max_degree, "max_degree")
-        if degree != 2 and (degree < 3 or degree > 21 or degree % 2 == 0):
-            raise ValueError("max_degree must be 2 or an odd integer in [3, 21]")
+        if degree < 3 or degree > 21 or degree % 2 == 0:
+            raise ValueError("max_degree must be an odd integer in [3, 21]")
         limit = (-1 if max_refinements is None else
                  _nonnegative_integer(max_refinements, "max_refinements"))
         return self._native.integrate_density_components_p(

@@ -376,7 +376,7 @@ DensityComponentsResult integrate_density_components_p(
     result.values = total.values();
     result.stopping_error = global_error();
     stats.target_reached = result.stopping_error <= target_error;
-    stats.cached_vertices = mesh.cached_vertices() + local_cache.size();
+    stats.cached_vertices = mesh.cached_vertices();
     stats.active_simplices = geometry->simplices().n_active();
     stats.active_vertices = geometry->n_active_vertices();
     return result;

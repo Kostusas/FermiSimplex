@@ -405,31 +405,37 @@ class SpectralMesh:
         target_error: float,
         max_refinements: int | None = None,
         max_degree: int = 21,
+        max_h_refinements: int | None = 0,
     ) -> DensityComponentsResult:
-        """Raise cubature degree on the fixed active mesh, without splitting.
+        """Raise cubature degree, then bisect stalled cells on a density-only tree.
 
         Starts with the degree-two vertices-plus-centroid rule, compared to
         the vertex average. Subsequent rules have degrees 3, 5, ..., 21 and
         reuse nested Grundmann-Moeller samples within this call. Only requested
         density components are retained at interior nodes, not eigensystems.
         ``max_degree`` is 2 or an odd integer from 3 through 21.
-        ``max_refinements`` limits promotions beyond the initial degree-two
-        estimate. Exhaustion returns ``stats.target_reached == False``.
+        ``max_refinements`` limits p promotions beyond the initial degree-two
+        estimate. ``max_h_refinements`` limits density-only bisections; zero
+        retains p-only behavior, and None permits unbounded bisection.
+        Exhaustion returns ``stats.target_reached == False``.
 
-        Interior samples use fixed band occupation fractions. The existing
-        cut barycentric moments correct the vertex-linear contribution,
-        removing the leading occupation/projector correlation error without
-        new samples. Higher-order cut and charge-geometry errors remain outside
+        Each child uses the parent charge simplex's linearly interpolated band
+        energies for occupation. This preserves charge across density-only
+        bisections. The existing cut barycentric moments correct the
+        vertex-linear contribution, removing the leading
+        occupation/projector correlation error without new samples. Higher-order cut and charge-geometry errors remain outside
         the cubature estimate, which is not a rigorous bound.
 
         The stopping estimate uses the same policy as h-refinement: the maximum
         of the root-sum-square of local correction norms and the norm of their
-        coherent sum, with a separate floating-point floor. The caller must
-        first resolve charge on this mesh.
+        coherent sum, with a separate floating-point floor. After a split,
+        the children replace the parent's contribution and p indicator. The
+        caller must first resolve charge on this mesh.
 
-        With OpenMP available, multiple requested OpenMP threads enable batches
-        of up to 16 cells for Hamiltonians with at least 32 orbitals. Otherwise
-        promotions remain serial. Worker exceptions propagate to the caller.
+        In p-only mode, multiple requested OpenMP threads enable batches of
+        up to 16 cells for Hamiltonians with at least 32 orbitals. The hp
+        controller currently processes one cell at a time. Worker exceptions
+        propagate to the caller.
         """
         degree = _positive_integer(max_degree, "max_degree")
         if degree != 2 and (degree < 3 or degree > 21 or degree % 2 == 0):
@@ -443,6 +449,10 @@ class SpectralMesh:
             _nonnegative_float(target_error, "target_error"),
             limit,
             degree,
+            (
+                -1 if max_h_refinements is None else
+                _nonnegative_integer(max_h_refinements, "max_h_refinements")
+            ),
         )
 
     def integrate_density_components(

@@ -12,7 +12,7 @@
 namespace fermisimplex {
 
 struct IntegrationStats {
-    // Eigensystems newly added to the shared cache by this operation.
+    // New eigensystems evaluated, including transient density cubature samples.
     std::int64_t evaluations = 0;
     // Total simplex-rule calls, including optional preview contributions.
     std::int64_t simplex_visits = 0;
@@ -21,7 +21,7 @@ struct IntegrationStats {
     std::int64_t active_simplices = 0;
     std::int64_t active_vertices = 0;
     bool target_reached = false;
-    // Density p-adaptation changes polynomial degree, never geometry.
+    // Density p-adaptation changes polynomial degree; density-only h splits are separate.
     std::int64_t p_refinements = 0;
     std::int64_t cubature_evaluations = 0;
     std::uint32_t max_degree = 0;
@@ -109,9 +109,10 @@ DensityComponentsResult integrate_density_components(
     const adaptivesimplex::adaptive::Options &options
 );
 
-// Integrates on the fixed active mesh using nested polynomial cubature.
-// Cut barycentric moments correct the vertex-linear occupation covariance;
-// higher-order cut and charge-geometry errors remain outside the p estimate.
+// Integrates using nested polynomial cubature. If max_h_refinements is nonzero,
+// cells that exhaust the degree cap bisect on a private density geometry.
+// Child occupations restrict the parent charge simplex's linear band energies.
+// Higher-order cut and charge-geometry errors remain outside the p estimate.
 DensityComponentsResult integrate_density_components_p(
     SpectralMesh &mesh,
     double mu,
@@ -119,7 +120,8 @@ DensityComponentsResult integrate_density_components_p(
     std::vector<DensityComponent> components,
     double target_error,
     std::int64_t max_refinements = -1,
-    std::uint32_t max_degree = 21
+    std::uint32_t max_degree = 21,
+    std::int64_t max_h_refinements = 0
 );
 
 // With preview_depth=0, integrates the current mesh without refinement.

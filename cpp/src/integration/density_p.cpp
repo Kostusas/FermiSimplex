@@ -2,23 +2,26 @@
 
 #include "integration/density.h"
 #include "integration/density_error.h"
-#include <adaptivesimplex/adaptive/refinement_queue.h>
 #include "integration/simplex_cubature.h"
+#include <adaptivesimplex/adaptive/refinement_queue.h>
 #include <adaptivesimplex/cut/simplex_moments.h>
 
 #include <algorithm>
-#include <exception>
-#ifdef _OPENMP
-#include <omp.h>
-#endif
 #include <cmath>
 #include <complex>
+#include <exception>
 #include <limits>
 #include <map>
 #include <numeric>
+#include <optional>
+#include <span>
 #include <stdexcept>
+#include <unordered_map>
 #include <utility>
 #include <vector>
+#ifdef _OPENMP
+#include <omp.h>
+#endif
 
 namespace fermisimplex {
 namespace {
@@ -30,21 +33,25 @@ using Value = DensityRule::Value;
 struct Cell {
     core::SimplexId id;
     unsigned level = 0;
+    bool active = true;
     std::vector<double> occupations;
+    // The charge mesh's vertex-linear band energies, restricted to this cell.
+    // Splitting this field preserves the charge-stage occupation exactly.
+    std::vector<std::vector<double>> frozen_energies;
     std::vector<std::vector<double>> vertices;
     std::map<BarycentricNode, Value> samples;
     Value value;
     Value cut_correction;
     Value correction;
-    double error = 0;
     double roundoff = 0;
+    double error = 0;
 };
 
 Value cubature_value(
-    Cell &cell, const Cubature &cubature, SpectralMesh &mesh,
-    const DensityRule &rule, IntegrationStats &stats
+    Cell &cell, const Cubature &cubature, const core::Geometry &geometry,
+    SpectralMesh &mesh, const DensityRule &rule, IntegrationStats &stats
 ) {
-    const auto &simplex = mesh.geometry().simplices().simplex(cell.id);
+    const auto &simplex = geometry.simplices().simplex(cell.id);
     std::vector<std::complex<long double>> sum(rule.output_size());
     long double absolute_weight_sum = 0;
     double sample_max = 0;
@@ -74,14 +81,14 @@ Value cubature_value(
     Value result(rule.output_size());
     Value correction(rule.output_size());
     for (std::size_t c = 0; c < sum.size(); ++c) {
-        result[c] = static_cast<std::complex<double>>(sum[c] * static_cast<long double>(simplex.volume));
+        result[c] = static_cast<std::complex<double>>(
+            sum[c] * static_cast<long double>(simplex.volume)
+        );
         correction[c] = result[c] - cell.value[c];
         if (!std::isfinite(std::abs(result[c]))) {
             throw std::runtime_error("non-finite density cubature value");
         }
     }
-    // Account for cancellation in the signed higher-order rules. This is a
-    // floating-point floor, not a bound on the quadrature truncation error.
     const auto roundoff = static_cast<double>(absolute_weight_sum) * sample_max *
         simplex.volume * 32 * std::numeric_limits<double>::epsilon();
     cell.correction = std::move(correction);
@@ -95,62 +102,113 @@ Value cubature_value(
 DensityComponentsResult integrate_density_components_p(
     SpectralMesh &mesh, double mu, std::vector<LatticeVector> lattice_vectors,
     std::vector<DensityComponent> components, double target_error,
-    std::int64_t max_refinements, std::uint32_t max_degree
+    std::int64_t max_refinements, std::uint32_t max_degree,
+    std::int64_t max_h_refinements
 ) {
     if (!std::isfinite(mu) || !std::isfinite(target_error) || target_error < 0 ||
-        max_refinements < -1 ||
+        max_refinements < -1 || max_h_refinements < -1 ||
         (max_degree != 2 && (max_degree < 3 || max_degree > 21 || max_degree % 2 == 0))) {
-        throw std::invalid_argument("invalid density p-cubature options");
+        throw std::invalid_argument("invalid density hp-cubature options");
     }
     DensityRule rule(mesh.ndim(), mesh.ndof(), std::move(lattice_vectors),
                      std::move(components));
     DensityComponentsResult result;
     auto &stats = result.stats;
-    auto &geometry = mesh.geometry();
+    const core::Geometry *geometry = &mesh.geometry();
+    std::optional<core::Geometry> density_geometry;
     auto &cache = mesh.eigensystems();
     for (const auto vertex : mesh.active_vertex_ids()) {
         if (!cache.contains(vertex)) {
-            const auto point = geometry.vertices().dyadic_vertex(vertex).to_point();
+            const auto point = geometry->vertices().dyadic_vertex(vertex).to_point();
             cache.insert(vertex, mesh.spectrum(point));
             ++stats.evaluations;
         }
     }
+    // Density-only midpoint spectra never enter the charge mesh cache.
+    std::unordered_map<core::VertexId, Eigensystem> local_cache;
+    const auto vertex_spectrum = [&](core::VertexId vertex) -> const Eigensystem & {
+        if (cache.contains(vertex)) return cache.get(vertex);
+        if (const auto it = local_cache.find(vertex); it != local_cache.end()) {
+            return it->second;
+        }
+        const auto point = geometry->vertices().dyadic_vertex(vertex).to_point();
+        ++stats.evaluations;
+        return local_cache.emplace(vertex, mesh.spectrum(point)).first->second;
+    };
     const unsigned levels = max_degree == 2 ? 1 : (max_degree + 1) / 2;
-    // Construct rules only when first needed; share coefficients across cells.
     std::vector<Cubature> rules(levels);
     rules[0] = vertices_centroid(mesh.ndim());
     std::vector<Cell> cells;
-    cells.reserve(geometry.simplices().n_active());
+    cells.reserve(geometry->simplices().n_active());
     adaptivesimplex::adaptive::RefinementQueue pending;
     DensityGlobalError error_policy;
-    double squared_error = 0;
-    Value correction_sum(rule.output_size());
+    double squared_p_error = 0;
+    Value p_correction_sum(rule.output_size());
     long double roundoff_sum = 0;
     const auto add_error = [&](const Cell &cell) {
-        error_policy.add_local_estimate(squared_error, cell.correction);
-        correction_sum += cell.correction;
+        error_policy.add_local_estimate(squared_p_error, cell.correction);
+        p_correction_sum += cell.correction;
         roundoff_sum += cell.roundoff;
     };
     const auto remove_error = [&](const Cell &cell) {
-        error_policy.remove_local_estimate(squared_error, cell.correction);
-        correction_sum -= cell.correction;
+        error_policy.remove_local_estimate(squared_p_error, cell.correction);
+        p_correction_sum -= cell.correction;
         roundoff_sum -= cell.roundoff;
     };
     const auto global_error = [&]() {
-        return std::max(error_policy.error(squared_error, correction_sum),
-                        static_cast<double>(std::max(0.L, roundoff_sum)));
+        return std::max({
+            error_policy.error(squared_p_error, p_correction_sum),
+            static_cast<double>(std::max(0.L, roundoff_sum))
+        });
     };
-    Value total(rule.output_size());
-    for (const auto id : geometry.simplices().active_simplices()) {
-        const auto &simplex = geometry.simplices().simplex(id);
+    const auto make_cell = [&](core::SimplexId id, const Cell *parent) -> std::optional<Cell> {
+        const auto &simplex = geometry->simplices().simplex(id);
         Cell cell{.id = id};
         cell.occupations.resize(mesh.ndof());
+        cell.frozen_energies.reserve(simplex.vertex_ids.size());
+        if (parent) {
+            const auto &parent_simplex = geometry->simplices().simplex(parent->id);
+            const auto &children = *parent_simplex.children;
+            for (const auto vertex : simplex.vertex_ids) {
+                if (vertex == children.midpoint) {
+                    std::vector<double> energies(mesh.ndof());
+                    for (std::size_t band = 0; band < mesh.ndof(); ++band) {
+                        energies[band] = 0.5 * (
+                            parent->frozen_energies[children.split_edge[0]][band] +
+                            parent->frozen_energies[children.split_edge[1]][band]
+                        );
+                    }
+                    cell.frozen_energies.push_back(std::move(energies));
+                } else {
+                    const auto it = std::find(
+                        parent_simplex.vertex_ids.begin(),
+                        parent_simplex.vertex_ids.end(), vertex
+                    );
+                    cell.frozen_energies.push_back(
+                        parent->frozen_energies[
+                            static_cast<std::size_t>(it - parent_simplex.vertex_ids.begin())
+                        ]
+                    );
+                }
+            }
+        } else {
+            for (const auto vertex : simplex.vertex_ids) {
+                cell.frozen_energies.push_back(vertex_spectrum(vertex).eigenvalues);
+            }
+        }
         bool occupied = false;
         std::vector<double> cut_weights;
         for (std::size_t band = 0; band < mesh.ndof(); ++band) {
             const auto moments = cut::simplex_moments(
-                geometry, id,
-                [&](core::VertexId vertex) { return cache.get(vertex).eigenvalues[band]; },
+                *geometry, id,
+                [&](core::VertexId vertex) {
+                    const auto it = std::find(
+                        simplex.vertex_ids.begin(), simplex.vertex_ids.end(), vertex
+                    );
+                    return cell.frozen_energies[
+                        static_cast<std::size_t>(it - simplex.vertex_ids.begin())
+                    ][band];
+                },
                 cut::LevelOptions{.level = mu, .level_tolerance = mesh.tolerance()}
             );
             cell.occupations[band] = moments.kind == cut::SimplexCutKind::on_level ? 0.5 :
@@ -169,52 +227,106 @@ DensityComponentsResult integrate_density_components_p(
                 }
             }
         }
-        // Exactly empty in the frozen occupation model: no interior evaluations.
-        if (!occupied) continue;
+        if (!occupied) return std::nullopt;
         cell.value = Value(rule.output_size());
-        if (!cut_weights.empty()) cell.cut_correction = Value(rule.output_size());
+        cell.cut_correction = Value(rule.output_size());
         for (std::size_t v = 0; v < simplex.vertex_ids.size(); ++v) {
             const auto vertex = simplex.vertex_ids[v];
-            const auto point = geometry.vertices().dyadic_vertex(vertex).to_point();
+            const auto point = geometry->vertices().dyadic_vertex(vertex).to_point();
             cell.vertices.emplace_back(point.begin(), point.end());
-            auto value = rule.at_point(cache.get(vertex), cell.vertices.back(), cell.occupations);
+            const auto &spectrum = vertex_spectrum(vertex);
+            auto value = rule.at_point(spectrum, cell.vertices.back(), cell.occupations);
             if (!cut_weights.empty()) {
                 cell.cut_correction += rule.at_point(
-                    cache.get(vertex), cell.vertices.back(),
-                    std::span<const double>(cut_weights.data() + v * mesh.ndof(), mesh.ndof())
+                    spectrum, cell.vertices.back(),
+                    std::span<const double>(
+                        cut_weights.data() + v * mesh.ndof(), mesh.ndof()
+                    )
                 );
             }
             for (std::size_t c = 0; c < value.size(); ++c) {
-                cell.value[c] += simplex.volume * value[c] / static_cast<double>(simplex.vertex_ids.size());
+                cell.value[c] += simplex.volume * value[c] /
+                    static_cast<double>(simplex.vertex_ids.size());
             }
             BarycentricNode node(simplex.vertex_ids.size(), 0);
             node[v] = 1;
             cell.samples.emplace(std::move(node), std::move(value));
         }
-        // Q_p + integral_cut(L) - fraction*integral_full(L), where L is
-        // the vertex-linear projector including its Fourier phase. Keeping
-        // this degree-independent correction separate leaves p differences
-        // unchanged and requires no new spectral samples.
-        cell.value = cubature_value(cell, rules[0], mesh, rule, stats);
-        add_error(cell);
-        if (levels > 1) pending.push(cells.size(), cell.error);
-        cells.push_back(std::move(cell));
+        // The cut correction uses moments of the original charge simplex
+        // restricted to this density child, keeping its total charge fixed.
+        cell.value = cubature_value(cell, rules[0], *geometry, mesh, rule, stats);
+        return cell;
+    };
+    const auto enqueue = [&](std::size_t index) {
+        const auto &cell = cells[index];
+        if (cell.level + 1 < levels || max_h_refinements != 0) {
+            pending.push(index, cell.error);
+        }
+    };
+    for (const auto id : geometry->simplices().active_simplices()) {
+        auto cell = make_cell(id, nullptr);
+        if (!cell) continue;
+        add_error(*cell);
+        cells.push_back(std::move(*cell));
+        enqueue(cells.size() - 1);
     }
     stats.max_degree = 2;
-    // Small eigensystems do not consistently amortize parallel scheduling.
-    // MeanFi's default thread limit of one retains the serial controller.
     int threads = 1;
 #ifdef _OPENMP
     if (mesh.ndof() >= 32) threads = std::min(omp_get_max_threads(), 16);
 #endif
-    const auto batch_size = threads > 1 ? 16 : 1;
-    while (global_error() > target_error &&
-           (max_refinements < 0 || stats.p_refinements < max_refinements)) {
-        const auto remaining = max_refinements < 0 ? -1 : max_refinements - stats.p_refinements;
+    const auto batch_size = max_h_refinements == 0 && threads > 1 ? 16 : 1;
+    while (global_error() > target_error) {
+        const auto remaining_p = max_refinements < 0 ?
+            -1 : max_refinements - stats.p_refinements;
+        if (max_h_refinements == 0 && remaining_p == 0) break;
         const auto selected = pending.select_for_reduction(
-            global_error() - target_error, remaining, 1, batch_size
+            global_error() - target_error,
+            max_h_refinements == 0 ? remaining_p : -1, 1, batch_size
         );
         if (selected.empty()) break;
+        if (selected.size() == 1) {
+            const auto index = static_cast<std::size_t>(selected.front());
+            auto &cell = cells[index];
+            if (cell.level + 1 < levels) {
+                if (remaining_p == 0) continue;
+                remove_error(cell);
+                ++cell.level;
+                if (rules[cell.level].empty()) {
+                    rules[cell.level] = grundmann_moeller(mesh.ndim(), cell.level);
+                }
+                cell.value = cubature_value(
+                    cell, rules[cell.level], *geometry, mesh, rule, stats
+                );
+                add_error(cell);
+                ++stats.p_refinements;
+                stats.max_degree = std::max(stats.max_degree, 2 * cell.level + 1);
+                enqueue(index);
+                continue;
+            }
+            if (max_h_refinements == 0 ||
+                (max_h_refinements > 0 && stats.refinements >= max_h_refinements)) {
+                continue;
+            }
+            remove_error(cell);
+            Cell parent = std::move(cell);
+            cells[index].active = false;
+            if (!density_geometry) {
+                density_geometry.emplace(mesh.geometry());
+                geometry = &*density_geometry;
+            }
+            const auto child_ids = density_geometry->refine_active({parent.id});
+            ++stats.refinements;
+            for (const auto child_id : child_ids) {
+                auto child = make_cell(child_id, &parent);
+                if (!child) continue;
+                add_error(*child);
+                cells.push_back(std::move(*child));
+                enqueue(cells.size() - 1);
+            }
+            continue;
+        }
+        // The p-only path preserves the previous parallel batch controller.
         for (const auto index : selected) {
             auto &cell = cells[index];
             remove_error(cell);
@@ -222,15 +334,6 @@ DensityComponentsResult integrate_density_components_p(
             if (rules[cell.level].empty()) {
                 rules[cell.level] = grundmann_moeller(mesh.ndim(), cell.level);
             }
-        }
-        if (selected.size() == 1) {
-            auto &cell = cells[selected.front()];
-            cell.value = cubature_value(cell, rules[cell.level], mesh, rule, stats);
-            add_error(cell);
-            ++stats.p_refinements;
-            stats.max_degree = std::max(stats.max_degree, 2 * cell.level + 1);
-            if (cell.level + 1 < levels) pending.push(selected.front(), cell.error);
-            continue;
         }
         std::vector<IntegrationStats> work(selected.size());
         std::vector<std::exception_ptr> failures(selected.size());
@@ -241,7 +344,9 @@ DensityComponentsResult integrate_density_components_p(
             const auto i = static_cast<std::size_t>(task);
             try {
                 auto &cell = cells[selected[i]];
-                cell.value = cubature_value(cell, rules[cell.level], mesh, rule, work[i]);
+                cell.value = cubature_value(
+                    cell, rules[cell.level], *geometry, mesh, rule, work[i]
+                );
             } catch (...) {
                 failures[i] = std::current_exception();
             }
@@ -255,15 +360,15 @@ DensityComponentsResult integrate_density_components_p(
             add_error(cell);
             ++stats.p_refinements;
             stats.max_degree = std::max(stats.max_degree, 2 * cell.level + 1);
-            if (cell.level + 1 < levels) pending.push(selected[i], cell.error);
+            enqueue(selected[i]);
         }
     }
-    // Recompute aggregates to limit cancellation in incremental updates.
-    squared_error = 0;
-    correction_sum = Value(rule.output_size());
+    squared_p_error = 0;
+    p_correction_sum = Value(rule.output_size());
     roundoff_sum = 0;
-    total = Value(rule.output_size());
+    Value total(rule.output_size());
     for (const auto &cell : cells) {
+        if (!cell.active) continue;
         add_error(cell);
         total += cell.value;
         total += cell.cut_correction;
@@ -271,9 +376,9 @@ DensityComponentsResult integrate_density_components_p(
     result.values = total.values();
     result.stopping_error = global_error();
     stats.target_reached = result.stopping_error <= target_error;
-    stats.cached_vertices = mesh.cached_vertices();
-    stats.active_simplices = mesh.active_simplices();
-    stats.active_vertices = mesh.active_vertices();
+    stats.cached_vertices = mesh.cached_vertices() + local_cache.size();
+    stats.active_simplices = geometry->simplices().n_active();
+    stats.active_vertices = geometry->n_active_vertices();
     return result;
 }
 }  // namespace fermisimplex

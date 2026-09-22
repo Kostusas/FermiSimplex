@@ -404,13 +404,13 @@ class SpectralMesh:
         components,
         target_error: float,
         max_refinements: int | None = None,
-        max_degree: int = 21,
+        max_degree: int = 7,
         max_h_refinements: int | None = 0,
     ) -> DensityComponentsResult:
         """Raise cubature degree, then bisect stalled cells on a density-only tree.
 
         Starts with degree three compared to the vertex average (degree one).
-        Subsequent rules have degrees 5, 7, ..., 21 and reuse nested
+        Subsequent rules have degrees 5, 7, ..., up to ``max_degree`` and reuse nested
         Grundmann-Moeller samples within this call. Only requested density
         components are retained at interior nodes, not eigensystems.
         ``max_degree`` is an odd integer from 3 through 21.

@@ -113,6 +113,5 @@ not success unless the estimated tolerance is met. `stats.refinements` counts
 h splits; `stats.p_refinements` counts order promotions,
 `stats.max_degree` records the largest degree used, and
 `stats.cubature_evaluations` counts new interior spectra. `stats.evaluations`
-also includes new density-only midpoint spectra. The mesh's `cached_vertices`
-count continues to describe charge spectra; result statistics include temporary
-density midpoint spectra.
+also includes new density-only midpoint spectra. `cached_vertices` continues
+to count only spectra retained on the charge mesh.

@@ -2,9 +2,13 @@
 
 `SpectralMesh.integrate_density_components_p` is an additive alternative to
 `integrate_density_components`. The latter retains its existing h-refinement
-behavior, including `preview_depth=0`, for comparisons and existing callers.
-The new routine never splits simplices. Call `integrate_charge` first to
-resolve occupations; at fixed filling use the converged chemical potential.
+behavior for comparisons and existing callers. Call `integrate_charge` first
+to resolve occupations; at fixed filling use the converged chemical potential.
+With `max_h_refinements=0` (the native API default), cubature remains p-only.
+With a positive h budget, a cell that reaches `max_degree` without meeting the
+global target is bisected on a private copy of the charge geometry. Its children
+restart at the vertex/centroid rule. Neither the charge geometry nor its cached
+spectra are modified by these density-only splits.
 
 For a simplex of dimension d and volume V, the initial approximation is
 
@@ -59,12 +63,12 @@ Higher-order occupation correlation and charge-geometry errors remain outside
 the cubature estimate. A degeneracy between bands with unequal frozen fractions
 can also make individual-band projectors nonsmooth.
 
-Only requested complex components are retained at interior nodes. Vertex
-eigensystems come from the shared charge cache; interior eigensystems are
-released immediately after projection. Samples are reused across polynomial
-orders within a call, not across calls, chemical potentials or component
-selections. The geometry and its persistent vertex cache do not gain any
-interior cubature nodes.
+Only requested complex components are retained at interior nodes. Charge-mesh
+vertex eigensystems are reused; interior eigensystems are released immediately
+after projection. Density-only midpoint spectra are cached for this call and
+released afterward. Samples are reused across polynomial orders within a cell,
+not across calls, chemical potentials or component selections. The charge
+geometry and its persistent vertex cache do not gain density cubature nodes.
 
 For complex component correction vectors delta_sigma between successive rules,
 the stopping estimate reuses the h-adaptive density policy:
@@ -78,14 +82,20 @@ max(sqrt(sum_sigma ||delta_sigma||_infinity^2),
 The coherent term retains systematic error; the statistical term guards against
 cancellation between cells. This is less conservative than summing local norms,
 but remains empirical and can miss aliased features. AdaptiveSimplex's existing
-RefinementQueue selects the largest local indicators. Signed higher-order weights
+RefinementQueue selects the largest local indicators. On a split, the parent
+contribution and indicator are removed and the children contribute their fresh
+vertex/centroid indicators. A parent-versus-children difference is not retained
+as a permanent error floor: it mostly measures the children at a lower p order
+and made the first hp prototype over-refine. The p estimator still cannot see
+all cut-occupation error, so hp is not a rigorous density-error certificate. Signed higher-order weights
 are accumulated in long double, with a floating-point floor scaled by their
 absolute weight sum. Results are not guaranteed positive semidefinite.
 
-Promotions are serial by default. If OpenMP is available, the requested OpenMP
-thread count exceeds one, and the Hamiltonian has at least 32 orbitals, batches
-of up to 16 cells run in parallel. The size threshold reflects the measured
-scheduling overhead for small eigensystems. Cells, accumulators and exceptions
+Promotions are serial by default. In p-only mode, if OpenMP is available, the
+requested OpenMP thread count exceeds one, and the Hamiltonian has at least 32
+orbitals, batches of up to 16 cells run in parallel. The hp controller currently
+processes one cell at a time because a bisection changes its private geometry.
+The size threshold reflects the measured scheduling overhead for small eigensystems. Cells, accumulators and exceptions
 are private to each worker; global error updates and queue changes are serial.
 The batch cannot exceed the remaining promotion budget. One-cell batches use a
 serial fast path. Python callback exceptions are rethrown on the calling thread.
@@ -96,11 +106,13 @@ OpenMP or threadpoolctl; MeanFi's `num_threads=1` default keeps promotions seria
 OpenMP-based BLAS libraries may share the same runtime/thread limit, so benchmark
 thread settings should be recorded and nested oversubscription avoided.
 
-`max_refinements` bounds promotions after initial Q2 evaluation;
-`max_degree=2` limits evaluation to the requested vertices-plus-centroid pair.
-Neither a degree cap nor a budget exhaustion is success unless the estimated
-tolerance is met. `stats.refinements` remains zero;
-`stats.p_refinements` counts order promotions, `stats.max_degree` records the
-largest degree used, and `stats.cubature_evaluations` counts new interior
-spectra. `stats.evaluations` also includes missing charge-mesh vertex spectra.
-The legacy `cached_vertices` count continues to describe persistent spectra.
+`max_refinements` bounds p promotions after initial Q2 evaluation;
+`max_h_refinements` bounds density-only bisections. `max_degree=2` limits each
+cell to the vertices-plus-centroid pair before h fallback. Budget exhaustion is
+not success unless the estimated tolerance is met. `stats.refinements` counts
+h splits; `stats.p_refinements` counts order promotions,
+`stats.max_degree` records the largest degree used, and
+`stats.cubature_evaluations` counts new interior spectra. `stats.evaluations`
+also includes new density-only midpoint spectra. The mesh's `cached_vertices`
+count continues to describe charge spectra; result statistics include temporary
+density midpoint spectra.

@@ -222,3 +222,91 @@ def test_parallel_callback_exception_is_propagated():
     with threadpoolctl.threadpool_limits(limits=4, user_api="openmp"):
         with pytest.raises(ValueError, match="interior sample failed"):
             integrate(mesh, keys=[(1,)], components=[[0, 0, 0]], target_error=1e-9)
+
+
+@pytest.mark.parametrize("mass", [3.0, 1.3])
+def test_hp_fallback_resolves_bulk_degree_cap_without_changing_charge_mesh(mass):
+    # A rotated and shifted gapped projector defeats degree 21 on this coarse
+    # charge mesh. A denser, independently converged integral is the reference.
+    sigma_x = np.array([[0, 1], [1, 0]], complex)
+    sigma_y = np.array([[0, -1j], [1j, 0]], complex)
+    sigma_z = np.diag([1, -1]).astype(complex)
+    tb = {(0, 0): mass * sigma_z}
+    keys = [(0, 0), (1, 0), (0, 1)]
+    for axis, sigma in enumerate((sigma_x, sigma_y)):
+        key = keys[axis + 1]
+        hopping = (sigma_z + 1j * sigma) / 2
+        tb[key] = hopping
+        tb[tuple(-v for v in key)] = hopping.conj().T
+    rng = np.random.default_rng(2)
+    rotation, _ = np.linalg.qr(
+        rng.normal(size=(2, 2)) + 1j * rng.normal(size=(2, 2))
+    )
+    shift = rng.uniform(0, 1, 2)
+    tb = {
+        key: np.exp(-2j * np.pi * np.dot(key, shift))
+        * (rotation @ hopping @ rotation.conj().T)
+        for key, hopping in tb.items()
+    }
+    request = dict(keys=keys, target_error=1e-5, max_degree=21)
+    coarse = SpectralMesh(tb, root_level=1)
+    charge = coarse.integrate_charge(mu=0.0, target_error=1e-4)
+    assert charge.stats.target_reached
+    before = coarse.points.copy(), coarse.simplices.copy(), coarse.cached_vertices
+    p_only = integrate(coarse, **request)
+    hp = integrate(coarse, **request, max_h_refinements=32)
+    fine = SpectralMesh(tb, root_level=3)
+    reference = integrate(fine, keys=keys, target_error=1e-9)
+    finer = SpectralMesh(tb, root_level=4)
+    reference_check = integrate(finer, keys=keys, target_error=1e-10)
+    assert reference.stats.target_reached and reference_check.stats.target_reached
+    np.testing.assert_allclose(reference.values, reference_check.values, atol=1e-8)
+    assert not p_only.stats.target_reached
+    assert hp.stats.target_reached
+    assert hp.stats.refinements > 0
+    assert hp.stats.p_refinements > 0
+    if mass == 3.0:
+        assert hp.stats.evaluations < p_only.stats.evaluations
+    np.testing.assert_allclose(hp.values, reference.values, atol=1e-5)
+    np.testing.assert_array_equal(coarse.points, before[0])
+    np.testing.assert_array_equal(coarse.simplices, before[1])
+    assert coarse.cached_vertices == before[2]
+
+
+def test_hp_cut_bisection_preserves_charge_stage_occupation():
+    mesh = SpectralMesh(lambda k: np.array([[k]], complex), root_level=1)
+    charge = mesh.estimate_charge_on_current_mesh(mu=0.37)
+    before = mesh.points.copy(), mesh.simplices.copy(), mesh.cached_vertices
+    result = integrate(
+        mesh,
+        mu=0.37,
+        keys=[(0,), (1,)],
+        components=[[0, 0, 0], [1, 0, 0]],
+        target_error=1e-5,
+        max_degree=2,
+        max_h_refinements=300,
+    )
+    assert result.stats.target_reached
+    assert result.stats.refinements > 0
+    assert result.values[0] == pytest.approx(charge.value, abs=1e-13)
+    exact = np.expm1(2j * np.pi * 0.37) / (2j * np.pi)
+    assert abs(result.values[1] - exact) < 1e-5
+    np.testing.assert_array_equal(mesh.points, before[0])
+    np.testing.assert_array_equal(mesh.simplices, before[1])
+    assert mesh.cached_vertices == before[2]
+
+
+def test_hp_split_budget_reports_exhaustion():
+    mesh = SpectralMesh(lambda k: np.array([[k]], complex), root_level=1)
+    result = integrate(
+        mesh,
+        mu=0.37,
+        keys=[(1,)],
+        components=[[0, 0, 0]],
+        target_error=1e-10,
+        max_degree=2,
+        max_h_refinements=1,
+    )
+    assert result.stats.refinements == 1
+    assert not result.stats.target_reached
+    assert result.stopping_error > 1e-10

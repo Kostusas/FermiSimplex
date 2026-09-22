@@ -14,7 +14,7 @@ For a simplex of dimension d and volume V, the vertex average is
 `Q1 = V/(d+1) * sum(f(vertex))`. The initial density estimate is the
 Grundmann–Moeller degree-three rule `Q3`, with local indicator
 `max(abs(Q3-Q1))`. Every promotion compares degrees two apart:
-`Q5-Q3`, `Q7-Q5`, ..., through `max_degree` (default and maximum 21).
+`Q5-Q3`, `Q7-Q5`, ..., through `max_degree` (default 7; maximum 21).
 There is no degree-two density rule.
 
 The Grundmann–Moeller rule of index s has degree 2s+1. For each t=0,...,s

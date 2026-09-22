@@ -52,16 +52,4 @@ inline Cubature grundmann_moeller(unsigned dimension, unsigned s) {
     return result;
 }
 
-inline Cubature vertices_centroid(unsigned dimension) {
-    Cubature result;
-    const auto count = dimension + 1;
-    for (unsigned i = 0; i < count; ++i) {
-        BarycentricNode vertex(count, 0);
-        vertex[i] = 1;
-        result[vertex] = 1.L / (count * (count + 1));
-    }
-    result[BarycentricNode(count, 1)] = static_cast<long double>(count) / (count + 1);
-    return result;
-}
-
 }  // namespace fermisimplex::integration_detail

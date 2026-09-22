@@ -7,23 +7,16 @@ to resolve occupations; at fixed filling use the converged chemical potential.
 With `max_h_refinements=0` (the native API default), cubature remains p-only.
 With a positive h budget, a cell that reaches `max_degree` without meeting the
 global target is bisected on a private copy of the charge geometry. Its children
-restart at the vertex/centroid rule. Neither the charge geometry nor its cached
+restart at the Q3-Q1 comparison. Neither the charge geometry nor its cached
 spectra are modified by these density-only splits.
 
-For a simplex of dimension d and volume V, the initial approximation is
+For a simplex of dimension d and volume V, the vertex average is
+`Q1 = V/(d+1) * sum(f(vertex))`. The initial density estimate is the
+Grundmann–Moeller degree-three rule `Q3`, with local indicator
+`max(abs(Q3-Q1))`. Every promotion compares degrees two apart:
+`Q5-Q3`, `Q7-Q5`, ..., through `max_degree` (default and maximum 21).
+There is no degree-two density rule.
 
-```
-Q1 = V/(d+1) * sum(f(vertex))
-Q2 = V/((d+1)*(d+2)) * sum(f(vertex)) + V*(d+1)/(d+2)*f(centroid)
-```
-
-Q2 is exact through total degree two (degree three in 1D). This follows from
-the normalized barycentric moments E[lambda_i] = 1/(d+1) and
-E[lambda_i lambda_j] = (1+delta_ij)/((d+1)(d+2)). It need not improve an
-arbitrary integrand. Its initial local indicator is max(abs(Q2-Q1)).
-
-When this is insufficient, the routine promotes the cell with the largest
-indicator to degrees 3, 5, ..., `max_degree` (default and maximum 21).
 The Grundmann–Moeller rule of index s has degree 2s+1. For each t=0,...,s
 and each nonnegative integer tuple beta summing to t, its nodes and
 normalized weights are
@@ -83,8 +76,8 @@ The coherent term retains systematic error; the statistical term guards against
 cancellation between cells. This is less conservative than summing local norms,
 but remains empirical and can miss aliased features. AdaptiveSimplex's existing
 RefinementQueue selects the largest local indicators. On a split, the parent
-contribution and indicator are removed and the children contribute their fresh
-vertex/centroid indicators. A parent-versus-children difference is not retained
+contribution and indicator are removed; children contribute fresh Q3-Q1
+indicators. A parent-versus-children difference is not retained
 as a permanent error floor: it mostly measures the children at a lower p order
 and made the first hp prototype over-refine. The p estimator still cannot see
 all cut-occupation error, so hp is not a rigorous density-error certificate. Signed higher-order weights
@@ -106,9 +99,9 @@ OpenMP or threadpoolctl; MeanFi's `num_threads=1` default keeps promotions seria
 OpenMP-based BLAS libraries may share the same runtime/thread limit, so benchmark
 thread settings should be recorded and nested oversubscription avoided.
 
-`max_refinements` bounds p promotions after initial Q2 evaluation;
-`max_h_refinements` bounds density-only bisections. `max_degree=2` limits each
-cell to the vertices-plus-centroid pair before h fallback. Budget exhaustion is
+`max_refinements` bounds p promotions after the initial Q3-Q1 comparison;
+`max_h_refinements` bounds density-only bisections. `max_degree=3` limits each
+cell to that first pair before h fallback. Budget exhaustion is
 not success unless the estimated tolerance is met. `stats.refinements` counts
 h splits; `stats.p_refinements` counts order promotions,
 `stats.max_degree` records the largest degree used, and

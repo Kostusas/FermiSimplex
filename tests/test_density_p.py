@@ -36,13 +36,29 @@ def test_constant_projector_and_empty_cells(ndim, mu, expected):
     assert result.stats.target_reached
     assert np.trace(result.values.reshape(2, 2)) == pytest.approx(expected)
     assert result.stats.refinements == result.stats.p_refinements == 0
-    assert result.stats.cubature_evaluations == (0 if expected == 0 else n)
+    assert result.stats.cubature_evaluations == (
+        0 if expected == 0 else n * (ndim + 2)
+    )
 
 
 def test_half_occupation_and_duplicate_components():
     mesh = SpectralMesh({(0,): np.zeros((2, 2))})
     result = integrate(mesh, components=[[0, 0, 0], [0, 0, 0], [0, 1, 0]])
     np.testing.assert_allclose(result.values, [0.5, 0.5, 0], atol=1e-14)
+
+
+def test_initial_and_promoted_errors_compare_degrees_two_apart():
+    mesh = SpectralMesh({(0,): np.array([[-1.0]])}, root_level=0)
+    request = dict(keys=[(1,)], components=[[0, 0, 0]], target_error=0)
+    q3 = integrate(mesh, max_degree=3, **request)
+    q5 = integrate(mesh, max_degree=5, **request)
+    assert q3.stats.max_degree == 3
+    assert q3.stats.p_refinements == 0
+    assert q3.values[0] == pytest.approx(1 / 3)
+    assert q3.stopping_error == pytest.approx(2 / 3)  # Q3 - Q1
+    assert q5.stats.max_degree == 5
+    assert q5.stats.p_refinements == 1
+    assert q5.stopping_error == pytest.approx(abs(q5.values[0] - q3.values[0]))
 
 
 def test_nested_samples_and_fourier_phase():
@@ -98,7 +114,7 @@ def test_cut_occupation_trace_preserves_charge_without_refinement():
 
 
 @pytest.mark.parametrize(
-    "budget", [dict(max_degree=2), dict(max_refinements=0), dict(max_refinements=1)]
+    "budget", [dict(max_degree=3), dict(max_refinements=0), dict(max_refinements=1)]
 )
 def test_exhaustion_does_not_claim_convergence(budget):
     mesh = SpectralMesh({(0,): np.array([[-1.0]])})
@@ -110,7 +126,7 @@ def test_exhaustion_does_not_claim_convergence(budget):
         assert result.stats.p_refinements <= budget["max_refinements"]
 
 
-@pytest.mark.parametrize("degree", [0, 1, 4, 22, 23, 2.5])
+@pytest.mark.parametrize("degree", [0, 1, 2, 4, 22, 23, 2.5])
 def test_degree_validation(degree):
     mesh = SpectralMesh({(0,): np.array([[-1.0]])})
     with pytest.raises((ValueError, TypeError), match="max_degree"):
@@ -148,7 +164,7 @@ def test_linear_projector_components_are_integrated_exactly_on_cuts(ndim):
     assert result.stats.p_refinements == 0
     assert mesh.cached_vertices == before
     occupied_cells = np.any(mesh.eigenvalues[mesh.simplices, 0] < mu, axis=1)
-    assert result.stats.evaluations == np.count_nonzero(occupied_cells)
+    assert result.stats.evaluations == (ndim + 2) * np.count_nonzero(occupied_cells)
 
 
 def test_cut_correction_has_no_new_samples_and_removes_linear_error():
@@ -283,7 +299,7 @@ def test_hp_cut_bisection_preserves_charge_stage_occupation():
         keys=[(0,), (1,)],
         components=[[0, 0, 0], [1, 0, 0]],
         target_error=1e-5,
-        max_degree=2,
+        max_degree=3,
         max_h_refinements=300,
     )
     assert result.stats.target_reached
@@ -304,7 +320,7 @@ def test_hp_split_budget_reports_exhaustion():
         keys=[(1,)],
         components=[[0, 0, 0]],
         target_error=1e-10,
-        max_degree=2,
+        max_degree=3,
         max_h_refinements=1,
     )
     assert result.stats.refinements == 1

@@ -120,7 +120,7 @@ DensityComponentsResult integrate_density_components_p(
     std::vector<DensityComponent> components,
     double target_error,
     std::int64_t max_refinements = -1,
-    std::uint32_t max_degree = 21,
+    std::uint32_t max_degree = 7,
     std::int64_t max_h_refinements = 0
 );
 

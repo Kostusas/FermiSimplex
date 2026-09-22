@@ -52,6 +52,8 @@ def test_initial_and_promoted_errors_compare_degrees_two_apart():
     request = dict(keys=[(1,)], components=[[0, 0, 0]], target_error=0)
     q3 = integrate(mesh, max_degree=3, **request)
     q5 = integrate(mesh, max_degree=5, **request)
+    default = integrate(mesh, **request)
+    assert default.stats.max_degree == 7
     assert q3.stats.max_degree == 3
     assert q3.stats.p_refinements == 0
     assert q3.values[0] == pytest.approx(1 / 3)
@@ -72,7 +74,7 @@ def test_nested_samples_and_fourier_phase():
     mesh.estimate_charge_on_current_mesh(mu=0.0)
     calls.clear()
     before = mesh.points.copy(), mesh.simplices.copy(), mesh.cached_vertices
-    result = integrate(mesh, keys=[(0,), (1,), (-1,)], target_error=1e-9)
+    result = integrate(mesh, keys=[(0,), (1,), (-1,)], target_error=1e-9, max_degree=21)
     assert result.stats.target_reached
     values = result.values.reshape(3, 2, 2)
     np.testing.assert_allclose(values[0], np.diag([1.0, 0.0]), atol=1e-12)
@@ -89,7 +91,7 @@ def test_rotating_projector_exact_fourier_coefficients():
     # H(k)=[[0, exp(-2 pi i k)], [exp(2 pi i k), 0]], energies +/-1.
     hopping = np.array([[0.0, 1.0], [0.0, 0.0]], complex)
     mesh = SpectralMesh({(1,): hopping, (-1,): hopping.T.conj()})
-    result = integrate(mesh, keys=[(0,), (1,), (-1,)], target_error=1e-8)
+    result = integrate(mesh, keys=[(0,), (1,), (-1,)], target_error=1e-8, max_degree=21)
     assert result.stats.target_reached
     expected = np.zeros((3, 2, 2), complex)
     expected[0] = np.eye(2) / 2
@@ -178,7 +180,7 @@ def test_cut_correction_has_no_new_samples_and_removes_linear_error():
         mu = 0.37 * h
         charge = mesh.estimate_charge_on_current_mesh(mu=mu)
         assert charge.value == pytest.approx(mu)
-        result = integrate(mesh, mu=mu, keys=[(1,)], target_error=1e-12)
+        result = integrate(mesh, mu=mu, keys=[(1,)], target_error=1e-12, max_degree=21)
         exact = np.expm1(2j * np.pi * mu) / (2j * np.pi)
         frozen = 0.37 * np.expm1(2j * np.pi * h) / (2j * np.pi)
         m1 = mu**2 / (2 * h)
@@ -208,6 +210,7 @@ def test_parallel_large_matrix_is_deterministic_and_respects_budget():
         keys=[(0,), (1,)],
         components=[[0, 0, 0], [1, 0, 1], [1, 0, 0]],
         target_error=1e-9,
+        max_degree=21,
     )
     with threadpoolctl.threadpool_limits(limits=1):
         serial = integrate(mesh, **request)
@@ -272,9 +275,9 @@ def test_hp_fallback_resolves_bulk_degree_cap_without_changing_charge_mesh(mass)
     p_only = integrate(coarse, **request)
     hp = integrate(coarse, **request, max_h_refinements=32)
     fine = SpectralMesh(tb, root_level=3)
-    reference = integrate(fine, keys=keys, target_error=1e-9)
+    reference = integrate(fine, keys=keys, target_error=1e-9, max_degree=21)
     finer = SpectralMesh(tb, root_level=4)
-    reference_check = integrate(finer, keys=keys, target_error=1e-10)
+    reference_check = integrate(finer, keys=keys, target_error=1e-10, max_degree=21)
     assert reference.stats.target_reached and reference_check.stats.target_reached
     np.testing.assert_allclose(reference.values, reference_check.values, atol=1e-8)
     assert not p_only.stats.target_reached

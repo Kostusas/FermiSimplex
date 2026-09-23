@@ -1,5 +1,6 @@
 #include "test_helpers.h"
 
+#include "integration/charge.h"
 #include "integration/charge_error/cached_model.h"
 #include "integration/charge_error/cut_disagreement.h"
 #include "integration/charge_error/projected_schur.h"
@@ -19,9 +20,11 @@
 #include <exception>
 #include <functional>
 #include <iostream>
+#include <limits>
 #include <memory>
 #include <numbers>
 #include <span>
+#include <stdexcept>
 #include <string>
 #include <utility>
 #include <vector>
@@ -33,6 +36,27 @@ using namespace fermisimplex::test;
 
 using Matrix = std::vector<Complex>;
 using Evaluator = std::function<Matrix(std::span<const double>)>;
+
+void test_density_cut_error_result_boundary() {
+    using fermisimplex::integration_detail::validated_density_cut_error;
+    expect_eq(validated_density_cut_error(-1e-17, 1.0), 0.0,
+              "roundoff-negative cut error must normalize to zero");
+    expect_eq(validated_density_cut_error(0.25, 1.0), 0.25,
+              "positive cut error must be preserved");
+    for (const auto invalid : {
+             -1e-6,
+             std::numeric_limits<double>::infinity(),
+             std::numeric_limits<double>::quiet_NaN()
+         }) {
+        auto rejected = false;
+        try {
+            (void)validated_density_cut_error(invalid, 1.0);
+        } catch (const std::runtime_error &) {
+            rejected = true;
+        }
+        expect(rejected, "invalid cut error must be rejected");
+    }
+}
 
 std::size_t cm(std::size_t row, std::size_t column, std::size_t size) {
     return row + column * size;
@@ -1447,6 +1471,7 @@ void test_quadratic_3d_uses_beta_geometry_and_eight_children() {
 
 int main() {
     try {
+        test_density_cut_error_result_boundary();
         test_two_affine_cut_disagreement();
         test_point_cache_uses_exact_dyadic_keys();
         test_point_cache_lazy_payloads_and_lifetime_accounting();

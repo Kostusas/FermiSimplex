@@ -9,7 +9,9 @@
 #include <algorithm>
 #include <chrono>
 #include <cmath>
+#include <limits>
 #include <span>
+#include <stdexcept>
 #include <vector>
 
 namespace fermisimplex::integration_detail {
@@ -104,6 +106,15 @@ std::vector<double> band_energies(
 }
 
 }  // namespace
+
+double validated_density_cut_error(double estimate, double charge) {
+    const auto roundoff = 32 * std::numeric_limits<double>::epsilon() *
+        std::max(1.0, std::abs(charge));
+    if (!std::isfinite(estimate) || estimate < -roundoff) {
+        throw std::runtime_error("invalid density cut error estimate");
+    }
+    return std::max(0.0, estimate);
+}
 
 ChargeContribution &ChargeContribution::operator+=(
     const ChargeContribution &other

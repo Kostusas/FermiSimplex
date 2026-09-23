@@ -248,9 +248,6 @@ DensityComponentsResult integrate_density_components_p(
                 cell.value[c] += simplex.volume * value[c] /
                     static_cast<double>(simplex.vertex_ids.size());
             }
-            BarycentricNode node(simplex.vertex_ids.size(), 0);
-            node[v] = 1;
-            cell.samples.emplace(std::move(node), std::move(value));
         }
         // The cut correction uses moments of the original charge simplex
         // restricted to this density child, keeping its total charge fixed.

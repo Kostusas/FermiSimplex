@@ -25,6 +25,9 @@ struct ChargeContribution {
     ChargeContribution &operator-=(const ChargeContribution &other) noexcept;
 };
 
+// Normalize accumulation roundoff before exposing the nonnegative cut estimate.
+double validated_density_cut_error(double estimate, double charge);
+
 ChargeContribution band_charge_on_simplex(
     double mu,
     const SpectralMesh &mesh,

@@ -923,6 +923,36 @@ The separate `estimate_charge_on_current_mesh` operation evaluates the same
 linear-simplex charge and derivative without running this estimator; its result
 therefore contains no `stopping_error`.
 
+### Density cut-location indicator
+
+The same temporary leaves also estimate the occupation-cut error that is
+invisible to density p-cubature. Let $m_T(k)$ count occupied bands under the
+reported root-simplex affine energies, and let $c_S(k)$ count occupied bands
+under a terminal child's unshifted, possibly reduced affine energies. On each
+leaf compute
+
+$$
+W_S=Q_S^+-Q_S^-,\qquad
+J_S=\int_S|c_S(k)-m_T(k)|\,dk.
+$$
+
+Both counts occupy their lowest ranks, so $|c_S-m_T|$ equals the sum of
+rank-wise occupation disagreements. Each disagreement is the symmetric
+difference of two affine half-simplex cuts. The implementation partitions the
+simplex at the first cut and integrates the second cut exactly on each inside
+piece using the existing cut-volume rule. It compares only the union of root
+and terminal uncertain ranks; all other ranks have the same fixed occupation.
+Root energies are interpolated to temporary vertices, and no extra Hamiltonian
+or projector evaluations are needed.
+
+The public `density_cut_error` is $\sum_S(W_S+J_S)$. If the shifted child
+occupations enclosed the true count pointwise, the triangle inequality would
+bound the cut-only error of each normal density entry by this sum: the entry of
+an occupied rank-one projector has absolute value at most one. Here the radius
+is sampled and the Schur model is approximate, so this is an indicator, not a
+certificate. It is not used for charge stopping or added to the independent
+density p-quadrature estimate $Q_p-Q_{p-2}$.
+
 ### Expected scaling and limitations
 
 For a smooth regular Fermi crossing, midpoint defects are normally $O(h^2)$.

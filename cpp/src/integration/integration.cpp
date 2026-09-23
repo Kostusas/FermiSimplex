@@ -262,6 +262,7 @@ ChargeResult charge_result(
     return ChargeResult{
         .value = value.value,
         .stopping_error = raw.stopping_error,
+        .density_cut_error = value.density_cut_error,
         .dcharge_dmu = value.dcharge_dmu,
         .visible_gapless_simplices = value.visible_gapless_simplices,
         .inconclusive_simplices = value.inconclusive_simplices,

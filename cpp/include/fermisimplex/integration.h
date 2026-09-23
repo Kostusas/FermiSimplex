@@ -50,6 +50,8 @@ struct ChargeResult {
     double value = 0.0;
     // Recursive sampled estimate of the linear-tetrahedron charge error.
     double stopping_error = 0.0;
+    // Sampled Fermi-cut disagreement, excluding projector quadrature error.
+    double density_cut_error = 0.0;
     double dcharge_dmu = 0.0;
     std::int64_t visible_gapless_simplices = 0;
     std::int64_t inconclusive_simplices = 0;

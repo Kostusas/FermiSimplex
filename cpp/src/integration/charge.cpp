@@ -111,6 +111,7 @@ ChargeContribution &ChargeContribution::operator+=(
     value += other.value;
     dcharge_dmu += other.dcharge_dmu;
     estimated_error += other.estimated_error;
+    density_cut_error += other.density_cut_error;
     visible_gapless_simplices += other.visible_gapless_simplices;
     inconclusive_simplices += other.inconclusive_simplices;
     return *this;
@@ -122,6 +123,7 @@ ChargeContribution &ChargeContribution::operator-=(
     value -= other.value;
     dcharge_dmu -= other.dcharge_dmu;
     estimated_error -= other.estimated_error;
+    density_cut_error -= other.density_cut_error;
     visible_gapless_simplices -= other.visible_gapless_simplices;
     inconclusive_simplices -= other.inconclusive_simplices;
     return *this;
@@ -222,13 +224,15 @@ ChargeContribution charge_on_simplex(
     const auto error_estimation_started = profile == nullptr
         ? Clock::time_point{}
         : Clock::now();
-    result.estimated_error = error_estimator.estimate(
+    const auto errors = error_estimator.estimate(
         geometry,
         simplex_id,
         result.value,
         certificate,
         prepared_certificate
     );
+    result.estimated_error = errors.charge_error;
+    result.density_cut_error = errors.density_cut_error;
     if (profile != nullptr) {
         profile->error_estimation_seconds +=
             std::chrono::duration<double>(

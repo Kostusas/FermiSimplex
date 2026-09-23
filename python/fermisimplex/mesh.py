@@ -287,7 +287,9 @@ class SpectralMesh:
         -------
         ChargeResult
             Charge, sampled stopping-error estimate, derivative with respect
-            to ``mu``, and integration and estimator statistics.
+            to ``mu``, sampled ``density_cut_error`` for the reported
+            occupation cut, and integration and estimator statistics. The cut
+            indicator does not enter the charge stopping test.
         """
         adaptive = _adaptive_parameters(
             target_error,

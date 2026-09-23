@@ -17,6 +17,7 @@ struct ChargeContribution {
     double value = 0.0;
     double dcharge_dmu = 0.0;
     double estimated_error = 0.0;
+    double density_cut_error = 0.0;
     std::int64_t visible_gapless_simplices = 0;
     std::int64_t inconclusive_simplices = 0;
 

@@ -61,6 +61,7 @@ void bind_integration_types(nb::module_ &module) {
     nb::class_<ChargeResult>(module, "ChargeResult")
         .def_ro("value", &ChargeResult::value)
         .def_ro("stopping_error", &ChargeResult::stopping_error)
+        .def_ro("density_cut_error", &ChargeResult::density_cut_error)
         .def_ro("dcharge_dmu", &ChargeResult::dcharge_dmu)
         .def_ro(
             "visible_gapless_simplices",

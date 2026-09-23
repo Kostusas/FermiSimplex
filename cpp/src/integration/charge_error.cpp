@@ -1,6 +1,7 @@
 #include "integration/charge_error.h"
 
 #include "integration/charge_error/cached_model.h"
+#include "integration/charge_error/cut_disagreement.h"
 #include "integration/charge_error/diagnostics.h"
 #include "integration/charge_profile.h"
 
@@ -22,6 +23,7 @@
 #include <memory>
 #include <optional>
 #include <span>
+#include <unordered_map>
 #include <utility>
 #include <vector>
 
@@ -45,10 +47,12 @@ double elapsed_seconds(Clock::time_point started) {
 struct ChargeInterval {
     double lower = 0.0;
     double upper = 0.0;
+    double density_cut_error = 0.0;
 
     ChargeInterval &operator+=(const ChargeInterval &other) noexcept {
         lower += other.lower;
         upper += other.upper;
+        density_cut_error += other.density_cut_error;
         return *this;
     }
 };
@@ -107,6 +111,105 @@ SimplexState simplex_state(
     }
     return result;
 }
+
+// The reported charge cut is affine in the original simplex barycentric
+// coordinates. Retain it while the temporary recursion changes both geometry
+// and active-space basis.
+class RootBandCuts {
+public:
+    RootBandCuts(
+        const SimplexState &root,
+        cert::OccupationBounds active_bounds
+    )
+        : origin_(root.points.front().to_point()),
+          dimension_(origin_.size()),
+          active_bounds_(active_bounds) {
+        // Fixed roots terminate without child subdivision, so their
+        // unshifted child cut is exactly the reported root cut.
+        if (active_bounds_.lower == active_bounds_.upper) return;
+        auto augmented = std::vector<std::vector<double>>(
+            dimension_, std::vector<double>(2 * dimension_, 0.0)
+        );
+        for (std::size_t column = 0; column < dimension_; ++column) {
+            const auto point = root.points[column + 1].to_point();
+            for (std::size_t row = 0; row < dimension_; ++row) {
+                augmented[row][column] = point[row] - origin_[row];
+            }
+            augmented[column][dimension_ + column] = 1.0;
+        }
+        for (std::size_t column = 0; column < dimension_; ++column) {
+            auto pivot = column;
+            for (std::size_t row = column + 1; row < dimension_; ++row) {
+                if (std::abs(augmented[row][column]) >
+                    std::abs(augmented[pivot][column])) {
+                    pivot = row;
+                }
+            }
+            std::swap(augmented[pivot], augmented[column]);
+            const auto scale = augmented[column][column];
+            for (auto &value : augmented[column]) {
+                value /= scale;
+            }
+            for (std::size_t row = 0; row < dimension_; ++row) {
+                if (row == column) continue;
+                const auto factor = augmented[row][column];
+                for (std::size_t j = 0; j < 2 * dimension_; ++j) {
+                    augmented[row][j] -= factor * augmented[column][j];
+                }
+            }
+        }
+        inverse_.resize(dimension_ * dimension_);
+        for (std::size_t row = 0; row < dimension_; ++row) {
+            for (std::size_t column = 0; column < dimension_; ++column) {
+                inverse_[row * dimension_ + column] =
+                    augmented[row][dimension_ + column];
+            }
+        }
+        for (std::size_t i = 0; i < root.points.size(); ++i) {
+            root_spectra_.push_back(root.spectra[i]);
+            auto weights = std::vector<double>(root.points.size(), 0.0);
+            weights[i] = 1.0;
+            cache_.emplace(root.points[i], std::move(weights));
+        }
+    }
+
+    const std::vector<double> &weights(const Point &point) {
+        if (const auto found = cache_.find(point); found != cache_.end()) {
+            return found->second;
+        }
+        const auto coordinates = point.to_point();
+        auto weights = std::vector<double>(dimension_ + 1, 0.0);
+        weights[0] = 1.0;
+        for (std::size_t row = 0; row < dimension_; ++row) {
+            for (std::size_t column = 0; column < dimension_; ++column) {
+                weights[row + 1] += inverse_[row * dimension_ + column] *
+                    (coordinates[column] - origin_[column]);
+            }
+            weights[0] -= weights[row + 1];
+        }
+        return cache_.emplace(point, std::move(weights)).first->second;
+    }
+
+    double energy(std::span<const double> weights, std::size_t rank) const {
+        auto result = 0.0;
+        for (std::size_t i = 0; i < weights.size(); ++i) {
+            result += weights[i] * root_spectra_[i]->eigenvalues[rank];
+        }
+        return result;
+    }
+
+    cert::OccupationBounds active_bounds() const noexcept {
+        return active_bounds_;
+    }
+
+private:
+    std::vector<double> origin_;
+    std::size_t dimension_;
+    cert::OccupationBounds active_bounds_;
+    std::vector<double> inverse_;
+    std::vector<const CachedSpectrum *> root_spectra_;
+    std::unordered_map<Point, std::vector<double>, Point::Hash> cache_;
+};
 
 cert::SimplexCertificate certify(
     const SimplexState &state,
@@ -362,12 +465,16 @@ struct ChargeErrorEstimator::Impl {
 
     ChargeInterval conservative_interval(
         OccupationRange range,
-        double volume
+        double volume,
+        bool reduction_failed = false
     ) {
         ++stats.conservative_fallbacks;
         return {
             static_cast<double>(range.lower) * volume,
             static_cast<double>(range.upper) * volume,
+            static_cast<double>(
+                reduction_failed ? mesh.ndof() : range.upper - range.lower
+            ) * volume,
         };
     }
 
@@ -597,7 +704,8 @@ struct ChargeErrorEstimator::Impl {
         core::SimplexId simplex_id,
         const SimplexState &state,
         std::size_t fixed_occupied,
-        cert::OccupationBounds bounds
+        cert::OccupationBounds bounds,
+        RootBandCuts &root_cut
     ) {
         const auto active = bounds.upper - bounds.lower;
         if (active == 0 || active == model.dimension()) {
@@ -618,7 +726,8 @@ struct ChargeErrorEstimator::Impl {
                 fixed_occupied + bounds.lower,
                 true,
                 nullptr,
-                nullptr
+                nullptr,
+                root_cut
             );
         }
         return std::nullopt;
@@ -677,6 +786,64 @@ struct ChargeErrorEstimator::Impl {
         return {lower_charge, upper_charge};
     }
 
+    double cut_disagreement_on_simplex(
+        const core::Simplex &simplex,
+        const SimplexState &state,
+        std::size_t fixed_occupied,
+        const EffectiveModel &model,
+        cert::OccupationBounds child_bounds,
+        RootBandCuts &root_cut
+    ) {
+        if (root_cut.active_bounds().lower ==
+            root_cut.active_bounds().upper) return 0.0;
+        const auto root_bounds = root_cut.active_bounds();
+        const auto lower = std::min(
+            root_bounds.lower, fixed_occupied + child_bounds.lower
+        );
+        const auto upper = std::max(
+            root_bounds.upper, fixed_occupied + child_bounds.upper
+        );
+        if (lower == upper) return 0.0;
+        auto original_vertices = std::vector<const std::vector<double> *>{};
+        original_vertices.reserve(state.points.size());
+        for (const auto &point : state.points) {
+            original_vertices.push_back(&root_cut.weights(point));
+        }
+        auto original = std::vector<double>(state.points.size());
+        auto child = std::vector<double>(state.points.size());
+        auto disagreement = 0.0;
+        // Compare the union of the root and child uncertain ranks. A root
+        // with fixed occupation can still contain a child Fermi crossing.
+        for (std::size_t rank = lower; rank < upper; ++rank) {
+            for (std::size_t vertex = 0; vertex < state.points.size(); ++vertex) {
+                original[vertex] = root_cut.energy(
+                    *original_vertices[vertex], rank
+                );
+            }
+            if (rank < fixed_occupied ||
+                rank >= fixed_occupied + model.dimension()) {
+                const auto original_volume = charge_error_detail::occupied_volume(
+                    simplex.volume,
+                    original,
+                    mesh.tolerance(),
+                    charge_error_detail::classify_cut(original, mesh.tolerance())
+                );
+                disagreement += rank < fixed_occupied
+                    ? simplex.volume - original_volume : original_volume;
+                continue;
+            }
+            for (std::size_t vertex = 0; vertex < state.points.size(); ++vertex) {
+                child[vertex] = state.spectra[vertex]->eigenvalues[
+                    rank - fixed_occupied
+                ];
+            }
+            disagreement += charge_error_detail::cut_disagreement(
+                simplex.volume, original, child, mesh.tolerance()
+            );
+        }
+        return disagreement;
+    }
+
     ChargeInterval estimate_terminal_interval(
         const EffectiveModel &model,
         const core::Geometry &geometry,
@@ -685,7 +852,8 @@ struct ChargeErrorEstimator::Impl {
         std::size_t fixed_occupied,
         bool include_band_defect,
         const cert::SimplexCertificate *reusable_certificate,
-        const cert::PreparedSimplexCertificate *reusable_preparation
+        const cert::PreparedSimplexCertificate *reusable_preparation,
+        RootBandCuts &root_cut
     ) {
         auto radius = defect_radius(
             measure_midpoint_defects(
@@ -709,7 +877,8 @@ struct ChargeErrorEstimator::Impl {
                     simplex_id,
                     state,
                     fixed_occupied,
-                    bounds
+                    bounds,
+                    root_cut
                 )) {
                 return *reduced;
             }
@@ -729,13 +898,19 @@ struct ChargeErrorEstimator::Impl {
         }
 
         record_terminal(active);
-        return integrate_charge_interval(
+        auto result = integrate_charge_interval(
             geometry.simplices().simplex(simplex_id),
             state,
             fixed_occupied,
             bounds,
             radius
         );
+        result.density_cut_error = result.upper - result.lower +
+            cut_disagreement_on_simplex(
+                geometry.simplices().simplex(simplex_id),
+                state, fixed_occupied, model, bounds, root_cut
+            );
+        return result;
     }
 
     ChargeInterval estimate_micro_simplex(
@@ -745,6 +920,7 @@ struct ChargeErrorEstimator::Impl {
         std::size_t fixed_occupied,
         OccupationRange fallback_range,
         std::uint32_t logical_depth,
+        RootBandCuts &root_cut,
         std::optional<cert::SimplexCertificate> known_certificate = std::nullopt,
         const cert::PreparedSimplexCertificate *known_preparation = nullptr
     ) {
@@ -763,7 +939,7 @@ struct ChargeErrorEstimator::Impl {
         } catch (const SchurFailure &) {
             ++stats.schur_failures;
             record_terminal(fallback_range.upper - fallback_range.lower);
-            return conservative_interval(fallback_range, volume);
+            return conservative_interval(fallback_range, volume, true);
         }
 
         const auto certificate = known_certificate.has_value()
@@ -826,14 +1002,15 @@ struct ChargeErrorEstimator::Impl {
                     current_fixed,
                     active != 0,
                     current_certificate,
-                    current_preparation
+                    current_preparation,
+                    root_cut
                 );
             } catch (const SchurFailure &) {
                 ++stats.schur_failures;
                 record_terminal(
                     current_fallback.upper - current_fallback.lower
                 );
-                return conservative_interval(current_fallback, volume);
+                return conservative_interval(current_fallback, volume, true);
             }
         }
 
@@ -856,13 +1033,14 @@ struct ChargeErrorEstimator::Impl {
                 child,
                 current_fixed,
                 current_fallback,
-                logical_depth + 1
+                logical_depth + 1,
+                root_cut
             );
         }
         return result;
     }
 
-    double estimate(
+    ChargeErrorEstimator::Estimate estimate(
         const core::Geometry &source_geometry,
         core::SimplexId source_id,
         double linear_charge,
@@ -887,10 +1065,13 @@ struct ChargeErrorEstimator::Impl {
                 {root_bounds.lower, root_bounds.upper},
                 source.volume
             );
-            return std::max(
-                std::abs(linear_charge - interval.lower),
-                std::abs(interval.upper - linear_charge)
-            );
+            return {
+                std::max(
+                    std::abs(linear_charge - interval.lower),
+                    std::abs(interval.upper - linear_charge)
+                ),
+                interval.density_cut_error,
+            };
         }
 
         for (const auto source_vertex_id : source.vertex_ids) {
@@ -903,6 +1084,10 @@ struct ChargeErrorEstimator::Impl {
         }
         auto root = subdivide(source_geometry, source_id, 0, profile);
         auto model = EffectiveModel(workspace);
+        const auto root_state = simplex_state(
+            root.geometry, root.simplex_ids.front(), model
+        );
+        auto root_cut = RootBandCuts(root_state, root_bounds);
         const auto interval = estimate_micro_simplex(
             model,
             root.geometry,
@@ -910,13 +1095,17 @@ struct ChargeErrorEstimator::Impl {
             0,
             {root_bounds.lower, root_bounds.upper},
             0,
+            root_cut,
             root_certificate,
             &root_preparation
         );
-        return std::max(
-            std::abs(linear_charge - interval.lower),
-            std::abs(interval.upper - linear_charge)
-        );
+        return {
+            std::max(
+                std::abs(linear_charge - interval.lower),
+                std::abs(interval.upper - linear_charge)
+            ),
+            interval.density_cut_error,
+        };
     }
 };
 
@@ -932,7 +1121,7 @@ ChargeErrorEstimator::ChargeErrorEstimator(
 
 ChargeErrorEstimator::~ChargeErrorEstimator() = default;
 
-double ChargeErrorEstimator::estimate(
+ChargeErrorEstimator::Estimate ChargeErrorEstimator::estimate(
     const core::Geometry &geometry,
     core::SimplexId simplex_id,
     double linear_charge,

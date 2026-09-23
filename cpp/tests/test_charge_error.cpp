@@ -1,6 +1,7 @@
 #include "test_helpers.h"
 
 #include "integration/charge_error/cached_model.h"
+#include "integration/charge_error/cut_disagreement.h"
 #include "integration/charge_error/projected_schur.h"
 #include "integration/charge_profile.h"
 
@@ -200,6 +201,45 @@ std::shared_ptr<const TightBindingModel> dense_tight_binding_model(
 
 void expect_positive(double value, const std::string &message) {
     expect(value > 1e-12, message);
+}
+
+void test_two_affine_cut_disagreement() {
+    using integration_detail::charge_error_detail::cut_disagreement;
+    constexpr auto tolerance = 1e-14;
+    const auto first_1d = std::array{-0.25, 0.75};
+    const auto second_1d = std::array{0.75, -0.25};
+    expect_near(
+        cut_disagreement(1.0, first_1d, second_1d, tolerance),
+        0.5, 1e-13, "opposed interval cuts"
+    );
+    expect_near(
+        cut_disagreement(1.0, first_1d, first_1d, tolerance),
+        0.0, 1e-13, "identical interval cuts"
+    );
+    const auto nested_1d = std::array{-0.5, 0.5};
+    expect_near(
+        cut_disagreement(1.0, first_1d, nested_1d, tolerance),
+        0.25, 1e-13, "nested interval cuts"
+    );
+
+    const auto x_2d = std::array{-0.5, 0.5, -0.5};
+    const auto y_2d = std::array{-0.5, -0.5, 0.5};
+    expect_near(
+        cut_disagreement(0.5, x_2d, y_2d, tolerance),
+        0.25, 1e-13, "crossing triangular cuts"
+    );
+
+    const auto x_3d = std::array{-0.5, 0.5, -0.5, -0.5};
+    const auto y_3d = std::array{-0.5, -0.5, 0.5, -0.5};
+    expect_near(
+        cut_disagreement(1.0 / 6.0, x_3d, y_3d, tolerance),
+        1.0 / 24.0, 1e-13, "crossing tetrahedral cuts"
+    );
+    const auto flat = std::array{0.0, 0.0};
+    expect_near(
+        cut_disagreement(1.0, flat, first_1d, tolerance),
+        0.5, 1e-13, "half-occupied flat cut"
+    );
 }
 
 double linear_triangle_occupied_volume(
@@ -469,6 +509,10 @@ void test_affine_scalar_has_zero_error() {
         1e-12,
         "affine scalar interpolation error"
     );
+    expect_near(
+        result.density_cut_error, 0.0, 1e-12,
+        "affine child and reported cuts agree"
+    );
     expect_eq(
         result.error_stats.conservative_fallbacks,
         0,
@@ -478,6 +522,37 @@ void test_affine_scalar_has_zero_error() {
         result.error_stats.micro_simplices >
             result.error_stats.root_simplices,
         "an uncertain affine scalar root should use its micro-simplices"
+    );
+}
+
+void test_balanced_pockets_have_cut_disagreement_without_charge_bias() {
+    const auto result = estimate(
+        scalar_model([](double x) {
+            return x - 0.5 + 0.4 * std::sin(2.0 * std::numbers::pi * x);
+        }),
+        2
+    );
+    // e(1-x)=-e(x), so both true and reported total charges are 1/2.
+    // The quarter-point samples nevertheless uncover oppositely signed
+    // occupation mistakes on either side of the Brillouin zone.
+    expect_near(result.value, 0.5, 1e-12, "balanced-pocket charge");
+    expect(
+        result.density_cut_error > 2.0 * result.stopping_error + 1e-3,
+        "unsigned child-cut disagreement survives charge cancellation"
+    );
+}
+
+void test_fixed_root_uses_shifted_width_for_hidden_pocket() {
+    const auto result = estimate(
+        scalar_model([](double x) {
+            return (x - 0.5) * (x - 0.5) - 0.1;
+        }),
+        2
+    );
+    expect_near(result.value, 0.0, 1e-12, "hidden-pocket root cut");
+    expect(
+        result.density_cut_error >= 2.0 * std::sqrt(0.1),
+        "midpoint uncertainty should cover this analytic hidden pocket"
     );
 }
 
@@ -611,6 +686,10 @@ void test_large_active_space_uses_tight_fallback() {
         1e-12,
         "large-q distance to the tighter occupation interval"
     );
+    expect_near(
+        result.density_cut_error, 3.0, 1e-12,
+        "large-q root gate reports its occupation-width cut indicator"
+    );
     expect_eq(
         result.error_stats.conservative_fallbacks,
         1,
@@ -656,6 +735,12 @@ void test_safe_spectators_reduce_to_the_active_band() {
         scalar.stopping_error,
         1e-12,
         "safe spectators should not change the active-band estimate"
+    );
+    expect_near(
+        embedded.density_cut_error,
+        scalar.density_cut_error,
+        1e-12,
+        "frozen spectators should not change the cut disagreement"
     );
     expect(
         embedded.error_stats.schur_reductions > 0,
@@ -1253,6 +1338,16 @@ void test_quadratic_2d_uses_complete_depth_one_geometry() {
         1e-12,
         "2D quadratic shifted-volume estimate"
     );
+    expect_positive(
+        result.density_cut_error - (upper_charge - lower_charge),
+        "curved child cuts disagree with the original charge cut"
+    );
+    const auto exact_cut_mismatch =
+        std::numbers::pi * offset / 4.0 - offset * offset / 2.0;
+    expect(
+        result.density_cut_error >= exact_cut_mismatch,
+        "2D cut indicator should cover this analytic quadratic mismatch"
+    );
     expect(
         lower_charge < linear_charge && linear_charge < upper_charge,
         "the shifted levels should widen charge in the correct direction"
@@ -1325,6 +1420,17 @@ void test_quadratic_3d_uses_beta_geometry_and_eight_children() {
     );
 
     expect_near(shallow.value, linear_charge, 1e-12, "3D quadratic charge");
+    expect_positive(
+        recursive.density_cut_error,
+        "recursive cut indicator should retain a visible 3D error"
+    );
+    const auto exact_cut_mismatch =
+        std::numbers::pi * std::pow(offset, 1.5) / 6.0 -
+        std::pow(offset, 3) / 6.0;
+    expect(
+        recursive.density_cut_error >= exact_cut_mismatch,
+        "3D cut indicator should cover this analytic quadratic mismatch"
+    );
     expect_near(
         shallow.stopping_error,
         expected_error,
@@ -1341,9 +1447,12 @@ void test_quadratic_3d_uses_beta_geometry_and_eight_children() {
 
 int main() {
     try {
+        test_two_affine_cut_disagreement();
         test_point_cache_uses_exact_dyadic_keys();
         test_point_cache_lazy_payloads_and_lifetime_accounting();
         test_affine_scalar_has_zero_error();
+        test_balanced_pockets_have_cut_disagreement_without_charge_bias();
+        test_fixed_root_uses_shifted_width_for_hidden_pocket();
         test_fixed_scalar_uses_the_cheap_terminal_path();
         test_curved_scalar_uses_depth_and_midpoints();
         test_quadratic_2d_uses_complete_depth_one_geometry();

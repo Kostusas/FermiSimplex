@@ -31,7 +31,12 @@ public:
     ChargeErrorEstimator(const ChargeErrorEstimator &) = delete;
     ChargeErrorEstimator &operator=(const ChargeErrorEstimator &) = delete;
 
-    double estimate(
+    struct Estimate {
+        double charge_error = 0.0;
+        double density_cut_error = 0.0;
+    };
+
+    Estimate estimate(
         const adaptivesimplex::core::Geometry &geometry,
         adaptivesimplex::core::SimplexId simplex_id,
         double linear_charge,

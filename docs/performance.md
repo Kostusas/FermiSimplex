@@ -86,6 +86,8 @@ charge interval.
 Machine-readable charge fields include:
 
 - `error_depth` and `stopping_error`;
+- `density_cut_error`, the sampled sum of terminal shifted-cut widths and
+  exact root-versus-child affine-cut disagreements;
 - `charge_root_simplices`, `charge_micro_simplices`, and
   `charge_terminal_simplices`;
 - `charge_hamiltonian_evaluations`;

@@ -1,4 +1,5 @@
 #include "occupation/model.h"
+#include "occupation/enclosure.h"
 #include "test_helpers.h"
 
 #include <fermisimplex/integration.h>
@@ -23,6 +24,26 @@ public:
 private:
     double h_;
 };
+
+void check_occupation_queries() {
+    auto mesh = SpectralMesh(std::make_shared<CoupledModel>(.2), 1e-14, 0);
+    estimate_charge_on_current_mesh(mesh, 0);
+    const auto id = first_active_simplex(mesh.geometry());
+    for (const auto mu : {-5., 0., 5.})
+        for (std::uint32_t depth = 0; depth <= 3; ++depth) {
+            ChargeErrorStats charge_stats, sign_stats;
+            const auto enclosure = enclose_occupation(mesh, id, mu, depth, charge_stats);
+            const auto fixed = fixed_occupation(mesh, id, mu, depth, sign_stats);
+            // The affine model crosses zero on the interval and has spectrum
+            // strictly between -5 and 5 everywhere (also by its row bounds).
+            expect(fixed == (mu != 0), "sign query agrees with the known spectrum");
+            expect(fixed == enclosure.fixed_occupation(), "consumers agree on occupation");
+            expect_eq(sign_stats.hamiltonian_evaluations, charge_stats.hamiltonian_evaluations,
+                      "consumers use the same Hamiltonian samples");
+            expect_eq(sign_stats.micro_simplices, charge_stats.micro_simplices,
+                      "consumers traverse the same polynomial cells");
+        }
+}
 
 void check_safe_sectors() {
     std::mt19937 generator(123);
@@ -86,6 +107,7 @@ void check_safe_sectors() {
 
 int main() {
     try {
+        check_occupation_queries();
         check_safe_sectors();
         double previous_error = 0, previous_allowance = 0;
         for (const auto h : {.2, .1, .05, .025}) {

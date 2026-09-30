@@ -132,6 +132,21 @@ def test_constant_complex_gapped_system_has_exact_charge():
     assert result.density_cut_error == 0
 
 
+@pytest.mark.parametrize("tolerance,offset", [(1e-14, 5e-13), (1e-5, 5e-4)])
+@pytest.mark.parametrize("sign", [-1, 1])
+def test_constant_charge_uses_the_same_level_tolerance(tolerance, offset, sign):
+    mesh = SpectralMesh({(0,): np.array([[100.0]])}, root_level=0, tolerance=tolerance)
+    mu = 100 + sign * offset
+    exact = float(sign > 0)
+    assert mesh.estimate_charge_on_current_mesh(mu=mu).value == exact
+    enclosure = mesh.occupation_enclosures(mu=mu)[0]
+    assert enclosure.charge_lower == enclosure.charge_upper == exact
+    assert enclosure.fixed_occupation
+    result = mesh.integrate_charge(mu=mu, target_error=0, max_refinements=0)
+    assert result.value == exact
+    assert result.stopping_error == 0
+
+
 def test_quadratic_charge_reports_visible_crossings():
     result = SpectralMesh(scalar(lambda x: x - 0.37), root_level=0).integrate_charge(
         mu=0, target_error=1, max_refinements=0

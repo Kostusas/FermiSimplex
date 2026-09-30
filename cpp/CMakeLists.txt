@@ -307,6 +307,7 @@ if(FERMISIMPLEX_BUILD_TESTING)
 
   set(_fs_cpp_test_targets)
   foreach(_fs_test IN ITEMS
+    affine_cut
     simplex_cubature
     occupation_bounds
     occupation_model

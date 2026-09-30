@@ -1,10 +1,12 @@
 #include <fermisimplex/occupation.h>
 
 #include "occupation/model.h"
+#include "occupation/enclosure.h"
 #include "occupation/cut_disagreement.h"
 #include "core/tight_binding_access.h"
 
 #include <algorithm>
+#include <array>
 #include <cmath>
 #include <limits>
 #include <stdexcept>
@@ -12,7 +14,6 @@
 namespace fermisimplex {
 namespace {
 using namespace occupation_detail;
-namespace cut = adaptivesimplex::cut;
 namespace cut_error = occupation_detail;
 constexpr double cut_tolerance = 64 * std::numeric_limits<double>::epsilon();
 
@@ -32,12 +33,12 @@ std::optional<OccupationEnclosure> constant_enclosure(
     OccupationEnclosure result;
     result.remainder_is_sampled = false;
     for (const auto energy : mesh.eigensystems().get(simplex.vertex_ids.front()).eigenvalues) {
-        const auto tolerance = mesh.tolerance() * std::max({1., std::abs(mu), std::abs(energy)});
-        if (energy < mu - tolerance) {
+        const auto kind = classify_cut(std::array{energy - mu}, mesh.tolerance()).kind;
+        if (kind == CutKind::full) {
             ++result.occupation_lower;
             ++result.occupation_upper;
             result.charge_lower += simplex.volume;
-        } else if (energy <= mu + tolerance) {
+        } else if (kind == CutKind::on_level) {
             ++result.occupation_upper;
             ++result.active_dimension;
             result.charge_lower += .5 * simplex.volume;
@@ -65,10 +66,9 @@ struct AffineBounds {
 };
 
 double volume_below(double volume, const Weights &values, bool upper) {
-    const auto moments = cut::simplex_moments(
-        volume, values, {.level = 0., .level_tolerance = cut_tolerance});
-    if (moments.kind == cut::SimplexCutKind::on_level) return upper ? volume : 0.;
-    return moments.volume;
+    const auto kind = classify_cut(values, cut_tolerance).kind;
+    if (kind == CutKind::on_level) return upper ? volume : 0.;
+    return occupied_volume(volume, values, cut_tolerance, kind);
 }
 
 Polynomial center_frame(const Polynomial &polynomial, ChargeErrorStats &stats) {
@@ -154,7 +154,8 @@ Interval charge_interval(const AffineBounds &bounds,
     return result;
 }
 
-Interval integrate(const Polynomial &polynomial, const AffineBounds &bounds, double epsilon,
+template <bool IntegrateCharge>
+Interval traverse(const Polynomial &polynomial, const AffineBounds &bounds, double epsilon,
                    const std::vector<Weights> &points,
                    const std::vector<Weights> &root_cuts, double volume,
                    std::uint32_t remaining, ChargeErrorStats &stats) {
@@ -162,7 +163,9 @@ Interval integrate(const Polynomial &polynomial, const AffineBounds &bounds, dou
     if (remaining == 0 || bounds.occupation_lower == bounds.occupation_upper) {
         ++stats.terminal_simplices;
         stats.terminal_active_dimension_sum += polynomial.size;
-        return charge_interval(bounds, root_cuts, volume);
+        if constexpr (IntegrateCharge) return charge_interval(bounds, root_cuts, volume);
+        return {.occupation_lower = bounds.occupation_lower,
+                .occupation_upper = bounds.occupation_upper};
     }
     // Longest physical edge bisection; only the polynomial is evaluated below.
     double longest = -1;
@@ -183,11 +186,12 @@ Interval integrate(const Polynomial &polynomial, const AffineBounds &bounds, dou
         auto child_points = points, child_cuts = root_cuts;
         for (std::size_t axis = 0; axis < points[0].size(); ++axis)
             child_points[replaced][axis] = .5 * (points[left][axis] + points[right][axis]);
-        for (std::size_t band = 0; band < polynomial.size; ++band)
-            child_cuts[replaced][band] = .5 * (root_cuts[left][band] + root_cuts[right][band]);
+        if constexpr (IntegrateCharge)
+            for (std::size_t band = 0; band < polynomial.size; ++band)
+                child_cuts[replaced][band] = .5 * (root_cuts[left][band] + root_cuts[right][band]);
         const auto child_polynomial = polynomial.restrict_to(weights);
         const auto child_bounds = affine_bounds(center_frame(child_polynomial, stats), epsilon);
-        const auto child = integrate(child_polynomial, child_bounds, epsilon,
+        const auto child = traverse<IntegrateCharge>(child_polynomial, child_bounds, epsilon,
             child_points, child_cuts, volume / 2, remaining - 1, stats);
         result.lower += child.lower; result.upper += child.upper;
         result.cut_error += child.cut_error;
@@ -214,7 +218,11 @@ bool visible_occupation_change(const SpectralMesh &mesh, adaptivesimplex::core::
     return false;
 }
 
-OccupationEnclosure enclose_occupation(const SpectralMesh &mesh,
+namespace {
+// Both consumers use the same bounds and subdivision. Compile out integrated
+// quantities for the sign query; no algorithm choice reaches the public API.
+template <bool IntegrateCharge>
+OccupationEnclosure enclosure(const SpectralMesh &mesh,
     adaptivesimplex::core::SimplexId simplex_id, double mu, std::uint32_t depth,
     ChargeErrorStats &stats, std::optional<double> interpolation_error_bound) {
     if (!std::isfinite(mu)) throw std::invalid_argument("mu must be finite");
@@ -240,11 +248,13 @@ OccupationEnclosure enclose_occupation(const SpectralMesh &mesh,
     std::vector<Weights> points, cuts;
     for (const auto vertex : simplex.vertex_ids) {
         points.push_back(mesh.geometry().vertices().dyadic_vertex(vertex).to_point());
-        const auto &values = mesh.eigensystems().get(vertex).eigenvalues;
-        Weights energies(q);
-        for (std::size_t band = 0; band < q; ++band)
-            energies[band] = values[band + model.safe_occupation] - mu;
-        cuts.push_back(std::move(energies));
+        if constexpr (IntegrateCharge) {
+            const auto &values = mesh.eigensystems().get(vertex).eigenvalues;
+            Weights energies(q);
+            for (std::size_t band = 0; band < q; ++band)
+                energies[band] = values[band + model.safe_occupation] - mu;
+            cuts.push_back(std::move(energies));
+        }
     }
     // A fixed polynomial can have a better block sign proof than row bounds.
     Sectors sectors;
@@ -254,14 +264,31 @@ OccupationEnclosure enclose_occupation(const SpectralMesh &mesh,
         sectors = sign_sectors(framed, model.epsilon, stats);
         bounds = affine_bounds(framed, model.epsilon);
     }
-    const auto interval = integrate(model.polynomial, bounds, model.epsilon, points, cuts,
+    const auto interval = traverse<IntegrateCharge>(model.polynomial, bounds, model.epsilon, points, cuts,
         simplex.volume, sectors.negative + sectors.positive == q ? 0 : depth * mesh.ndim(), stats);
     result.occupation_lower += std::max(sectors.negative, interval.occupation_lower);
     result.occupation_upper += std::min(q - sectors.positive, interval.occupation_upper);
-    result.charge_lower += std::max(simplex.volume * sectors.negative, interval.lower);
-    result.charge_upper += std::min(simplex.volume * (q - sectors.positive), interval.upper);
-    result.density_cut_error = std::min(simplex.volume * q, interval.cut_error);
+    if constexpr (IntegrateCharge) {
+        result.charge_lower += std::max(simplex.volume * sectors.negative, interval.lower);
+        result.charge_upper += std::min(simplex.volume * (q - sectors.positive), interval.upper);
+        result.density_cut_error = std::min(simplex.volume * q, interval.cut_error);
+    }
     return result;
+}
+
+}  // namespace
+
+OccupationEnclosure enclose_occupation(const SpectralMesh &mesh,
+    adaptivesimplex::core::SimplexId simplex_id, double mu, std::uint32_t depth,
+    ChargeErrorStats &stats, std::optional<double> interpolation_error_bound) {
+    return enclosure<true>(mesh, simplex_id, mu, depth, stats, interpolation_error_bound);
+}
+
+bool occupation_detail::fixed_occupation(const SpectralMesh &mesh,
+    adaptivesimplex::core::SimplexId simplex_id, double mu, std::uint32_t depth,
+    ChargeErrorStats &stats, std::optional<double> interpolation_error_bound) {
+    return enclosure<false>(mesh, simplex_id, mu, depth, stats,
+                            interpolation_error_bound).fixed_occupation();
 }
 
 }  // namespace fermisimplex

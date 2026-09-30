@@ -52,6 +52,8 @@ use it to classify the Hamiltonian.
    original polynomial for each bisection, preserving the frame used to build
    child models. Subdivision requires no new Hamiltonian samples and never
    reduces `epsilon`.
+   Surface classification consumes only the strict occupation bounds from this
+   same traversal; it does not integrate charge or cut disagreement.
 
 The Schur identity `S = Y - F† D^-1 F`, where
 `Y = A - B†X - X†B + X†DX` and `F = B-DX`, gives step 5. With a uniform safe
@@ -81,10 +83,27 @@ For reported local charge `Q`, the indicator is
 indicator also measures spatial disagreement of the affine occupied regions,
 so cancellation of total charge cannot hide displaced cuts.
 
-The reported affine charge derivative is exactly zero when `mu` lies strictly
-outside a band's vertex-energy range. Only bands whose range contains `mu`
-need the divided-difference derivative formula. This avoids cancellation for
-fully occupied narrow bands while retaining the convention at band endpoints.
+Scalar affine cuts share one occupation rule, using vertex energies relative
+to `mu` for level classification, including structurally constant bands.
+Sorted energies are knots of the projected uniform simplex distribution.
+Its cumulative fraction is a convex recurrence on successive knot intervals;
+its derivative is the normalized B-spline of degree `dimension-1`, evaluated
+with the nonnegative Cox-de Boor recurrence. Equal knots need no division by
+zero and nearby distinct knots remain distinct. This avoids cancellation for
+partially occupied bands with clustered energies. The derivative is zero
+outside the vertex-energy range and retains the left derivative at endpoints.
+As in geometric clipping, vertices within the level tolerance lie on the cut;
+the derivative's outside-range check uses their original energies.
+These scalar calculations use `O(d^2)` work and `O(d)` storage and do not build
+barycentric moments. Density-weight integration still computes the moments
+it needs through AdaptiveSimplex.
+
+For sorted relative energies `t_i`, the cumulative fraction on knots `i..j`
+is zero if `t_i >= 0`, one if `t_j <= 0`, and otherwise
+`F[i,j] = (-t_i*F[i,j-1] + t_j*F[i+1,j])/(t_j-t_i)`.
+The derivative is `d*B[0,d-1](0)/(t_d-t_0)`. Both triangular recurrences use
+one linear workspace. Half occupation is handled separately when the entire
+simplex lies on the level.
 
 Strict occupation bounds are separate from integrated charge endpoints. An
 exactly constant tight-binding matrix has an exact charge, including half
@@ -104,6 +123,7 @@ at most `2e`, and their Bernstein weights sum to at most `d/(d+1)`.
 - `occupation/polynomial.h`: matrix polynomial restriction and frame changes.
 - `occupation/enclosure.cpp`: charge intervals and strict sign classification.
 - `occupation/cut_disagreement.h`: occupied-volume disagreement.
+- `occupation/affine_cut.h`: scalar affine charge, derivative and level classification.
 - `integration/integration.cpp`: one adaptive charge calculation.
 
 The obsolete recursive estimator, temporary spectral caches, projected hopping

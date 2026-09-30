@@ -43,3 +43,27 @@ def test_interval_band_endpoint_derivative_convention():
     # Retain the existing left derivative at the upper band edge.
     assert mesh.estimate_charge_on_current_mesh(mu=0).dcharge_dmu == 0
     assert mesh.estimate_charge_on_current_mesh(mu=1).dcharge_dmu == 1
+    assert (
+        mesh.estimate_charge_on_current_mesh(mu=np.nextafter(1, np.inf)).dcharge_dmu
+        == 0
+    )
+
+
+@pytest.mark.parametrize("dimension", [3, 4])
+@pytest.mark.parametrize("epsilon", [1e-4, 1e-8, 1e-10])
+@pytest.mark.parametrize("root_level", [0, 1])
+def test_clustered_vertex_energies_have_exact_affine_derivative(
+    dimension, epsilon, root_level
+):
+    def three(x, y, z):
+        return np.array([[x + epsilon * (y + z)]])
+
+    def four(x, y, z, w):
+        return np.array([[x + epsilon * (y + z + w)]])
+
+    mesh = SpectralMesh({3: three, 4: four}[dimension], root_level=root_level)
+    result = mesh.estimate_charge_on_current_mesh(mu=0.5)
+    # Integrate x first: all transverse slices have an interior crossing.
+    exact_charge = 0.5 - epsilon * (dimension - 1) / 2
+    assert abs(result.value - exact_charge) < 1e-12
+    assert abs(result.dcharge_dmu - 1) < 1e-12

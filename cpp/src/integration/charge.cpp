@@ -1,90 +1,16 @@
 #include "integration/charge.h"
 
-#include <adaptivesimplex/cut/simplex_moments.h>
+#include "occupation/affine_cut.h"
 
 #include <algorithm>
 #include <cmath>
 #include <limits>
-#include <span>
 #include <stdexcept>
 #include <utility>
 #include <vector>
 
 namespace fermisimplex::integration_detail {
 namespace core = adaptivesimplex::core;
-namespace cut = adaptivesimplex::cut;
-
-namespace {
-
-double truncated_power_derivative(
-    double knot,
-    double mu,
-    std::size_t power,
-    std::size_t derivative
-) {
-    if (mu <= knot || derivative > power) {
-        return 0.0;
-    }
-
-    auto coefficient = 1.0;
-    for (std::size_t index = 0; index < derivative; ++index) {
-        coefficient *= -static_cast<double>(power - index) /
-                       static_cast<double>(index + 1);
-    }
-    return coefficient *
-           std::pow(mu - knot, static_cast<double>(power - derivative));
-}
-
-double occupied_fraction_derivative(
-    std::vector<double> energies,
-    double mu,
-    double tolerance
-) {
-    const auto dimension = energies.size() - 1;
-    const auto energy_scale = std::max(
-        {1.0, std::abs(energies.front()), std::abs(energies.back())}
-    );
-    for (std::size_t index = 1; index < energies.size(); ++index) {
-        if (energies[index] - energies[index - 1] <= tolerance * energy_scale) {
-            energies[index] = energies[index - 1];
-        }
-    }
-
-    auto divided_differences = std::vector<double>(energies.size());
-    for (std::size_t index = 0; index < energies.size(); ++index) {
-        divided_differences[index] = truncated_power_derivative(
-            energies[index],
-            mu,
-            dimension - 1,
-            0
-        );
-    }
-    for (std::size_t order = 1; order <= dimension; ++order) {
-        for (std::size_t left = 0; left + order < energies.size(); ++left) {
-            const auto right = left + order;
-            if (energies[right] == energies[left]) {
-                divided_differences[left] = truncated_power_derivative(
-                    energies[left],
-                    mu,
-                    dimension - 1,
-                    order
-                );
-            } else {
-                divided_differences[left] =
-                    (divided_differences[left + 1] - divided_differences[left]) /
-                    (energies[right] - energies[left]);
-            }
-        }
-    }
-    const auto orientation = dimension % 2 == 0 ? 1.0 : -1.0;
-    return std::max(
-        0.0,
-        orientation * static_cast<double>(dimension) *
-            divided_differences.front()
-    );
-}
-
-}  // namespace
 
 double validated_density_cut_error(double estimate, double charge) {
     const auto roundoff = 32 * std::numeric_limits<double>::epsilon() *
@@ -133,34 +59,10 @@ ChargeContribution band_charge_on_simplex(
         std::vector<double> energies;
         energies.reserve(simplex.vertex_ids.size());
         for (const auto vertex_id : simplex.vertex_ids)
-            energies.push_back(cache.get(vertex_id).eigenvalues[band]);
-        const auto moments = cut::simplex_moments(
-            simplex.volume,
-            energies,
-            cut::LevelOptions{
-                .level = mu,
-                .level_tolerance = mesh.tolerance(),
-            }
-        );
-
-        if (moments.kind == cut::SimplexCutKind::on_level) {
-            result.value += 0.5 * simplex.volume;
-            continue;
-        }
-
-        result.value += moments.volume;
-        // Outside the energy range the occupation is constant. A divided
-        // difference there needlessly subtracts nearly equal numbers and can
-        // produce a large spurious derivative for a narrow occupied band.
-        const auto [minimum, maximum] = std::minmax_element(energies.begin(), energies.end());
-        if (mu < *minimum || mu > *maximum) continue;
-        std::stable_sort(energies.begin(), energies.end());
-        result.dcharge_dmu +=
-            simplex.volume * occupied_fraction_derivative(
-                std::move(energies),
-                mu,
-                mesh.tolerance()
-            );
+            energies.push_back(cache.get(vertex_id).eigenvalues[band] - mu);
+        const occupation_detail::AffineCut cut(std::move(energies), mesh.tolerance());
+        result.value += simplex.volume * cut.fraction();
+        result.dcharge_dmu += simplex.volume * cut.derivative();
     }
     return result;
 }

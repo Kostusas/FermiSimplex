@@ -1,6 +1,7 @@
 #include "fermi_surface/simplex_classification.h"
 
 #include <fermisimplex/occupation.h>
+#include "occupation/enclosure.h"
 #include "core/simplex_geometry.h"
 
 namespace fermisimplex::fermi_surface_detail {
@@ -41,8 +42,8 @@ SimplexClassification classify_frontier(
                 mesh.linearization_error_bound(simplex_id, curvature_bound);
         }
         ChargeErrorStats stats;
-        const auto enclosure = enclose_occupation(mesh, simplex_id, mu, 2, stats, remainder);
-        if (enclosure.fixed_occupation()) continue;
+        if (occupation_detail::fixed_occupation(mesh, simplex_id, mu, 2, stats, remainder))
+            continue;
         if (visible_occupation_change(mesh, simplex_id, mu)) {
             append_visible(simplex_id, refinable, result);
         } else {

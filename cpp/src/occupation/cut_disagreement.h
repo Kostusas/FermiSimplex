@@ -1,6 +1,6 @@
 #pragma once
 
-#include <adaptivesimplex/cut/simplex_moments.h>
+#include "occupation/affine_cut.h"
 
 #include <algorithm>
 #include <cmath>
@@ -8,43 +8,6 @@
 #include <vector>
 
 namespace fermisimplex::occupation_detail {
-
-enum class AffineCut { empty, full, partial, on_level };
-
-inline AffineCut classify_cut(
-    std::span<const double> values,
-    double tolerance
-) {
-    auto scale = 1.0;
-    for (const auto value : values) {
-        scale = std::max(scale, std::abs(value));
-    }
-    const auto epsilon = tolerance * scale;
-    auto has_negative = false;
-    auto has_positive = false;
-    for (const auto value : values) {
-        has_negative |= value < -epsilon;
-        has_positive |= value > epsilon;
-    }
-    if (!has_negative && !has_positive) return AffineCut::on_level;
-    if (!has_positive) return AffineCut::full;
-    if (!has_negative) return AffineCut::empty;
-    return AffineCut::partial;
-}
-
-inline double occupied_volume(
-    double volume,
-    std::span<const double> values,
-    double tolerance,
-    AffineCut classification
-) {
-    if (classification == AffineCut::full) return volume;
-    if (classification == AffineCut::empty) return 0.0;
-    if (classification == AffineCut::on_level) return 0.5 * volume;
-    return adaptivesimplex::cut::simplex_moments(
-        volume, values, {.level = 0.0, .level_tolerance = tolerance}
-    ).volume;
-}
 
 // Partition a simplex at the first affine cut. Each resulting inside simplex
 // still carries affine values for the second cut, so its occupied volume is
@@ -83,11 +46,7 @@ inline double intersection_volume(
         for (const auto &vertex : vertices) {
             values.push_back(vertex.second);
         }
-        const auto moments = adaptivesimplex::cut::simplex_moments(
-            volume, values, {.level = 0.0, .level_tolerance = tolerance}
-        );
-        return moments.kind == adaptivesimplex::cut::SimplexCutKind::on_level
-            ? 0.5 * volume : moments.volume;
+        return volume * AffineCut(std::move(values), tolerance).fraction();
     }
     if (negative == vertices.size()) {
         return 0.0;
@@ -117,26 +76,26 @@ inline double cut_disagreement(
     std::span<const double> second,
     double tolerance
 ) {
-    const auto first_kind = classify_cut(first, tolerance);
-    const auto second_kind = classify_cut(second, tolerance);
-    if (first_kind == AffineCut::on_level ||
-        second_kind == AffineCut::on_level) {
-        return first_kind == AffineCut::on_level &&
-            second_kind == AffineCut::on_level
+    const auto first_kind = classify_cut(first, tolerance).kind;
+    const auto second_kind = classify_cut(second, tolerance).kind;
+    if (first_kind == CutKind::on_level ||
+        second_kind == CutKind::on_level) {
+        return first_kind == CutKind::on_level &&
+            second_kind == CutKind::on_level
             ? 0.0 : 0.5 * volume;
     }
-    if (first_kind == AffineCut::empty) {
+    if (first_kind == CutKind::empty) {
         return occupied_volume(volume, second, tolerance, second_kind);
     }
-    if (second_kind == AffineCut::empty) {
+    if (second_kind == CutKind::empty) {
         return occupied_volume(volume, first, tolerance, first_kind);
     }
-    if (first_kind == AffineCut::full) {
+    if (first_kind == CutKind::full) {
         return volume - occupied_volume(
             volume, second, tolerance, second_kind
         );
     }
-    if (second_kind == AffineCut::full) {
+    if (second_kind == CutKind::full) {
         return volume - occupied_volume(
             volume, first, tolerance, first_kind
         );

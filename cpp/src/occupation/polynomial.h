@@ -22,13 +22,20 @@ inline double norm(const Matrix &matrix) {
 }
 
 inline double hermitian_norm_bound(const Matrix &matrix, std::size_t n) {
-    double maximum_row_sum = 0;
-    for (std::size_t i = 0; i < n; ++i) {
-        double sum = 0;
-        for (std::size_t j = 0; j < n; ++j) sum += std::abs(matrix[i + j * n]);
-        maximum_row_sum = std::max(maximum_row_sum, sum);
+    std::vector<double> row_sums(n);
+    double squared = 0;
+    // Visit column-major storage once, retaining both triangles so roundoff
+    // asymmetry does not disappear from either bound.
+    for (std::size_t j = 0; j < n; ++j) {
+        for (std::size_t i = 0; i < n; ++i) {
+            const auto value = matrix[i + j * n];
+            row_sums[i] += std::abs(value);
+            squared += std::norm(value);
+        }
     }
-    return std::min(norm(matrix), maximum_row_sum);
+    const auto maximum = row_sums.empty() ? 0. :
+        *std::max_element(row_sums.begin(), row_sums.end());
+    return std::min(std::sqrt(squared), maximum);
 }
 
 inline Matrix difference(const Matrix &a, const Matrix &b) {
@@ -64,17 +71,22 @@ struct Polynomial {
     std::size_t size = 0;
     std::vector<Matrix> controls;
 
+    Polynomial(std::size_t vertex_count, std::size_t matrix_size)
+        : vertices(vertex_count), size(matrix_size),
+          controls(vertex_count * (vertex_count + 1) / 2) {}
+
     const Matrix &at(std::size_t i, std::size_t j) const {
-        return controls[i * vertices + j];
+        if (i > j) std::swap(i, j);
+        return controls[j * (j + 1) / 2 + i];
     }
     Matrix &at(std::size_t i, std::size_t j) {
-        return controls[i * vertices + j];
+        return const_cast<Matrix &>(std::as_const(*this).at(i, j));
     }
     Matrix blossom(const Weights &a, const Weights &b) const {
         Matrix result(size * size);
         for (std::size_t i = 0; i < vertices; ++i)
-            for (std::size_t j = 0; j < vertices; ++j) {
-                const double weight = a[i] * b[j];
+            for (std::size_t j = i; j < vertices; ++j) {
+                const double weight = a[i] * b[j] + (i == j ? 0. : a[j] * b[i]);
                 if (weight == 0) continue;
                 for (std::size_t k = 0; k < result.size(); ++k)
                     result[k] += weight * at(i, j)[k];
@@ -86,17 +98,17 @@ struct Polynomial {
         return blossom(weights, weights);
     }
     Polynomial restrict_to(const std::vector<Weights> &points) const {
-        Polynomial result{vertices, size, std::vector<Matrix>(vertices * vertices)};
+        Polynomial result{vertices, size};
         for (std::size_t i = 0; i < vertices; ++i)
             for (std::size_t j = i; j < vertices; ++j)
-                result.at(j, i) = result.at(i, j) = blossom(points[i], points[j]);
+                result.at(i, j) = blossom(points[i], points[j]);
         return result;
     }
     Polynomial rotated(const Matrix &basis) const {
-        auto result = *this;
+        Polynomial result{vertices, size};
         for (std::size_t i = 0; i < vertices; ++i)
             for (std::size_t j = i; j < vertices; ++j)
-                result.at(j, i) = result.at(i, j) = rotate(at(i, j), basis, size);
+                result.at(i, j) = rotate(at(i, j), basis, size);
         return result;
     }
 };

@@ -35,7 +35,7 @@ Interpolant interpolate(const SpectralMesh &mesh,
                         ChargeErrorStats &stats, std::optional<double> bound) {
     const auto &simplex = mesh.geometry().simplices().simplex(simplex_id);
     const auto v = simplex.vertex_ids.size(), n = mesh.ndof();
-    Polynomial polynomial{v, n, std::vector<Matrix>(v * v)};
+    Polynomial polynomial{v, n};
     std::vector<Weights> points;
     for (std::size_t i = 0; i < v; ++i) {
         const auto vertex = simplex.vertex_ids[i];
@@ -60,7 +60,7 @@ Interpolant interpolate(const SpectralMesh &mesh,
             for (std::size_t k = 0; k < n * n; ++k)
                 midpoint[k] = 2. * midpoint[k] -
                     .5 * (polynomial.at(i, i)[k] + polynomial.at(j, j)[k]);
-            polynomial.at(j, i) = polynomial.at(i, j) = std::move(midpoint);
+            polynomial.at(i, j) = std::move(midpoint);
         }
     double defect = 0;
     const auto probe = [&](const Weights &weights) {
@@ -103,71 +103,78 @@ Interpolant interpolate(const SpectralMesh &mesh,
 
 Sectors sign_sectors(const Polynomial &polynomial, double allowance,
                      ChargeErrorStats &stats) {
-    const auto n = polynomial.size, v = polynomial.vertices;
+    const auto n = polynomial.size;
     if (n == 0) return {};
-    const auto test = [&](std::size_t count, bool negative, bool find_margin) {
-        auto margin = std::numeric_limits<double>::infinity();
-        if (count == 0) return margin;
+    const auto sector_indices = [&](std::size_t count, bool negative) {
         auto sector = negative ? indices(0, count) : indices(n - count, n);
-        for (std::size_t i = 0; i < v; ++i)
-            for (std::size_t j = i; j < v; ++j) {
-                const auto &control = polynomial.at(i, j);
-                double row_margin = std::numeric_limits<double>::infinity();
-                for (std::size_t row = 0; row < count; ++row) {
-                    const auto index = sector[row];
-                    const auto diagonal = (negative ? -1. : 1.) *
-                        control[index + index * n].real() - allowance;
-                    if (diagonal <= 0) return -1.;
-                    auto lower = diagonal;
-                    for (std::size_t col = 0; col < count; ++col)
-                        if (row != col) lower -= std::abs(control[index + sector[col] * n]);
-                    row_margin = std::min(row_margin, lower);
-                }
-                if (row_margin > 0) {
-                    margin = std::min(margin, row_margin);
-                    continue;
-                }
-                auto matrix = block(control, n, sector, sector);
-                if (negative) for (auto &value : matrix) value = -value;
-                if (find_margin) {
-                    std::vector<double> eigenvalues;
-                    linalg::diagonalize_hermitian_in_place(matrix, eigenvalues,
-                        count, false, "occupation sector margin");
-                    ++stats.norm_eigensystems;
-                    margin = std::min(margin, eigenvalues.front() - allowance);
-                } else {
-                    for (std::size_t k = 0; k < count; ++k)
-                        matrix[k + k * count] -= allowance;
-                    if (linalg::cholesky_factor_lower(matrix.data(), count) != 0) return -1.;
-                }
-            }
-        return margin;
+        // Cholesky must visit the most positive states first for a suffix.
+        if (!negative) std::reverse(sector.begin(), sector.end());
+        return sector;
+    };
+    const auto row_margin = [&](const Matrix &control, std::size_t count,
+                                bool negative) {
+        const auto first = negative ? 0 : n - count;
+        std::vector<double> lower(count);
+        for (std::size_t row = 0; row < count; ++row)
+            lower[row] = (negative ? -1. : 1.) *
+                control[first + row + (first + row) * n].real() - allowance;
+        for (std::size_t col = 0; col < count; ++col)
+            for (std::size_t row = 0; row < count; ++row)
+                if (row != col)
+                    lower[row] -= std::abs(control[first + row + (first + col) * n]);
+        return lower.empty() ? std::numeric_limits<double>::infinity() :
+            *std::min_element(lower.begin(), lower.end());
     };
     const auto largest = [&](bool negative, std::size_t maximum) {
-        // Definiteness requires every diagonal entry to have the right sign.
-        // This cheap necessary test usually locates the whole safe sector;
-        // certify it once before searching smaller projected blocks.
-        for (std::size_t i = 0; i < v; ++i)
-            for (std::size_t j = i; j < v; ++j) {
-                const auto &control = polynomial.at(i, j);
-                for (std::size_t rank = 0; rank < maximum; ++rank) {
-                    const auto band = negative ? rank : n - 1 - rank;
-                    const auto diagonal = control[band + band * n].real();
-                    if ((negative ? -diagonal : diagonal) <= allowance) {
-                        maximum = rank;
-                        break;
-                    }
+        // Definiteness requires every diagonal to have the right sign.
+        for (const auto &control : polynomial.controls)
+            for (std::size_t rank = 0; rank < maximum; ++rank) {
+                const auto band = negative ? rank : n - 1 - rank;
+                const auto diagonal = control[band + band * n].real();
+                if ((negative ? -diagonal : diagonal) <= allowance) {
+                    maximum = rank;
+                    break;
                 }
             }
-        const auto margin = test(maximum, negative, true);
-        if (margin > 0) return std::pair{maximum, margin};
-        std::size_t low = 0, high = maximum;
-        while (low < high) {
-            const auto middle = low + (high - low + 1) / 2;
-            if (test(middle, negative, false) > 0) low = middle;
-            else high = middle - 1;
+        auto margin = std::numeric_limits<double>::infinity();
+        bool needs_margin = false;
+        for (const auto &control : polynomial.controls) {
+            const auto lower = row_margin(control, maximum, negative);
+            if (lower > 0) {
+                margin = std::min(margin, lower);
+                continue;
+            }
+            auto sector = sector_indices(maximum, negative);
+            auto matrix = block(control, n, sector, sector);
+            if (negative) for (auto &value : matrix) value = -value;
+            for (std::size_t k = 0; k < maximum; ++k)
+                matrix[k + k * maximum] -= allowance;
+            const auto failure = linalg::cholesky_factor_lower(matrix.data(), maximum);
+            // A failed pivot k leaves exactly k-1 positive leading directions.
+            // Earlier controls stay definite on this smaller principal block.
+            if (failure > 0) maximum = static_cast<std::size_t>(failure - 1);
+            needs_margin = true;
         }
-        return std::pair{low, test(low, negative, true)};
+        // The common Gershgorin case needs only one pass. After any factorization,
+        // establish the final margin on the retained block, at most once/control.
+        if (needs_margin) {
+            margin = std::numeric_limits<double>::infinity();
+            const auto sector = sector_indices(maximum, negative);
+            for (const auto &control : polynomial.controls) {
+                auto lower = row_margin(control, maximum, negative);
+                if (lower <= 0) {
+                    auto matrix = block(control, n, sector, sector);
+                    if (negative) for (auto &value : matrix) value = -value;
+                    std::vector<double> eigenvalues;
+                    linalg::diagonalize_hermitian_in_place(matrix, eigenvalues,
+                        maximum, false, "occupation sector margin");
+                    ++stats.norm_eigensystems;
+                    lower = eigenvalues.front() - allowance;
+                }
+                margin = std::min(margin, lower);
+            }
+        }
+        return std::pair{maximum, margin};
     };
     const auto [negative, negative_gap] = largest(true, n);
     const auto [positive, positive_gap] = largest(false, n - negative);
@@ -195,7 +202,7 @@ Model build_model(const SpectralMesh &mesh,
                 for (std::size_t band = 0; band < full.size; ++band)
                     control[band + band * full.size] = anchor.eigenvalues[band] - mu;
             } else {
-                full.at(j, i) = full.at(i, j) = rotate(full.at(i, j), anchor.eigenvectors, full.size);
+                full.at(i, j) = rotate(full.at(i, j), anchor.eigenvectors, full.size);
             }
         }
     const auto eta = interpolation.remainder;
@@ -204,16 +211,16 @@ Model build_model(const SpectralMesh &mesh,
     const auto q = n - sectors.negative - sectors.positive;
     stats.initial_active_dimension_sum += q;
     if (q == n) return {std::move(full), 0, eta, eta, 0};
-    if (q == 0) return {Polynomial{v, 0, {}}, sectors.negative, eta, eta, sectors.gap};
+    if (q == 0) return {Polynomial{v, 0}, sectors.negative, eta, eta, sectors.gap};
 
     const auto active = indices(sectors.negative, n - sectors.positive);
     auto safe = indices(0, sectors.negative);
     const auto positive = indices(n - sectors.positive, n);
     safe.insert(safe.end(), positive.begin(), positive.end());
     const auto s = safe.size();
-    Matrix d0(s * s);
+    std::vector<double> d0(s);
     for (std::size_t i = 0; i < s; ++i)
-        d0[i + i * s] = anchor.eigenvalues[safe[i]] - mu;
+        d0[i] = anchor.eigenvalues[safe[i]] - mu;
     std::vector<Matrix> coupling, solution;
     double x = 0, b = 0, d = 0;
     for (std::size_t i = 0; i < v; ++i) {
@@ -221,26 +228,28 @@ Model build_model(const SpectralMesh &mesh,
         auto solved = coupling.back();
         for (std::size_t col = 0; col < q; ++col)
             for (std::size_t row = 0; row < s; ++row)
-                solved[row + col * s] /= d0[row + row * s].real();
+                solved[row + col * s] /= d0[row];
         x = std::max(x, norm(solved));
         solution.push_back(std::move(solved));
     }
-    Polynomial reduced{v, q, std::vector<Matrix>(v * v)};
+    Polynomial reduced{v, q};
     for (std::size_t i = 0; i < v; ++i)
         for (std::size_t j = i; j < v; ++j) {
             auto residual = block(full.at(i, j), n, safe, active);
             for (std::size_t k = 0; k < residual.size(); ++k)
                 residual[k] -= .5 * (coupling[i][k] + coupling[j][k]);
             b = std::max(b, norm(residual));
-            d = std::max(d, hermitian_norm_bound(
-                difference(block(full.at(i, j), n, safe, safe), d0), s));
+            auto variation = block(full.at(i, j), n, safe, safe);
+            for (std::size_t row = 0; row < s; ++row)
+                variation[row + row * s] -= d0[row];
+            d = std::max(d, hermitian_norm_bound(variation, s));
             auto control = block(full.at(i, j), n, active, active);
             // Polarization of B1* D0^-1 B1 gives its quadratic controls.
             linalg::matrix_multiply('C', 'N', q, q, s, -.5, coupling[i].data(), s,
                 solution[j].data(), s, 1., control.data(), q);
             linalg::matrix_multiply('C', 'N', q, q, s, -.5, coupling[j].data(), s,
                 solution[i].data(), s, 1., control.data(), q);
-            reduced.at(j, i) = reduced.at(i, j) = std::move(control);
+            reduced.at(i, j) = std::move(control);
         }
     b += eta; d += eta;
     const auto f = b + d * x;

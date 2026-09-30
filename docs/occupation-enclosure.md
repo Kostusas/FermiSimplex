@@ -24,7 +24,11 @@ use it to classify the Hamiltonian.
    center. Set `eta = 2**dimension * max_sample_defect + roundoff`.
 3. In a vertex eigenbasis, establish negative and positive safe sectors by
    testing every Bernstein control with allowance `eta`. Gershgorin bounds
-   precede matrix factorizations. Their minimum margin is `Delta`. Any states
+   precede matrix factorizations. A Cholesky failure at pivot `k` retains the
+   first `k-1` directions; the positive suffix is visited in reverse order.
+   This replaces a binary search with at most one factorization per control
+   and sign, followed by at most one eigenvalue computation for its margin.
+   Their minimum margin is `Delta`. Any states
    that cannot be separated remain active, up to the full matrix.
 4. Write the active/safe blocks as `A,B,D`, freeze the anchor's safe block
    `D0`, and linearly interpolate the vertex coupling as `B1`. Set
@@ -83,6 +87,12 @@ The obsolete recursive estimator, temporary spectral caches, projected hopping
 backend and method switches were removed. Cached anchor eigenvalues avoid a
 redundant rotation, and sector margins are reused without copying a matrix
 when row bounds suffice.
+
+Store each symmetric Bernstein control only once. Matrix norm and sector row
+bounds scan contiguous columns, including both matrix triangles. For fixed
+dimension and subdivision depth, model construction is `O(N^3)` with `O(N^2)`
+storage; the sector search has no logarithmic number of factorizations. This
+does not bound the number of persistent refinements needed by a physical model.
 
 Tests compare exact interval/disk/sphere volumes, cubic Schur errors, complex
 multiband models, cubic/quartic pockets and adversarial quartic interior

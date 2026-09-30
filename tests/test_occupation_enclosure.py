@@ -46,6 +46,22 @@ def test_polynomial_subdivision_needs_no_extra_hamiltonian_samples():
     assert results[-1].stopping_error < results[0].stopping_error
 
 
+def test_root_center_frame_is_shared_by_sign_proof_and_charge():
+    def model(x):
+        return np.array([[x - 0.2, 0.2 * x], [0.2 * x, 0.8 - x]])
+
+    result = SpectralMesh(model, root_level=0).integrate_charge(
+        mu=0, target_error=2, error_depth=0, max_refinements=0
+    )
+    # Both states stay active and their center is not diagonal in the anchor
+    # frame. The determinant's two zeros delimit a positive-definite interval.
+    exact = 1 - np.sqrt(1 - 4 * 1.04 * 0.16) / 1.04
+    assert abs(result.value - exact) <= result.stopping_error + 1e-12
+    assert result.error_stats.initial_active_dimension_sum == 2
+    assert result.error_stats.reduced_eigensystems == 1
+    assert result.error_stats.micro_simplices == 1
+
+
 def test_two_dimensional_pocket_charge_interval():
     def hamiltonian(x, y):
         return np.array([[(x - 0.33) ** 2 + (y - 0.47) ** 2 - 0.12**2]], complex)

@@ -46,7 +46,7 @@ build/cpp-benchmarks/cpp/fermisimplex_performance_benchmark \
 
 ## Charge-estimator benchmark
 
-Use the focused mode when changing recursive charge-error estimation:
+Use the focused mode when changing the shared occupation enclosure:
 
 ```sh
 build/cpp-benchmarks/cpp/fermisimplex_performance_benchmark \
@@ -60,28 +60,27 @@ bands. The mesh is fixed at root level 2. For each matrix size it measures:
 
 - `q = 1` at error depths 0 and 1;
 - a small multiband cluster, up to `q = 4`, at depth 1;
-- `q = N/2` at depth 1, which exercises the root large-active-space gate
-  wherever certification retains that many uncertain states;
+- `q = N/2` at depth 1, which exercises a larger retained active space;
 - for the largest non-quick matrix, the small cluster at depth 2.
 
 The constructed cluster width is stored as `target_bands`. Certification may
 reduce the actual uncertain space on individual simplices, so
 `charge_initial_active_dimension_sum / charge_root_simplices` is the observed
-mean root width. `charge_conservative_fallbacks` records how often the root
-gate or a failed Schur layer selected the sampled occupation-range fallback.
+mean root width. The same quadratic enclosure handles every active dimension.
 
 The terminal table reports total milliseconds and full-eigensolve equivalents
 per root simplex. One equivalent is the faster measured full `zheevd` path for
 the same matrix size. It also reports actual Hamiltonian evaluations, reduced
-eigensystems, corrected Schur evaluations, micro-simplices, and fallbacks.
+eigensystems, quadratic Schur controls, and temporary and terminal simplices.
 Depth changes
 the fixed microsimplex tree; it is not AdaptiveSimplex mesh refinement.
 
-Each Schur layer stores a dense anchor resolvent and reuses two thin work
-buffers. At a terminal node, an unchanged certificate is reused when its
-chemical-potential interval contains the complete shifted-volume radius. These
-are algebraic and control-flow optimizations; they do not change the sampled
-charge interval.
+Each root builds one quadratic matrix model and a sampled remainder from
+quartic lattice probes. Safe states are eliminated using a diagonal anchor
+block. Temporary cells restrict this fixed polynomial; they do not evaluate
+the Hamiltonian again. The root shares one center frame between its block
+sign proof and affine bounds. Only retained terminal cells integrate charge
+intervals and cut disagreement. See [the design](occupation-enclosure.md).
 
 Machine-readable charge fields include:
 
@@ -91,9 +90,8 @@ Machine-readable charge fields include:
 - `charge_root_simplices`, `charge_micro_simplices`, and
   `charge_terminal_simplices`;
 - `charge_hamiltonian_evaluations`;
-- full, reduced, and norm eigensystem counts;
-- corrected Schur-evaluation and Schur-reduction counts;
-- `charge_conservative_fallbacks` and Schur-failure counts;
+- center-frame and sector-margin eigensystem counts;
+- quadratic Schur-control and Schur-reduction counts;
 - initial and terminal active-dimension sums and the minimum reduced dimension.
 
 `lapack_equivalents_per_operation` is the full timed mesh pass divided by one
@@ -110,8 +108,8 @@ pixi run benchmark-charge-error
 
 It compares current-mesh charge and the sampled estimate with dense off-dyadic
 references for 1D scalar convergence; 2D avoided and clustered systems; systems
-with nonzero active-safe Schur coupling embedded through 128 bands; root-gate
-boundaries; and visible versus exact dyadic aliasing. It writes JSON and a
+with nonzero active-safe Schur coupling embedded through 128 bands; varying
+active-cluster sizes; and visible versus exact dyadic aliasing. It writes JSON and a
 scalar convergence plot under `build/benchmarks/`. Reference-grid differences
 are recorded, so these are accuracy diagnostics rather than proofs. Its
 single-shot wall times are also diagnostic; use the repeated C++ benchmark for
@@ -126,7 +124,7 @@ The ordinary presets retain these benchmark families:
   cache insertion costs;
 - tight-binding evaluation and eigensystem costs for several hopping counts;
 - direct current-mesh charge and adaptive charge integration at the default
-  recursive error depth 2;
+  temporary polynomial subdivision depth 2;
 - full-matrix and selected-component density integration through one grouped
   contraction kernel;
 - adaptive Fermi-surface extraction;
@@ -135,10 +133,10 @@ The ordinary presets retain these benchmark families:
 
 End-to-end results record total time, new spectral vertices, actual simplex
 visits, refinements, time per vertex and visit, and LAPACK equivalents per
-vertex and visit. Charge results additionally carry the recursive estimator
+vertex and visit. Charge results additionally carry the occupation enclosure
 counters above. The current-mesh charge pass performs only linear-simplex
 integration; the adaptive charge pass forces AdaptiveSimplex preview depth zero
-and refines using the separate recursive charge-error estimate.
+and refines using the distance to the sampled occupation interval.
 
 The benchmark excludes `SpectralMesh` construction from timed regions. Reference
 LAPACK matrices are prepared outside the timer. Raw timings should only be

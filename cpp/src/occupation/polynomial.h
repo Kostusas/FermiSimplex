@@ -21,8 +21,9 @@ inline double norm(const Matrix &matrix) {
     return std::sqrt(squared);
 }
 
-inline double hermitian_norm_bound(const Matrix &matrix, std::size_t n) {
-    std::vector<double> row_sums(n);
+inline double hermitian_norm_bound(const Matrix &matrix, std::span<double> row_sums) {
+    const auto n = row_sums.size();
+    std::fill(row_sums.begin(), row_sums.end(), 0.);
     double squared = 0;
     // Visit column-major storage once, retaining both triangles so roundoff
     // asymmetry does not disappear from either bound.
@@ -36,12 +37,6 @@ inline double hermitian_norm_bound(const Matrix &matrix, std::size_t n) {
     const auto maximum = row_sums.empty() ? 0. :
         *std::max_element(row_sums.begin(), row_sums.end());
     return std::min(std::sqrt(squared), maximum);
-}
-
-inline Matrix difference(const Matrix &a, const Matrix &b) {
-    auto result = a;
-    for (std::size_t i = 0; i < a.size(); ++i) result[i] -= b[i];
-    return result;
 }
 
 inline Matrix rotate(const Matrix &matrix, const Matrix &basis, std::size_t n) {
@@ -82,15 +77,20 @@ struct Polynomial {
     Matrix &at(std::size_t i, std::size_t j) {
         return const_cast<Matrix &>(std::as_const(*this).at(i, j));
     }
-    Matrix blossom(const Weights &a, const Weights &b) const {
-        Matrix result(size * size);
+    void add_blossom_to(Matrix &result, const Weights &a, const Weights &b,
+                        double scale = 1.) const {
         for (std::size_t i = 0; i < vertices; ++i)
             for (std::size_t j = i; j < vertices; ++j) {
-                const double weight = a[i] * b[j] + (i == j ? 0. : a[j] * b[i]);
+                const double weight = scale *
+                    (a[i] * b[j] + (i == j ? 0. : a[j] * b[i]));
                 if (weight == 0) continue;
                 for (std::size_t k = 0; k < result.size(); ++k)
                     result[k] += weight * at(i, j)[k];
             }
+    }
+    Matrix blossom(const Weights &a, const Weights &b) const {
+        Matrix result(size * size);
+        add_blossom_to(result, a, b);
         return result;
     }
     Matrix center() const {

@@ -27,6 +27,8 @@ use it to classify the Hamiltonian.
    midpoints used by the interpolant. Cache these geometry-only probe weights
    by vertex count. Set `eta = min(2**dimension,32)*max_sample_defect + roundoff`.
    There is no per-dimension probe list or algorithm selector.
+   Subtract the polynomial directly into each evaluated probe matrix and reuse
+   the norm workspace, without retaining extra full matrices.
 3. In a vertex eigenbasis, establish negative and positive safe sectors by
    testing every Bernstein control with allowance `eta`. Gershgorin bounds
    precede matrix factorizations. A Cholesky failure at pivot `k` retains the
@@ -42,11 +44,14 @@ use it to classify the Hamiltonian.
 5. Bound `b >= ||B-B1||`, `d >= ||D-D0||`, and `x >= ||X||` by Bernstein
    controls. Use
    `epsilon = eta + 2*b*x + d*x*x + (b+d*x)^2/Delta`.
-6. Restrict this fixed polynomial by temporary bisection. At terminal cells,
-   use its center eigenbasis, bound diagonal curvature and off-diagonal row
-   sums, and integrate affine cuts shifted by those bounds and `epsilon`.
-   This gives charge endpoints and strict occupation bounds. Subdivision
-   requires no new Hamiltonian samples and never reduces `epsilon`.
+6. In each temporary cell's center eigenbasis, bound diagonal curvature and
+   off-diagonal row sums. These affine band bounds determine strict occupation
+   bounds and whether to subdivide. The root reuses this same center basis for
+   its block sign proof. Only retained terminal cells integrate the shifted
+   affine cuts and their disagreement with the reported cuts. Restrict the
+   original polynomial for each bisection, preserving the frame used to build
+   child models. Subdivision requires no new Hamiltonian samples and never
+   reduces `epsilon`.
 
 The Schur identity `S = Y - F† D^-1 F`, where
 `Y = A - B†X - X†B + X†DX` and `F = B-DX`, gives step 5. With a uniform safe
@@ -75,6 +80,11 @@ For reported local charge `Q`, the indicator is
 `max(abs(Q-Qlower), abs(Qupper-Q))`; sum these local indicators. The density-cut
 indicator also measures spatial disagreement of the affine occupied regions,
 so cancellation of total charge cannot hide displaced cuts.
+
+The reported affine charge derivative is exactly zero when `mu` lies strictly
+outside a band's vertex-energy range. Only bands whose range contains `mu`
+need the divided-difference derivative formula. This avoids cancellation for
+fully occupied narrow bands while retaining the convention at band endpoints.
 
 Strict occupation bounds are separate from integrated charge endpoints. An
 exactly constant tight-binding matrix has an exact charge, including half

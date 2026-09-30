@@ -54,10 +54,14 @@ Interpolant interpolate(const SpectralMesh &mesh,
             polynomial.at(i, j) = std::move(midpoint);
         }
     double defect = 0;
-    if (!bound)
-        for (const auto &weights : probe_weights(v))
-            defect = std::max(defect, hermitian_norm_bound(difference(
-                at_weights(weights), polynomial.blossom(weights, weights)), n));
+    if (!bound) {
+        std::vector<double> row_sums(n);
+        for (const auto &weights : probe_weights(v)) {
+            auto residual = at_weights(weights);
+            polynomial.add_blossom_to(residual, weights, weights, -1.);
+            defect = std::max(defect, hermitian_norm_bound(residual, row_sums));
+        }
+    }
     double scale = std::max(1., std::abs(mu));
     for (const auto &control : polynomial.controls) scale = std::max(scale, norm(control));
     const auto roundoff = 64 * std::numeric_limits<double>::epsilon() * scale;
@@ -199,6 +203,7 @@ Model build_model(const SpectralMesh &mesh,
         solution.push_back(std::move(solved));
     }
     Polynomial reduced{v, q};
+    std::vector<double> row_sums(s);
     for (std::size_t i = 0; i < v; ++i)
         for (std::size_t j = i; j < v; ++j) {
             auto residual = block(full.at(i, j), n, safe, active);
@@ -208,7 +213,7 @@ Model build_model(const SpectralMesh &mesh,
             auto variation = block(full.at(i, j), n, safe, safe);
             for (std::size_t row = 0; row < s; ++row)
                 variation[row + row * s] -= d0[row];
-            d = std::max(d, hermitian_norm_bound(variation, s));
+            d = std::max(d, hermitian_norm_bound(variation, row_sums));
             auto control = block(full.at(i, j), n, active, active);
             // Polarization of B1* D0^-1 B1 gives its quadratic controls.
             linalg::matrix_multiply('C', 'N', q, q, s, -.5, coupling[i].data(), s,

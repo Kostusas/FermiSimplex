@@ -35,29 +35,19 @@ void bind_integration_types(nb::module_ &module) {
     nb::class_<ChargeErrorStats>(
         module,
         "ChargeErrorStats",
-        "Work, reduction, and fallback diagnostics for charge-error sampling."
+        "Work and reduction diagnostics for the sampled occupation enclosure."
     )
         .def_ro("root_simplices", &ChargeErrorStats::root_simplices)
         .def_ro(
             "hamiltonian_evaluations",
             &ChargeErrorStats::hamiltonian_evaluations
         )
-        .def_ro("full_eigensystems", &ChargeErrorStats::full_eigensystems)
         .def_ro("reduced_eigensystems", &ChargeErrorStats::reduced_eigensystems)
         .def_ro("norm_eigensystems", &ChargeErrorStats::norm_eigensystems)
         .def_ro("schur_evaluations", &ChargeErrorStats::schur_evaluations)
         .def_ro("schur_reductions", &ChargeErrorStats::schur_reductions)
         .def_ro("micro_simplices", &ChargeErrorStats::micro_simplices)
         .def_ro("terminal_simplices", &ChargeErrorStats::terminal_simplices)
-        .def_ro(
-            "conservative_fallbacks",
-            &ChargeErrorStats::conservative_fallbacks,
-            "Number of sampled occupation-range fallbacks."
-        )
-        .def_ro(
-            "schur_failures",
-            &ChargeErrorStats::schur_failures
-        )
         .def_ro(
             "initial_active_dimension_sum",
             &ChargeErrorStats::initial_active_dimension_sum

@@ -52,6 +52,18 @@ struct Interval {
     std::size_t occupation_lower = 0, occupation_upper = 0;
 };
 
+struct AffineBand {
+    Weights energies;
+    double radius;
+    bool negative;
+    bool positive;
+};
+
+struct AffineBounds {
+    std::vector<AffineBand> bands;
+    std::size_t occupation_lower = 0, occupation_upper = 0;
+};
+
 double volume_below(double volume, const Weights &values, bool upper) {
     const auto moments = cut::simplex_moments(
         volume, values, {.level = 0., .level_tolerance = cut_tolerance});
@@ -69,23 +81,21 @@ Polynomial center_frame(const Polynomial &polynomial, ChargeErrorStats &stats) {
     return polynomial.rotated(basis);
 }
 
-Interval affine_interval(const Polynomial &polynomial, double epsilon,
-                         const std::vector<Weights> &root_cuts, double volume,
-                         ChargeErrorStats &stats) {
+AffineBounds affine_bounds(const Polynomial &polynomial, double epsilon) {
     const auto q = polynomial.size, v = polynomial.vertices;
-    const auto rotated = center_frame(polynomial, stats);
-    Interval result;
+    AffineBounds result;
+    result.bands.reserve(q);
     for (std::size_t band = 0; band < q; ++band) {
         double curvature_radius = 0, off_diagonal_radius = 0;
         double minimum = std::numeric_limits<double>::infinity();
         double maximum = -minimum;
         for (std::size_t i = 0; i < v; ++i)
             for (std::size_t j = i; j < v; ++j) {
-                const auto &control = rotated.at(i, j);
+                const auto &control = polynomial.at(i, j);
                 const auto diagonal = control[band + band * q].real();
                 auto curvature = std::abs(diagonal -
-                    .5 * (rotated.at(i, i)[band + band * q].real() +
-                          rotated.at(j, j)[band + band * q].real()));
+                    .5 * (polynomial.at(i, i)[band + band * q].real() +
+                          polynomial.at(j, j)[band + band * q].real()));
                 double row_radius = 0;
                 for (std::size_t other = 0; other < q; ++other)
                     if (other != band) row_radius += std::abs(control[band + other * q]);
@@ -103,39 +113,56 @@ Interval affine_interval(const Polynomial &polynomial, double epsilon,
         // Outward slack absorbs the cut routine's level classification and
         // prevents nearly endpoint crossings from rounding their fraction to 1.
         radius += 8 * cut_tolerance * scale;
-        Weights affine(v), below(v), above(v), root(v);
+        Weights affine(v);
+        bool below_negative = true, above_nonpositive = false;
         for (std::size_t i = 0; i < v; ++i) {
-            affine[i] = rotated.at(i, i)[band + band * q].real();
-            below[i] = affine[i] + radius;
-            above[i] = affine[i] - radius;
-            root[i] = root_cuts[i][band];
+            affine[i] = polynomial.at(i, i)[band + band * q].real();
+            below_negative &= affine[i] + radius < 0;
+            above_nonpositive |= affine[i] - radius <= 0;
         }
         const auto negative = maximum + epsilon < 0;
         const auto positive = minimum - epsilon > 0;
-        const auto lower = negative ? volume : volume_below(volume, below, false);
-        const auto upper = positive ? 0. : volume_below(volume, above, true);
-        result.lower += lower;
-        result.upper += upper;
-        result.cut_error += cut_error::cut_disagreement(volume, root, affine, cut_tolerance) +
-            std::max(0., upper - lower);
-        if (negative || *std::max_element(below.begin(), below.end()) < 0)
+        if (negative || below_negative)
             ++result.occupation_lower;
-        if (!positive && *std::min_element(above.begin(), above.end()) <= 0)
+        if (!positive && above_nonpositive)
             ++result.occupation_upper;
+        result.bands.push_back({std::move(affine), radius, negative, positive});
     }
     return result;
 }
 
-Interval integrate(const Polynomial &polynomial, double epsilon,
+Interval charge_interval(const AffineBounds &bounds,
+                         const std::vector<Weights> &root_cuts, double volume) {
+    Interval result;
+    result.occupation_lower = bounds.occupation_lower;
+    result.occupation_upper = bounds.occupation_upper;
+    Weights below(root_cuts.size()), above(root_cuts.size()), root(root_cuts.size());
+    for (std::size_t band = 0; band < bounds.bands.size(); ++band) {
+        const auto &bound = bounds.bands[band];
+        for (std::size_t i = 0; i < root_cuts.size(); ++i) {
+            below[i] = bound.energies[i] + bound.radius;
+            above[i] = bound.energies[i] - bound.radius;
+            root[i] = root_cuts[i][band];
+        }
+        const auto lower = bound.negative ? volume : volume_below(volume, below, false);
+        const auto upper = bound.positive ? 0. : volume_below(volume, above, true);
+        result.lower += lower;
+        result.upper += upper;
+        result.cut_error += cut_error::cut_disagreement(
+            volume, root, bound.energies, cut_tolerance) + std::max(0., upper - lower);
+    }
+    return result;
+}
+
+Interval integrate(const Polynomial &polynomial, const AffineBounds &bounds, double epsilon,
                    const std::vector<Weights> &points,
                    const std::vector<Weights> &root_cuts, double volume,
                    std::uint32_t remaining, ChargeErrorStats &stats) {
     ++stats.micro_simplices;
-    auto interval = affine_interval(polynomial, epsilon, root_cuts, volume, stats);
-    if (remaining == 0 || interval.occupation_lower == interval.occupation_upper) {
+    if (remaining == 0 || bounds.occupation_lower == bounds.occupation_upper) {
         ++stats.terminal_simplices;
         stats.terminal_active_dimension_sum += polynomial.size;
-        return interval;
+        return charge_interval(bounds, root_cuts, volume);
     }
     // Longest physical edge bisection; only the polynomial is evaluated below.
     double longest = -1;
@@ -158,7 +185,9 @@ Interval integrate(const Polynomial &polynomial, double epsilon,
             child_points[replaced][axis] = .5 * (points[left][axis] + points[right][axis]);
         for (std::size_t band = 0; band < polynomial.size; ++band)
             child_cuts[replaced][band] = .5 * (root_cuts[left][band] + root_cuts[right][band]);
-        const auto child = integrate(polynomial.restrict_to(weights), epsilon,
+        const auto child_polynomial = polynomial.restrict_to(weights);
+        const auto child_bounds = affine_bounds(center_frame(child_polynomial, stats), epsilon);
+        const auto child = integrate(child_polynomial, child_bounds, epsilon,
             child_points, child_cuts, volume / 2, remaining - 1, stats);
         result.lower += child.lower; result.upper += child.upper;
         result.cut_error += child.cut_error;
@@ -218,9 +247,14 @@ OccupationEnclosure enclose_occupation(const SpectralMesh &mesh,
         cuts.push_back(std::move(energies));
     }
     // A fixed polynomial can have a better block sign proof than row bounds.
-    const auto sectors = sign_sectors(center_frame(model.polynomial, stats),
-        model.epsilon, stats);
-    const auto interval = integrate(model.polynomial, model.epsilon, points, cuts,
+    Sectors sectors;
+    AffineBounds bounds;
+    {
+        const auto framed = center_frame(model.polynomial, stats);
+        sectors = sign_sectors(framed, model.epsilon, stats);
+        bounds = affine_bounds(framed, model.epsilon);
+    }
+    const auto interval = integrate(model.polynomial, bounds, model.epsilon, points, cuts,
         simplex.volume, sectors.negative + sectors.positive == q ? 0 : depth * mesh.ndim(), stats);
     result.occupation_lower += std::max(sectors.negative, interval.occupation_lower);
     result.occupation_upper += std::min(q - sectors.positive, interval.occupation_upper);

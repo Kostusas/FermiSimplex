@@ -1,7 +1,5 @@
 #include "integration/charge.h"
 
-
-
 #include <adaptivesimplex/cut/simplex_moments.h>
 
 #include <algorithm>
@@ -9,6 +7,7 @@
 #include <limits>
 #include <span>
 #include <stdexcept>
+#include <utility>
 #include <vector>
 
 namespace fermisimplex::integration_detail {
@@ -85,22 +84,6 @@ double occupied_fraction_derivative(
     );
 }
 
-std::vector<double> band_energies(
-    const core::Geometry &geometry,
-    core::SimplexId simplex_id,
-    const EigensystemCache &cache,
-    std::size_t band
-) {
-    const auto &simplex = geometry.simplices().simplex(simplex_id);
-    auto energies = std::vector<double>{};
-    energies.reserve(simplex.vertex_ids.size());
-    for (const auto vertex_id : simplex.vertex_ids) {
-        energies.push_back(cache.get(vertex_id).eigenvalues[band]);
-    }
-    std::stable_sort(energies.begin(), energies.end());
-    return energies;
-}
-
 }  // namespace
 
 double validated_density_cut_error(double estimate, double charge) {
@@ -147,12 +130,13 @@ ChargeContribution band_charge_on_simplex(
     auto result = ChargeContribution{};
 
     for (std::size_t band = 0; band < mesh.ndof(); ++band) {
+        std::vector<double> energies;
+        energies.reserve(simplex.vertex_ids.size());
+        for (const auto vertex_id : simplex.vertex_ids)
+            energies.push_back(cache.get(vertex_id).eigenvalues[band]);
         const auto moments = cut::simplex_moments(
-            geometry,
-            simplex_id,
-            [&](core::VertexId vertex_id) {
-                return cache.get(vertex_id).eigenvalues[band];
-            },
+            simplex.volume,
+            energies,
             cut::LevelOptions{
                 .level = mu,
                 .level_tolerance = mesh.tolerance(),
@@ -165,11 +149,15 @@ ChargeContribution band_charge_on_simplex(
         }
 
         result.value += moments.volume;
-        const auto energies =
-            band_energies(geometry, simplex_id, cache, band);
+        // Outside the energy range the occupation is constant. A divided
+        // difference there needlessly subtracts nearly equal numbers and can
+        // produce a large spurious derivative for a narrow occupied band.
+        const auto [minimum, maximum] = std::minmax_element(energies.begin(), energies.end());
+        if (mu < *minimum || mu > *maximum) continue;
+        std::stable_sort(energies.begin(), energies.end());
         result.dcharge_dmu +=
             simplex.volume * occupied_fraction_derivative(
-                energies,
+                std::move(energies),
                 mu,
                 mesh.tolerance()
             );

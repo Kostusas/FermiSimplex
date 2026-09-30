@@ -111,7 +111,6 @@ def test_charge_error_stats_are_nonnegative():
     assert result.error_stats.root_simplices >= 0
     assert result.error_stats.hamiltonian_evaluations >= 0
     assert result.error_stats.micro_simplices >= 0
-    assert result.error_stats.conservative_fallbacks >= 0
 
 
 @pytest.mark.parametrize("error_depth", (-1, -2))

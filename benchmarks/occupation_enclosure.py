@@ -160,7 +160,6 @@ def charge_runs(repeats):
                     hamiltonian_evaluations=result.stats.evaluations
                     + stats.hamiltonian_evaluations,
                     eigensystems=result.stats.evaluations
-                    + stats.full_eigensystems
                     + stats.reduced_eigensystems
                     + stats.norm_eigensystems,
                     refinements=result.stats.refinements,

@@ -20,15 +20,12 @@ Hoppings = dict[tuple[int, ...], Array]
 CHARGE_ERROR_STATS = (
     "root_simplices",
     "hamiltonian_evaluations",
-    "full_eigensystems",
     "reduced_eigensystems",
     "norm_eigensystems",
     "schur_evaluations",
     "schur_reductions",
     "micro_simplices",
     "terminal_simplices",
-    "conservative_fallbacks",
-    "schur_failures",
     "initial_active_dimension_sum",
     "terminal_active_dimension_sum",
     "minimum_active_dimension",
@@ -74,9 +71,7 @@ def add_pair(hoppings: Hoppings, vector: tuple[int, ...], matrix: Array) -> None
     matrix = np.asarray(matrix, dtype=complex)
     opposite = tuple(-value for value in vector)
     hoppings[vector] = hoppings.get(vector, np.zeros_like(matrix)) + matrix
-    hoppings[opposite] = (
-        hoppings.get(opposite, np.zeros_like(matrix)) + matrix.conj().T
-    )
+    hoppings[opposite] = hoppings.get(opposite, np.zeros_like(matrix)) + matrix.conj().T
 
 
 def add_cosine(hoppings: Hoppings, vector: tuple[int, ...], matrix: Array) -> None:
@@ -175,11 +170,11 @@ def coupled_core() -> Hoppings:
     return hoppings
 
 
-def gate_model(active_dimension: int, ndof: int, label: str) -> Model:
+def active_cluster_model(active_dimension: int, ndof: int, label: str) -> Model:
     offsets = np.linspace(-0.08, 0.08, active_dimension)
     active: Hoppings = {(0,): np.diag(offsets.astype(complex))}
     add_cosine(active, (1,), 0.5 * np.eye(active_dimension))
-    return embed(label, "gate", active, ndof, f"gate_q{active_dimension}")
+    return embed(label, "active_cluster", active, ndof, f"cluster_q{active_dimension}")
 
 
 def alias_model(harmonic: int, label: str) -> Model:
@@ -250,11 +245,7 @@ def run_case(
     eta = float(result.stopping_error)
     signed_error = value - reference
     true_error = abs(signed_error)
-    effectivity = (
-        eta / true_error
-        if true_error > max(1e-14, reference_delta)
-        else None
-    )
+    effectivity = eta / true_error if true_error > max(1e-14, reference_delta) else None
     stats = public_stats(result.error_stats, CHARGE_ERROR_STATS)
     roots = int(stats["root_simplices"])
     initial_q_mean = (
@@ -262,9 +253,7 @@ def run_case(
     )
     terminals = int(stats["terminal_simplices"])
     terminal_q_mean = (
-        float(stats["terminal_active_dimension_sum"]) / terminals
-        if terminals
-        else 0.0
+        float(stats["terminal_active_dimension_sum"]) / terminals if terminals else 0.0
     )
     return {
         "suite": suite,
@@ -276,7 +265,7 @@ def run_case(
         "fixed_occupied": model.fixed_occupied,
         "mu": model.mu,
         "root_level": root_level,
-        "h": 2.0**(-root_level),
+        "h": 2.0 ** (-root_level),
         "error_depth": error_depth,
         "expectation": expectation,
         "wall_seconds": elapsed,
@@ -388,23 +377,32 @@ def benchmark(preset: str, only: str) -> dict[str, object]:
                     )
                 )
 
-    if only in {"all", "gate"}:
-        gate_cases = (
-            (gate_model(2, 2, "small_full"), "q=2 always recurses"),
-            (gate_model(3, 8, "below_half"), "2q<N recurses"),
-            (gate_model(4, 8, "half_gate"), "q>2 and 2q>=N falls back"),
-            (gate_model(3, 5, "ceil_half_gate"), "integer half gate falls back"),
+    if only in {"all", "active-cluster"}:
+        cluster_cases = (
+            active_cluster_model(2, 2, "all_active"),
+            active_cluster_model(3, 8, "small_cluster"),
+            active_cluster_model(4, 8, "half_active"),
+            active_cluster_model(3, 5, "mostly_active"),
         )
-        for model, expectation in gate_cases:
+        for model in cluster_cases:
             ref, delta = reference(model)
             cases.append(
-                run_case(model, "root_gate", 1, 1, ref, delta, expectation)
+                run_case(
+                    model,
+                    "active_cluster",
+                    1,
+                    1,
+                    ref,
+                    delta,
+                    "one occupation enclosure at every active dimension",
+                )
             )
 
     if only in {"all", "alias"}:
         alias_cases = (
             (alias_model(2, "visible_alias"), "edge midpoint exposes pocket"),
-            (alias_model(4, "exact_dyadic_alias"), "all sampled dyadic points alias"),
+            (alias_model(4, "quarter_probe_alias"), "quarter-edge probe exposes pocket"),
+            (alias_model(8, "quartic_lattice_alias"), "all quartic lattice points alias"),
         )
         depths = (1,) if quick else (0, 1, 2)
         for model, expectation in alias_cases:
@@ -416,13 +414,9 @@ def benchmark(preset: str, only: str) -> dict[str, object]:
 
     compatible = sum(bool(case["compatible"]) for case in cases)
     finite_effectivities = [
-        float(case["effectivity"])
-        for case in cases
-        if case["effectivity"] is not None
+        float(case["effectivity"]) for case in cases if case["effectivity"] is not None
     ]
-    estimator_wall_seconds = sum(
-        float(case["wall_seconds"]) for case in cases
-    )
+    estimator_wall_seconds = sum(float(case["wall_seconds"]) for case in cases)
     total_wall_seconds = time.perf_counter() - benchmark_started
     return {
         "schema_version": 2,
@@ -445,9 +439,7 @@ def benchmark(preset: str, only: str) -> dict[str, object]:
             "compatible_cases": compatible,
             "underestimated_cases": len(cases) - compatible,
             "median_effectivity": (
-                float(np.median(finite_effectivities))
-                if finite_effectivities
-                else None
+                float(np.median(finite_effectivities)) if finite_effectivities else None
             ),
             "minimum_effectivity": (
                 min(finite_effectivities) if finite_effectivities else None
@@ -460,11 +452,7 @@ def benchmark(preset: str, only: str) -> dict[str, object]:
 def plot_scalar(summary: dict[str, object], output: Path) -> None:
     import matplotlib.pyplot as plt
 
-    cases = [
-        case
-        for case in summary["cases"]
-        if case["suite"] == "scalar_scaling"
-    ]
+    cases = [case for case in summary["cases"] if case["suite"] == "scalar_scaling"]
     if not cases:
         raise RuntimeError("the selected benchmark has no scalar scaling cases")
     figure, axes = plt.subplots(1, 2, figsize=(8.0, 3.2))
@@ -504,12 +492,12 @@ def plot_scalar(summary: dict[str, object], output: Path) -> None:
 
 def main() -> None:
     parser = argparse.ArgumentParser(
-        description="Benchmark the public recursive C++ charge-error estimator."
+        description="Benchmark the sampled quadratic occupation enclosure."
     )
     parser.add_argument("--preset", choices=("quick", "full"), default="quick")
     parser.add_argument(
         "--only",
-        choices=("all", "scalar", "embedded", "coupled", "gate", "alias"),
+        choices=("all", "scalar", "embedded", "coupled", "active-cluster", "alias"),
         default="all",
     )
     parser.add_argument("--output", type=Path)

@@ -1467,8 +1467,6 @@ void write_result(std::ostream &output, const Result &result, bool trailing_comm
         << result.charge_error_stats.root_simplices << ",\n"
         << "      \"charge_hamiltonian_evaluations\": "
         << result.charge_error_stats.hamiltonian_evaluations << ",\n"
-        << "      \"charge_full_eigensystems\": "
-        << result.charge_error_stats.full_eigensystems << ",\n"
         << "      \"charge_reduced_eigensystems\": "
         << result.charge_error_stats.reduced_eigensystems << ",\n"
         << "      \"charge_norm_eigensystems\": "
@@ -1481,10 +1479,6 @@ void write_result(std::ostream &output, const Result &result, bool trailing_comm
         << result.charge_error_stats.micro_simplices << ",\n"
         << "      \"charge_terminal_simplices\": "
         << result.charge_error_stats.terminal_simplices << ",\n"
-        << "      \"charge_conservative_fallbacks\": "
-        << result.charge_error_stats.conservative_fallbacks << ",\n"
-        << "      \"charge_schur_failures\": "
-        << result.charge_error_stats.schur_failures << ",\n"
         << "      \"charge_initial_active_dimension_sum\": "
         << result.charge_error_stats.initial_active_dimension_sum << ",\n"
         << "      \"charge_terminal_active_dimension_sum\": "
@@ -1651,7 +1645,6 @@ std::string render_summary(const Config &config, const std::vector<Result> &resu
             << std::setw(11) << "red/root"
             << std::setw(12) << "schur/root"
             << std::setw(10) << "micro"
-            << std::setw(10) << "fallback"
             << '\n';
         for (const auto &result : results) {
             if (
@@ -1695,8 +1688,6 @@ std::string render_summary(const Config &config, const std::vector<Result> &resu
                 ) / static_cast<double>(roots)
                 << std::setw(10)
                 << result.charge_error_stats.micro_simplices
-                << std::setw(10)
-                << result.charge_error_stats.conservative_fallbacks
                 << '\n';
         }
     }

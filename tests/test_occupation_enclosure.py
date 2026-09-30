@@ -126,6 +126,14 @@ def test_unknown_method_rejected():
         )
 
 
+def test_quadratic_charge_reports_visible_crossings():
+    result = SpectralMesh(scalar(lambda x: x - 0.37), root_level=0).integrate_charge(
+        mu=0, target_error=1, max_refinements=0, method="quadratic"
+    )
+    assert result.visible_gapless_simplices == 1
+    assert result.inconclusive_simplices == 0
+
+
 def test_nearly_coincident_multiband_cuts():
     size = 12
     onsite = np.diag(np.random.default_rng(11).uniform(-0.35, 0.35, size))

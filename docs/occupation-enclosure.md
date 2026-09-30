@@ -209,7 +209,7 @@ work count, target and failure. The paper checkout is `b3735fe`; no manuscript
 changes are required to reproduce these tests.
 
 Validation: the MeanFi default suite passed 798 checks (43 skips, 35 slow
-checks deselected); FermiSimplex passed 170 Python tests and 10 native test
+checks deselected); FermiSimplex passed 171 Python tests and 10 native test
 groups. Tests include exact 1D/2D/3D pocket volumes, contacts and flat bands,
 charge cancellation with displaced cuts, cubic Schur error, and the MeanFi
 filling solve and Fourier density moment against their analytic values.

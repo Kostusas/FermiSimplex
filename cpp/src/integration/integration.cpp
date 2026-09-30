@@ -119,6 +119,21 @@ struct ChargeSimplexError {
     }
 };
 
+bool visible_occupation_change(const SpectralMesh &mesh, core::SimplexId id, double mu) {
+    auto previous_count = mesh.ndof() + 1;
+    for (const auto vertex : mesh.geometry().simplices().simplex(id).vertex_ids) {
+        const auto &values = mesh.eigensystems().get(vertex).eigenvalues;
+        const auto tolerance = mesh.tolerance() * std::max(
+            {1., std::abs(mu), std::abs(values.front()), std::abs(values.back())});
+        const auto first = std::lower_bound(values.begin(), values.end(), mu - tolerance);
+        if (first != values.end() && *first <= mu + tolerance) return true;
+        const auto count = static_cast<std::size_t>(first - values.begin());
+        if (previous_count <= mesh.ndof() && count != previous_count) return true;
+        previous_count = count;
+    }
+    return false;
+}
+
 
 struct DensitySimplexError {
     template <class Value, class Cache>
@@ -168,7 +183,12 @@ auto charge_integrand(
                 result.estimated_error = std::max(std::abs(result.value - enclosure.charge_lower),
                     std::abs(enclosure.charge_upper - result.value));
                 result.density_cut_error = enclosure.density_cut_error;
-                if (!enclosure.fixed_occupation()) result.inconclusive_simplices = 1;
+                if (!enclosure.fixed_occupation()) {
+                    if (visible_occupation_change(mesh, simplex_id, mu))
+                        result.visible_gapless_simplices = 1;
+                    else
+                        result.inconclusive_simplices = 1;
+                }
                 return result;
             }
             return integration_detail::charge_on_simplex(

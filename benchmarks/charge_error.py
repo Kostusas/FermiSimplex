@@ -401,8 +401,14 @@ def benchmark(preset: str, only: str) -> dict[str, object]:
     if only in {"all", "alias"}:
         alias_cases = (
             (alias_model(2, "visible_alias"), "edge midpoint exposes pocket"),
-            (alias_model(4, "quarter_probe_alias"), "quarter-edge probe exposes pocket"),
-            (alias_model(8, "quartic_lattice_alias"), "all quartic lattice points alias"),
+            (
+                alias_model(4, "quarter_probe_alias"),
+                "quarter-edge probe exposes pocket",
+            ),
+            (
+                alias_model(8, "quartic_lattice_alias"),
+                "all quartic lattice points alias",
+            ),
         )
         depths = (1,) if quick else (0, 1, 2)
         for model, expectation in alias_cases:

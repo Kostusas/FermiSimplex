@@ -76,18 +76,27 @@ Interpolant interpolate(const SpectralMesh &mesh,
                 std::swap(weights[i], weights[j]);
                 probe(weights);
                 for (std::size_t k = j + 1; k < v; ++k) {
-                    weights.assign(v, 0);
-                    weights[i] = weights[j] = weights[k] = 1. / 3;
-                    probe(weights);
+                    // A face center misses quartic bubbles of the form
+                    // lambda_i lambda_j lambda_k (lambda_i-lambda_j).
+                    // These three degree-four lattice nodes resolve them.
+                    for (const auto doubled : {i, j, k}) {
+                        weights.assign(v, 0);
+                        weights[i] = weights[j] = weights[k] = .25;
+                        weights[doubled] = .5;
+                        probe(weights);
+                    }
                 }
             }
-        // In 1D the center is an interpolation node; in 2D it was a face probe.
+        // The tetrahedron center completes the degree-four lattice in 3D.
         if (v > 3) probe(Weights(v, 1. / v));
     }
     double scale = std::max(1., std::abs(mu));
     for (const auto &control : polynomial.controls) scale = std::max(scale, norm(control));
     const auto roundoff = 64 * std::numeric_limits<double>::epsilon() * scale;
-    return {std::move(polynomial), bound.value_or(2 * defect) + roundoff};
+    // The degree-four lattice has residual norming bounds 2, 4, 8 in 1D,
+    // 2D, 3D (see benchmarks/verify_remainder_factor.py). For general smooth
+    // Hamiltonians this remains a sampled allowance, not a uniform proof.
+    return {std::move(polynomial), bound.value_or(std::ldexp(defect, mesh.ndim())) + roundoff};
 }
 
 }  // namespace
@@ -102,21 +111,24 @@ Sectors sign_sectors(const Polynomial &polynomial, double allowance,
         auto sector = negative ? indices(0, count) : indices(n - count, n);
         for (std::size_t i = 0; i < v; ++i)
             for (std::size_t j = i; j < v; ++j) {
-                auto matrix = block(polynomial.at(i, j), n, sector, sector);
-                if (negative) for (auto &value : matrix) value = -value;
+                const auto &control = polynomial.at(i, j);
                 double row_margin = std::numeric_limits<double>::infinity();
                 for (std::size_t row = 0; row < count; ++row) {
-                    const auto diagonal = matrix[row + row * count].real() - allowance;
+                    const auto index = sector[row];
+                    const auto diagonal = (negative ? -1. : 1.) *
+                        control[index + index * n].real() - allowance;
                     if (diagonal <= 0) return -1.;
                     auto lower = diagonal;
                     for (std::size_t col = 0; col < count; ++col)
-                        if (row != col) lower -= std::abs(matrix[row + col * count]);
+                        if (row != col) lower -= std::abs(control[index + sector[col] * n]);
                     row_margin = std::min(row_margin, lower);
                 }
                 if (row_margin > 0) {
                     margin = std::min(margin, row_margin);
                     continue;
                 }
+                auto matrix = block(control, n, sector, sector);
+                if (negative) for (auto &value : matrix) value = -value;
                 if (find_margin) {
                     std::vector<double> eigenvalues;
                     linalg::diagonalize_hermitian_in_place(matrix, eigenvalues,
@@ -147,19 +159,23 @@ Sectors sign_sectors(const Polynomial &polynomial, double allowance,
                     }
                 }
             }
-        if (test(maximum, negative, false) > 0) return maximum;
+        const auto margin = test(maximum, negative, true);
+        if (margin > 0) return std::pair{maximum, margin};
         std::size_t low = 0, high = maximum;
         while (low < high) {
             const auto middle = low + (high - low + 1) / 2;
             if (test(middle, negative, false) > 0) low = middle;
             else high = middle - 1;
         }
-        return low;
+        return std::pair{low, test(low, negative, true)};
     };
-    const auto negative = largest(true, n);
-    const auto positive = largest(false, n - negative);
-    const auto gap = std::min(test(negative, true, true), test(positive, false, true));
-    return {negative, positive, std::isfinite(gap) ? gap : 0.};
+    const auto [negative, negative_gap] = largest(true, n);
+    const auto [positive, positive_gap] = largest(false, n - negative);
+    const auto gap = std::min(negative_gap, positive_gap);
+    // A near-singular Cholesky test and an eigenvalue-based margin can disagree
+    // at roundoff. Only a positive final margin permits a safe-block inverse.
+    if (!std::isfinite(gap) || gap <= 0) return {};
+    return {negative, positive, gap};
 }
 
 Model build_model(const SpectralMesh &mesh,
@@ -168,7 +184,20 @@ Model build_model(const SpectralMesh &mesh,
     auto interpolation = interpolate(mesh, simplex_id, mu, stats, remainder);
     const auto &simplex = mesh.geometry().simplices().simplex(simplex_id);
     const auto &anchor = mesh.eigensystems().get(simplex.vertex_ids.front());
-    auto full = interpolation.polynomial.rotated(anchor.eigenvectors);
+    auto full = std::move(interpolation.polynomial);
+    // The anchor is already diagonal in its own frame. Avoid reconstructing
+    // its eigenvalues with two dense matrix products a second time.
+    for (std::size_t i = 0; i < full.vertices; ++i)
+        for (std::size_t j = i; j < full.vertices; ++j) {
+            if (i == 0 && j == 0) {
+                auto &control = full.at(0, 0);
+                std::fill(control.begin(), control.end(), 0.);
+                for (std::size_t band = 0; band < full.size; ++band)
+                    control[band + band * full.size] = anchor.eigenvalues[band] - mu;
+            } else {
+                full.at(j, i) = full.at(i, j) = rotate(full.at(i, j), anchor.eigenvectors, full.size);
+            }
+        }
     const auto eta = interpolation.remainder;
     const auto sectors = sign_sectors(full, eta, stats);
     const auto n = full.size, v = full.vertices;

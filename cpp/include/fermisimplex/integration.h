@@ -48,7 +48,7 @@ struct ChargeErrorStats {
 
 struct ChargeResult {
     double value = 0.0;
-    // Recursive sampled estimate of the linear-tetrahedron charge error.
+    // Distance of the reported affine charge to the sampled occupation enclosure.
     double stopping_error = 0.0;
     // Sampled Fermi-cut disagreement, excluding projector quadrature error.
     double density_cut_error = 0.0;
@@ -88,14 +88,11 @@ struct DensityMatrixResult {
     IntegrationStats stats;
 };
 
-enum class ChargeMethod { Legacy, Quadratic };
-
 ChargeResult integrate_charge(
     SpectralMesh &mesh,
     double mu,
     const adaptivesimplex::adaptive::Options &options,
-    std::uint32_t error_depth = 2,
-    ChargeMethod method = ChargeMethod::Legacy
+    std::uint32_t error_depth = 2
 );
 
 // Evaluates missing eigensystems at existing vertices and applies the

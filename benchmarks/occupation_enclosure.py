@@ -1,7 +1,7 @@
 """Bounded, repeatable charge/certification comparison with exact references.
 
-Run with BLAS and OpenMP restricted to one thread. Both methods use the same
-binary, initial meshes, depths, tolerances and refinement caps. Each run has a
+Run with BLAS and OpenMP restricted to one thread. Historical comparisons run this script from its corresponding Git revision.
+All runs use identical initial meshes, depths, targets and refinement caps. Each run has a
 30-second alarm; a timeout or resource failure is recorded, not discarded.
 """
 
@@ -123,57 +123,55 @@ def charge_runs(repeats):
     rows = []
     for name, (model, mu, reference, dimension) in models():
         for target in (1e100, 1e-3, 1e-5 if dimension == 1 else 1e-4):
-            for method in ("legacy", "quadratic"):
-                row = dict(
-                    model=name,
-                    method=method,
-                    target=target,
-                    reference=reference,
-                    root_level=2,
-                    depth=2,
-                )
-                times = []
-                try:
-                    for _ in range(repeats):
-                        signal.alarm(30)
-                        mesh = SpectralMesh(model, root_level=2)
-                        start = perf_counter()
-                        result = mesh.integrate_charge(
-                            mu=mu,
-                            target_error=target,
-                            max_refinements=3000,
-                            error_depth=2,
-                            method=method,
-                        )
-                        times.append(perf_counter() - start)
-                        signal.alarm(0)
-                    error = abs(result.value - reference)
-                    stats = result.error_stats
-                    row.update(
-                        value=result.value,
-                        actual_error=error,
-                        estimated_error=result.stopping_error,
-                        covered=bool(error <= result.stopping_error + 1e-12),
-                        density_cut_error=result.density_cut_error,
-                        seconds=median(times),
-                        timing_samples=times,
-                        vertices=mesh.active_vertices,
-                        leaves=mesh.active_simplices,
-                        hamiltonian_evaluations=result.stats.evaluations
-                        + stats.hamiltonian_evaluations,
-                        eigensystems=result.stats.evaluations
-                        + stats.full_eigensystems
-                        + stats.reduced_eigensystems
-                        + stats.norm_eigensystems,
-                        refinements=result.stats.refinements,
-                        reductions=stats.schur_reductions,
+            row = dict(
+                model=name,
+                method="occupation",
+                target=target,
+                reference=reference,
+                root_level=2,
+                depth=2,
+            )
+            times = []
+            try:
+                for _ in range(repeats):
+                    signal.alarm(30)
+                    mesh = SpectralMesh(model, root_level=2)
+                    start = perf_counter()
+                    result = mesh.integrate_charge(
+                        mu=mu,
+                        target_error=target,
+                        max_refinements=3000,
+                        error_depth=2,
                     )
-                except (RuntimeError, TimeoutError) as error:
-                    row["failure"] = str(error)
-                finally:
+                    times.append(perf_counter() - start)
                     signal.alarm(0)
-                rows.append(row)
-                print(json.dumps(row), flush=True)
+                error = abs(result.value - reference)
+                stats = result.error_stats
+                row.update(
+                    value=result.value,
+                    actual_error=error,
+                    estimated_error=result.stopping_error,
+                    covered=bool(error <= result.stopping_error + 1e-12),
+                    density_cut_error=result.density_cut_error,
+                    seconds=median(times),
+                    timing_samples=times,
+                    vertices=mesh.active_vertices,
+                    leaves=mesh.active_simplices,
+                    hamiltonian_evaluations=result.stats.evaluations
+                    + stats.hamiltonian_evaluations,
+                    eigensystems=result.stats.evaluations
+                    + stats.full_eigensystems
+                    + stats.reduced_eigensystems
+                    + stats.norm_eigensystems,
+                    refinements=result.stats.refinements,
+                    reductions=stats.schur_reductions,
+                )
+            except (RuntimeError, TimeoutError) as error:
+                row["failure"] = str(error)
+            finally:
+                signal.alarm(0)
+            rows.append(row)
+            print(json.dumps(row), flush=True)
     return rows
 
 

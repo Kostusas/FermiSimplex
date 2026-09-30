@@ -21,6 +21,10 @@ struct OccupationEnclosure {
     bool fixed_occupation() const { return occupation_lower == occupation_upper; }
 };
 
+// True when vertex occupations differ or a vertex touches the Fermi level.
+bool visible_occupation_change(const SpectralMesh &mesh,
+    adaptivesimplex::core::SimplexId simplex_id, double mu);
+
 // All vertex eigensystems of the selected simplex must already be cached.
 OccupationEnclosure enclose_occupation(
     const SpectralMesh &mesh,

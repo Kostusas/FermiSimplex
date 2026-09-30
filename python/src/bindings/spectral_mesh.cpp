@@ -393,8 +393,7 @@ void bind_spectral_mesh(nb::module_ &module) {
                std::int64_t max_refinements,
                std::uint32_t error_depth,
                std::size_t min_refinement_batch_size,
-               std::size_t max_refinement_batch_size,
-               bool quadratic) {
+               std::size_t max_refinement_batch_size) {
                 return fermisimplex::integrate_charge(
                     mesh,
                     mu,
@@ -405,8 +404,7 @@ void bind_spectral_mesh(nb::module_ &module) {
                         min_refinement_batch_size,
                         max_refinement_batch_size
                     ),
-                    error_depth,
-                    quadratic ? ChargeMethod::Quadratic : ChargeMethod::Legacy
+                    error_depth
                 );
             },
             "mu"_a,
@@ -415,7 +413,6 @@ void bind_spectral_mesh(nb::module_ &module) {
             "error_depth"_a,
             "min_refinement_batch_size"_a,
             "max_refinement_batch_size"_a,
-            "quadratic"_a = false,
             nb::call_guard<nb::gil_scoped_release>()
         )
         .def(

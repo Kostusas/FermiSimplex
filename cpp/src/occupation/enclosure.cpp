@@ -1,7 +1,8 @@
 #include <fermisimplex/occupation.h>
 
 #include "occupation/model.h"
-#include "integration/charge_error/cut_disagreement.h"
+#include "occupation/cut_disagreement.h"
+#include "core/tight_binding_access.h"
 
 #include <algorithm>
 #include <cmath>
@@ -12,8 +13,39 @@ namespace fermisimplex {
 namespace {
 using namespace occupation_detail;
 namespace cut = adaptivesimplex::cut;
-namespace cut_error = integration_detail::charge_error_detail;
+namespace cut_error = occupation_detail;
 constexpr double cut_tolerance = 64 * std::numeric_limits<double>::epsilon();
+
+std::optional<OccupationEnclosure> constant_enclosure(
+    const SpectralMesh &mesh, adaptivesimplex::core::SimplexId id, double mu
+) {
+    const auto *tb = dynamic_cast<const TightBindingModel *>(&mesh.model());
+    if (!tb) return std::nullopt;
+    const auto hoppings = core_detail::TightBindingModelAccess::hoppings(*tb);
+    for (const auto &term : hoppings)
+        for (const auto component : term.lattice_vector)
+            if (component != 0) return std::nullopt;
+
+    // Constant H has an exact occupied measure, including half-filled flat
+    // bands. Its charge interval can collapse without asserting a strict gap.
+    const auto &simplex = mesh.geometry().simplices().simplex(id);
+    OccupationEnclosure result;
+    result.remainder_is_sampled = false;
+    for (const auto energy : mesh.eigensystems().get(simplex.vertex_ids.front()).eigenvalues) {
+        const auto tolerance = mesh.tolerance() * std::max({1., std::abs(mu), std::abs(energy)});
+        if (energy < mu - tolerance) {
+            ++result.occupation_lower;
+            ++result.occupation_upper;
+            result.charge_lower += simplex.volume;
+        } else if (energy <= mu + tolerance) {
+            ++result.occupation_upper;
+            ++result.active_dimension;
+            result.charge_lower += .5 * simplex.volume;
+        }
+    }
+    result.charge_upper = result.charge_lower;
+    return result;
+}
 
 struct Interval {
     double lower = 0, upper = 0, cut_error = 0;
@@ -138,6 +170,21 @@ Interval integrate(const Polynomial &polynomial, double epsilon,
 
 }  // namespace
 
+bool visible_occupation_change(const SpectralMesh &mesh, adaptivesimplex::core::SimplexId id, double mu) {
+    auto previous_count = mesh.ndof() + 1;
+    for (const auto vertex : mesh.geometry().simplices().simplex(id).vertex_ids) {
+        const auto &values = mesh.eigensystems().get(vertex).eigenvalues;
+        const auto tolerance = mesh.tolerance() * std::max(
+            {1., std::abs(mu), std::abs(values.front()), std::abs(values.back())});
+        const auto first = std::lower_bound(values.begin(), values.end(), mu - tolerance);
+        if (first != values.end() && *first <= mu + tolerance) return true;
+        const auto count = static_cast<std::size_t>(first - values.begin());
+        if (previous_count <= mesh.ndof() && count != previous_count) return true;
+        previous_count = count;
+    }
+    return false;
+}
+
 OccupationEnclosure enclose_occupation(const SpectralMesh &mesh,
     adaptivesimplex::core::SimplexId simplex_id, double mu, std::uint32_t depth,
     ChargeErrorStats &stats, std::optional<double> interpolation_error_bound) {
@@ -148,6 +195,7 @@ OccupationEnclosure enclose_occupation(const SpectralMesh &mesh,
         (!std::isfinite(*interpolation_error_bound) || *interpolation_error_bound < 0))
         throw std::invalid_argument("interpolation error bound must be finite and nonnegative");
     ++stats.root_simplices;
+    if (const auto constant = constant_enclosure(mesh, simplex_id, mu)) return *constant;
     const auto model = build_model(mesh, simplex_id, mu, stats, interpolation_error_bound);
     const auto &simplex = mesh.geometry().simplices().simplex(simplex_id);
     const auto q = model.polynomial.size;

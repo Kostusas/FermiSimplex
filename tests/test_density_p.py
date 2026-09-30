@@ -36,9 +36,7 @@ def test_constant_projector_and_empty_cells(ndim, mu, expected):
     assert result.stats.target_reached
     assert np.trace(result.values.reshape(2, 2)) == pytest.approx(expected)
     assert result.stats.refinements == result.stats.p_refinements == 0
-    assert result.stats.cubature_evaluations == (
-        0 if expected == 0 else n * (ndim + 2)
-    )
+    assert result.stats.cubature_evaluations == (0 if expected == 0 else n * (ndim + 2))
 
 
 def test_half_occupation_and_duplicate_components():
@@ -258,9 +256,7 @@ def test_hp_fallback_resolves_bulk_degree_cap_without_changing_charge_mesh(mass)
         tb[key] = hopping
         tb[tuple(-v for v in key)] = hopping.conj().T
     rng = np.random.default_rng(2)
-    rotation, _ = np.linalg.qr(
-        rng.normal(size=(2, 2)) + 1j * rng.normal(size=(2, 2))
-    )
+    rotation, _ = np.linalg.qr(rng.normal(size=(2, 2)) + 1j * rng.normal(size=(2, 2)))
     shift = rng.uniform(0, 1, 2)
     tb = {
         key: np.exp(-2j * np.pi * np.dot(key, shift))
@@ -269,8 +265,9 @@ def test_hp_fallback_resolves_bulk_degree_cap_without_changing_charge_mesh(mass)
     }
     request = dict(keys=keys, target_error=1e-5, max_degree=21)
     coarse = SpectralMesh(tb, root_level=1)
-    charge = coarse.integrate_charge(mu=0.0, target_error=1e-4)
-    assert charge.stats.target_reached
+    # This exercises density refinement on a deliberately coarse, fixed mesh.
+    # Adaptive charge may already resolve it before density starts.
+    coarse.estimate_charge_on_current_mesh(mu=0.0)
     before = coarse.points.copy(), coarse.simplices.copy(), coarse.cached_vertices
     p_only = integrate(coarse, **request)
     hp = integrate(coarse, **request, max_h_refinements=32)

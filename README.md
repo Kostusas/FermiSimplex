@@ -33,9 +33,9 @@ rotating noble-metal-inspired three-dimensional surface.
 - 🚀 **Numerical efficiency by design:** adaptive refinement, shared spectral
   caching, and the compiled numerical core avoid repeated work as the Fermi
   surface becomes progressively sharper.
-- 🎯 **Recursive charge estimates** use certificate-selected active spaces,
-  a corrected frozen-Schur reduction and actual-Hamiltonian microsimplex
-  samples to target interpolation error near the Fermi level.
+- 🎯 **Shared occupation bounds** use a quadratic reduced matrix model for
+  charge errors and gap classification. Temporary subdivision of the model
+  requires no further Hamiltonian evaluations.
 - 🧩 **Python and C++** share one numerical core; models can be dense callables
   or translation-invariant tight-binding Hamiltonians.
 
@@ -147,20 +147,13 @@ bound, separated occupied and empty trial subspaces prove fixed occupation.
   tries again.
 
 `surface.coverage_certified` concerns classification down to
-`min_feature_size`, not topology or geometric accuracy. Charge instead uses a
-sampled recursive error estimate: it evaluates the actual Hamiltonian on
-temporary microsimplices, reduces certificate-selected safe bands with one
-corrected frozen-Schur step, and converts terminal midpoint defects into
-shifted occupation volumes. `charge.stopping_error` is therefore useful for
-adaptive
-refinement but is not a rigorous bound; structure between sampled points can
-still alias, and the frozen safe block is only a local approximation and does
-not track its inertia away from the anchor. Density matrices also use adaptive
-estimates.
-
-Fermi-surface guarantees assume a valid `curvature_bound`. Omitting it, `None`,
-and `0.0` all assert zero curvature; none disables certification. Charge has no
-curvature argument. See the [mathematics guide][mathematics] for details.
+`min_feature_size`, not topology or geometric accuracy. Charge and surface
+classification share a quadratic occupation enclosure. A positive surface
+`curvature_bound` supplies a uniform interpolation allowance. Omitting it,
+`None`, or `0.0` uses a sampled remainder. Charge also samples its remainder.
+For general Hamiltonians, features between probes can still be missed.
+See the [occupation design](docs/occupation-enclosure.md) for the degree-four
+polynomial guarantee, the Schur bound and the sampling limitations.
 
 ## API at a glance
 
@@ -186,10 +179,10 @@ Adaptive controls are ordinary keyword arguments on the calculation that uses
 them—there is no separate options object. Charge defaults to `error_depth=2`.
 Each level permits one complete temporary subdivision into $2^d$
 microsimplices on each unresolved branch; certified branches stop early.
-Increasing the maximum depth adds actual-Hamiltonian samples without refining
-the persistent mesh.
+Increasing the maximum depth subdivides the fixed quadratic model without
+additional Hamiltonian samples or persistent mesh refinement.
 `charge.error_stats` reports the resulting reductions, solves, eigensystems,
-temporary simplices, and fallbacks.
+and temporary simplices.
 
 Density matrices default to `preview_depth=1`. Setting `preview_depth=0`
 integrates directly on the existing mesh, adds no preview vertices, and performs
@@ -253,10 +246,10 @@ dependency; no changes to AdaptiveSimplex are required.
 
 ## Experimental quadratic occupation enclosure
 
-`mesh.integrate_charge(..., method="quadratic")` uses one quadratic matrix
+`mesh.integrate_charge(...)` uses one quadratic matrix
 model for occupation tests and charge error intervals. Inspect its per-simplex
-results with `mesh.occupation_enclosures(mu=...)`. The default `"legacy"`
-retains the recursive estimator. The remainder is sampled unless the inspection
+results with `mesh.occupation_enclosures(mu=...)`. Surface classification uses
+the same enclosure. The remainder is sampled unless the inspection
 API receives a valid uniform interpolation bound. See the
 [design and measured comparisons](docs/occupation-enclosure.md) for assumptions,
 limitations, numerical tests and runtime tradeoffs.

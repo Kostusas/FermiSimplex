@@ -247,9 +247,6 @@ set(
   src/integration/density.cpp
   src/integration/density_p.cpp
   src/integration/integration.cpp
-  src/integration/charge_error.cpp
-  src/integration/charge_error/cached_model.cpp
-  src/integration/charge_error/projected_schur.cpp
   src/fermi_surface/adaptive_refinement.cpp
   src/fermi_surface/fermi_surface.cpp
   src/fermi_surface/simplex_classification.cpp

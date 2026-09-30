@@ -1,17 +1,13 @@
 #pragma once
 
-#include <fermisimplex/certification.h>
 #include <fermisimplex/integration.h>
 
-#include "integration/charge_error.h"
 
 #include <adaptivesimplex/core/geometry.h>
 
 #include <cstdint>
 
 namespace fermisimplex::integration_detail {
-
-struct ChargeProfile;
 
 struct ChargeContribution {
     double value = 0.0;
@@ -33,15 +29,6 @@ ChargeContribution band_charge_on_simplex(
     const SpectralMesh &mesh,
     const adaptivesimplex::core::Geometry &geometry,
     adaptivesimplex::core::SimplexId simplex_id
-);
-
-ChargeContribution charge_on_simplex(
-    double mu,
-    SpectralMesh &mesh,
-    const adaptivesimplex::core::Geometry &geometry,
-    adaptivesimplex::core::SimplexId simplex_id,
-    ChargeErrorEstimator &error_estimator,
-    ChargeProfile *profile = nullptr
 );
 
 }  // namespace fermisimplex::integration_detail

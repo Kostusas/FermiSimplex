@@ -7,7 +7,7 @@
 #include <span>
 #include <vector>
 
-namespace fermisimplex::integration_detail::charge_error_detail {
+namespace fermisimplex::occupation_detail {
 
 enum class AffineCut { empty, full, partial, on_level };
 
@@ -171,4 +171,4 @@ inline double cut_disagreement(
     );
 }
 
-}  // namespace fermisimplex::integration_detail::charge_error_detail
+}  // namespace fermisimplex::occupation_detail

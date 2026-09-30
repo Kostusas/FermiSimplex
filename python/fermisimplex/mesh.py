@@ -86,9 +86,7 @@ def _lattice_vector_array(lattice_vectors, ndim: int) -> np.ndarray:
         raise TypeError("lattice_vectors must contain only integers") from exc
     result = np.ascontiguousarray(np.asarray(vectors, dtype=np.int64))
     if result.ndim != 2 or result.shape[0] == 0 or result.shape[1] != ndim:
-        raise ValueError(
-            f"lattice_vectors must have shape (n, {ndim}) with n > 0"
-        )
+        raise ValueError(f"lattice_vectors must have shape (n, {ndim}) with n > 0")
     return result
 
 
@@ -118,8 +116,7 @@ def _adaptive_parameters(
     )
     if maximum_batch < minimum_batch:
         raise ValueError(
-            "max_refinement_batch_size must be at least "
-            "min_refinement_batch_size"
+            "max_refinement_batch_size must be at least min_refinement_batch_size"
         )
     refinement_limit = (
         -1
@@ -165,10 +162,7 @@ class SpectralMesh:
 
     def __init__(
         self,
-        hamiltonian: (
-            Callable[..., np.ndarray]
-            | Mapping[tuple[int, ...], np.ndarray]
-        ),
+        hamiltonian: (Callable[..., np.ndarray] | Mapping[tuple[int, ...], np.ndarray]),
         *,
         tolerance: float = 1e-14,
         root_level: int = 1,
@@ -260,7 +254,6 @@ class SpectralMesh:
         target_error: float,
         max_refinements: int | None = None,
         error_depth: int = 2,
-        method: str = "legacy",
         min_refinement_batch_size: int = 1,
         max_refinement_batch_size: int = 100,
     ) -> ChargeResult:
@@ -275,18 +268,11 @@ class SpectralMesh:
         max_refinements
             Maximum number of simplex refinements, or ``None`` for no limit.
         error_depth
-            Maximum number of complete temporary microsimplex subdivisions on
-            each unresolved branch. One subdivision produces ``2**ndim``
-            children; certified branches stop early. Temporary samples do not
-            refine the persistent mesh. The estimate is not a rigorous bound
-            and can miss structure between sampled microvertices. The frozen
-            safe-block approximation can also lose accuracy when its variation
-            is comparable with the anchor gap or its inertia changes.
-        method
-            ``"legacy"`` selects the recursive sampled estimator. Experimental
-            ``"quadratic"`` shares a quadratic Schur occupation enclosure for
-            sign tests and charge intervals. Its remainder is sampled; hidden
-            features can still be missed. Subdivision uses only the polynomial.
+            Depth of temporary polynomial subdivision (each level gives
+            ``2**ndim`` children). It refines a shared quadratic Schur
+            occupation enclosure without further Hamiltonian samples. The
+            interpolation remainder is estimated from samples, so the error
+            indicator can still miss structure between those probes.
         min_refinement_batch_size, max_refinement_batch_size
             Bounds on the number of simplices refined in one adaptive step.
 
@@ -298,8 +284,6 @@ class SpectralMesh:
             occupation cut, and integration and estimator statistics. The cut
             indicator does not enter the charge stopping test.
         """
-        if method not in ("legacy", "quadratic"):
-            raise ValueError("method must be 'legacy' or 'quadratic'")
         adaptive = _adaptive_parameters(
             target_error,
             max_refinements,
@@ -321,7 +305,6 @@ class SpectralMesh:
             _nonnegative_integer(error_depth, "error_depth"),
             minimum_batch,
             maximum_batch,
-            method == "quadratic",
         )
 
     def occupation_enclosures(
@@ -342,7 +325,9 @@ class SpectralMesh:
         bound = (
             None
             if interpolation_error_bound is None
-            else _nonnegative_float(interpolation_error_bound, "interpolation_error_bound")
+            else _nonnegative_float(
+                interpolation_error_bound, "interpolation_error_bound"
+            )
         )
         return self._native.occupation_enclosures(
             _finite_float(mu, "mu"), _nonnegative_integer(depth, "depth"), bound
@@ -476,8 +461,11 @@ class SpectralMesh:
         degree = _positive_integer(max_degree, "max_degree")
         if degree < 3 or degree > 21 or degree % 2 == 0:
             raise ValueError("max_degree must be an odd integer in [3, 21]")
-        limit = (-1 if max_refinements is None else
-                 _nonnegative_integer(max_refinements, "max_refinements"))
+        limit = (
+            -1
+            if max_refinements is None
+            else _nonnegative_integer(max_refinements, "max_refinements")
+        )
         return self._native.integrate_density_components_p(
             _finite_float(mu, "mu"),
             _lattice_vector_array(lattice_vectors, self.ndim),
@@ -486,8 +474,9 @@ class SpectralMesh:
             limit,
             degree,
             (
-                -1 if max_h_refinements is None else
-                _nonnegative_integer(max_h_refinements, "max_h_refinements")
+                -1
+                if max_h_refinements is None
+                else _nonnegative_integer(max_h_refinements, "max_h_refinements")
             ),
         )
 
@@ -549,7 +538,9 @@ class SpectralMesh:
             limit.
         curvature_bound
             Uniform bound on directional second derivatives of the
-            Hamiltonian. ``None`` and ``0.0`` both assert zero curvature.
+            Hamiltonian. A positive bound gives a uniform allowance for the
+            quadratic interpolant; ``None`` and ``0.0`` use sampled remainders.
+            Surface classification and charge use the same enclosure.
 
         Returns
         -------

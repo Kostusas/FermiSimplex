@@ -1,13 +1,10 @@
 #include "integration/charge.h"
 
-#include "integration/charge_profile.h"
 
-#include "certification/mesh_certificate.h"
 
 #include <adaptivesimplex/cut/simplex_moments.h>
 
 #include <algorithm>
-#include <chrono>
 #include <cmath>
 #include <limits>
 #include <span>
@@ -15,7 +12,6 @@
 #include <vector>
 
 namespace fermisimplex::integration_detail {
-namespace cert = certification;
 namespace core = adaptivesimplex::core;
 namespace cut = adaptivesimplex::cut;
 
@@ -177,82 +173,6 @@ ChargeContribution band_charge_on_simplex(
                 mu,
                 mesh.tolerance()
             );
-    }
-    return result;
-}
-
-ChargeContribution charge_on_simplex(
-    double mu,
-    SpectralMesh &mesh,
-    const core::Geometry &geometry,
-    core::SimplexId simplex_id,
-    ChargeErrorEstimator &error_estimator,
-    ChargeProfile *profile
-) {
-    using Clock = std::chrono::steady_clock;
-    const auto certification_started = profile == nullptr
-        ? Clock::time_point{}
-        : Clock::now();
-    const auto prepared_certificate =
-        cert::prepare_mesh_simplex_certificate(
-            mesh,
-            simplex_id,
-            mu,
-            mesh.tolerance()
-        );
-    const auto certificate = prepared_certificate.certify(
-        0.0
-    );
-    if (profile != nullptr) {
-        profile->root_certification_seconds +=
-            std::chrono::duration<double>(
-                Clock::now() - certification_started
-            ).count();
-    }
-
-    const auto charge_started = profile == nullptr
-        ? Clock::time_point{}
-        : Clock::now();
-    const auto linear_charge_started = charge_started;
-    auto result = band_charge_on_simplex(
-        mu, mesh, geometry, simplex_id
-    );
-    if (profile != nullptr) {
-        profile->linear_charge_seconds +=
-            std::chrono::duration<double>(
-                Clock::now() - linear_charge_started
-            ).count();
-    }
-    if (certificate.status ==
-        cert::SimplexCertificateStatus::VisibleGapless) {
-        result.visible_gapless_simplices = 1;
-    } else if (
-        certificate.status ==
-        cert::SimplexCertificateStatus::Inconclusive
-    ) {
-        result.inconclusive_simplices = 1;
-    }
-    const auto error_estimation_started = profile == nullptr
-        ? Clock::time_point{}
-        : Clock::now();
-    const auto errors = error_estimator.estimate(
-        geometry,
-        simplex_id,
-        result.value,
-        certificate,
-        prepared_certificate
-    );
-    result.estimated_error = errors.charge_error;
-    result.density_cut_error = errors.density_cut_error;
-    if (profile != nullptr) {
-        profile->error_estimation_seconds +=
-            std::chrono::duration<double>(
-                Clock::now() - error_estimation_started
-            ).count();
-        profile->charge_and_error_seconds +=
-            std::chrono::duration<double>(
-                Clock::now() - charge_started
-            ).count();
     }
     return result;
 }

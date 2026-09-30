@@ -441,8 +441,10 @@ class SpectralMesh:
         Exhaustion returns ``stats.target_reached == False``.
 
         Each child uses the parent charge simplex's linearly interpolated band
-        energies for occupation. This preserves charge across density-only
-        bisections. The existing cut barycentric moments correct the
+        energies for occupation, after applying its level tolerance once at
+        the root. Children preserve that cut without reapplying the tolerance.
+        This preserves charge across density-only bisections. The existing cut
+        barycentric moments correct the
         vertex-linear contribution, removing the leading
         occupation/projector correlation error without new samples. Higher-order cut and charge-geometry errors remain outside
         the cubature estimate, which is not a rigorous bound.

@@ -326,3 +326,27 @@ def test_hp_split_budget_reports_exhaustion():
     assert result.stats.refinements == 1
     assert not result.stats.target_reached
     assert result.stopping_error > 1e-10
+
+
+@pytest.mark.parametrize("mu", [0.0, 100.0])
+def test_hp_preserves_root_cut_when_children_reach_level_tolerance(mu):
+    # The initial affine cut is x=.37. A loose level tolerance must not move
+    # that cut when density-only children get close to it.
+    mesh = SpectralMesh(
+        lambda k: np.array([[mu + k - 0.37]]), root_level=0, tolerance=0.05
+    )
+    charge = mesh.estimate_charge_on_current_mesh(mu=mu)
+    result = integrate(
+        mesh,
+        mu=mu,
+        keys=[(0,), (1,)],
+        components=[[0, 0, 0], [1, 0, 0]],
+        target_error=1e-5,
+        max_degree=3,
+        max_h_refinements=300,
+    )
+    assert result.stats.target_reached
+    assert result.stats.refinements > 0
+    assert abs(result.values[0] - charge.value) < 1e-12
+    exact = np.expm1(2j * np.pi * 0.37) / (2j * np.pi)
+    assert abs(result.values[1] - exact) < 1e-5

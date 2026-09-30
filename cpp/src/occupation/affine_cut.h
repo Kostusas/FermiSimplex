@@ -32,6 +32,15 @@ inline CutClassification classify_cut(std::span<const double> values, double tol
     return {CutKind::partial, epsilon};
 }
 
+// Define the reported affine field once on its root simplex. Restrictions of
+// this field use zero level tolerance so subdivision cannot change the cut.
+inline CutKind snap_cut_to_level(std::span<double> values, double tolerance) {
+    const auto classification = classify_cut(values, tolerance);
+    for (auto &value : values)
+        if (std::abs(value) <= classification.epsilon) value = 0;
+    return classification.kind;
+}
+
 // Occupied fraction of a uniform simplex under one affine energy cut.
 // Sorted vertex energies are its knots. Both recurrences use nonnegative
 // terms and handle repeated knots without merging nearby distinct energies.
@@ -41,12 +50,9 @@ public:
         : knots_(std::move(values)) {
         std::sort(knots_.begin(), knots_.end());
         outside_range_ = knots_.front() >= 0 || knots_.back() < 0;
-        const auto classification = classify_cut(knots_, tolerance);
-        kind_ = classification.kind;
         // Geometric clipping treats near-level vertices as lying on the cut.
         // Snap only to the cut, never merge nearby off-level knots.
-        for (auto &value : knots_)
-            if (std::abs(value) <= classification.epsilon) value = 0;
+        kind_ = snap_cut_to_level(knots_, tolerance);
     }
 
     CutKind kind() const { return kind_; }

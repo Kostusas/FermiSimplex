@@ -52,6 +52,10 @@ use it to classify the Hamiltonian.
    original polynomial for each bisection, preserving the frame used to build
    child models. Subdivision requires no new Hamiltonian samples and never
    reduces `epsilon`.
+   An edge bisection copies unchanged controls and updates only controls incident
+   on the replaced vertex by midpoint averages. This rule applies in every
+   dimension. A center that is already diagonal borrows the original controls;
+   only a changed basis owns a rotated polynomial.
    Surface classification consumes only the strict occupation bounds from this
    same traversal; it does not integrate charge or cut disagreement.
 
@@ -82,6 +86,15 @@ For reported local charge `Q`, the indicator is
 `max(abs(Q-Qlower), abs(Qupper-Q))`; sum these local indicators. The density-cut
 indicator also measures spatial disagreement of the affine occupied regions,
 so cancellation of total charge cannot hide displaced cuts.
+
+Apply the mesh's level tolerance once to each root band cut: replace relative
+vertex energies within that tolerance by zero. Charge, the cut indicator and
+density integration then refer to this same affine field. Temporary enclosure
+cells and density-only children restrict the field without applying a new
+level tolerance. Include disagreement from bands removed as safely occupied or
+empty, since their reported cut can still have half occupation at a larger user
+tolerance. The matrix allowance and outward charge bounds keep their separate
+roundoff tolerance; a loose mesh tolerance must not weaken the gap proof.
 
 Scalar affine cuts share one occupation rule, using vertex energies relative
 to `mu` for level classification, including structurally constant bands.
@@ -140,5 +153,12 @@ does not bound the number of persistent refinements needed by a physical model.
 Tests compare exact interval/disk/sphere volumes, cubic Schur errors, complex
 multiband models, cubic/quartic pockets and adversarial quartic interior
 bubbles. A deliberately unsampled smooth bump remains a documented failure.
+Tolerance regressions compare affine diagonal densities with their exact
+integrals in 1D/2D, including cancellation of total charge and removed safe
+bands. Density-only refinement must preserve the root particle number to
+`1e-12`; its Fourier integral is checked against the analytic value to `1e-5`,
+the requested quadrature accuracy. Bisection tests evaluate both parent and
+child matrix polynomials at the same physical points in 1D through 8D, with
+an absolute tolerance of `2e-14` for unit-sized controls.
 For measurements and separate-build reproduction, see the
 [MeanFi report](https://gitlab.kwant-project.org/qt/meanfi/-/blob/codex/occupation-enclosure/docs/occupation-enclosure.md).

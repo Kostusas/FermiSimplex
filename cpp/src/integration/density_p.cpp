@@ -3,6 +3,7 @@
 #include "integration/density.h"
 #include "integration/density_error.h"
 #include "integration/simplex_cubature.h"
+#include "occupation/affine_cut.h"
 #include <adaptivesimplex/adaptive/refinement_queue.h>
 #include <adaptivesimplex/cut/simplex_moments.h>
 
@@ -35,8 +36,8 @@ struct Cell {
     unsigned level = 0;
     bool active = true;
     std::vector<double> occupations;
-    // The charge mesh's vertex-linear band energies, restricted to this cell.
-    // Splitting this field preserves the charge-stage occupation exactly.
+    // Root band energies relative to mu, with its level tolerance already
+    // applied. Restricting this field preserves the reported occupation.
     std::vector<std::vector<double>> frozen_energies;
     std::vector<std::vector<double>> vertices;
     std::map<BarycentricNode, Value> samples;
@@ -194,22 +195,22 @@ DensityComponentsResult integrate_density_components_p(
         } else {
             for (const auto vertex : simplex.vertex_ids) {
                 cell.frozen_energies.push_back(vertex_spectrum(vertex).eigenvalues);
+                for (auto &energy : cell.frozen_energies.back()) energy -= mu;
             }
         }
         bool occupied = false;
         std::vector<double> cut_weights;
+        std::vector<double> energies(simplex.vertex_ids.size());
         for (std::size_t band = 0; band < mesh.ndof(); ++band) {
+            for (std::size_t v = 0; v < energies.size(); ++v)
+                energies[v] = cell.frozen_energies[v][band];
+            if (!parent) {
+                occupation_detail::snap_cut_to_level(energies, mesh.tolerance());
+                for (std::size_t v = 0; v < energies.size(); ++v)
+                    cell.frozen_energies[v][band] = energies[v];
+            }
             const auto moments = cut::simplex_moments(
-                *geometry, id,
-                [&](core::VertexId vertex) {
-                    const auto it = std::find(
-                        simplex.vertex_ids.begin(), simplex.vertex_ids.end(), vertex
-                    );
-                    return cell.frozen_energies[
-                        static_cast<std::size_t>(it - simplex.vertex_ids.begin())
-                    ][band];
-                },
-                cut::LevelOptions{.level = mu, .level_tolerance = mesh.tolerance()}
+                simplex.volume, energies, cut::LevelOptions{.level_tolerance = 0.}
             );
             cell.occupations[band] = moments.kind == cut::SimplexCutKind::on_level ? 0.5 :
                 std::accumulate(moments.barycentric_moments.begin(),

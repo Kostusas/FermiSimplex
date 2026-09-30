@@ -181,6 +181,50 @@ def test_cut_disagreement_survives_total_charge_cancellation():
     assert result.density_cut_error >= 0.6 - 1e-12
 
 
+@pytest.mark.parametrize("tolerance", [1e-6, 1e-3])
+@pytest.mark.parametrize("depth", [0, 2, 6])
+@pytest.mark.parametrize("dimension", [1, 2])
+def test_cut_indicator_covers_level_tolerance_despite_charge_cancellation(
+    tolerance, depth, dimension
+):
+    delta = tolerance / 2
+
+    def model(x):
+        return np.diag([x - delta, x - (1 - delta)])
+
+    hamiltonian = model if dimension == 1 else lambda x, y: model(x)
+    mesh = SpectralMesh(hamiltonian, root_level=0, tolerance=tolerance)
+    charge = mesh.integrate_charge(
+        mu=0, target_error=2 * tolerance, max_refinements=0, error_depth=depth
+    )
+    density = mesh.integrate_density_components_p(
+        mu=0,
+        lattice_vectors=[(0,) * dimension],
+        components=[(0, 0, 0), (0, 1, 1)],
+        target_error=1e-10,
+        max_refinements=0,
+    )
+    exact_density = np.array([delta, 1 - delta])
+    error = np.sum(np.abs(density.values - exact_density))
+    assert charge.stats.target_reached and density.stats.target_reached
+    assert charge.value == pytest.approx(1, abs=1e-12)
+    if dimension == 1:
+        assert charge.stopping_error < 1e-10
+    assert error == pytest.approx(2 * delta, abs=1e-12)
+    assert error <= charge.density_cut_error + 1e-12
+    assert charge.density_cut_error < 2 * delta + 1e-10
+
+
+def test_cut_indicator_includes_tolerance_on_removed_safe_bands():
+    # Both signs are strictly safe, but the reported cut is half occupied.
+    mesh = SpectralMesh(lambda x: np.diag([-5e-4, 5e-4]), root_level=0, tolerance=1e-3)
+    enclosure = mesh.occupation_enclosures(mu=0)[0]
+    assert enclosure.active_dimension == 0
+    assert enclosure.fixed_occupation
+    assert enclosure.density_cut_error == 1
+    assert mesh.estimate_charge_on_current_mesh(mu=0).value == 1
+
+
 def test_three_dimensional_spherical_pocket():
     def hamiltonian(x, y, z):
         return np.array([[(x - 0.5) ** 2 + (y - 0.5) ** 2 + (z - 0.5) ** 2 - 0.18**2]])

@@ -97,11 +97,20 @@ struct Polynomial {
         Weights weights(vertices, 1. / vertices);
         return blossom(weights, weights);
     }
-    Polynomial restrict_to(const std::vector<Weights> &points) const {
-        Polynomial result{vertices, size};
-        for (std::size_t i = 0; i < vertices; ++i)
-            for (std::size_t j = i; j < vertices; ++j)
-                result.at(i, j) = blossom(points[i], points[j]);
+    Polynomial bisected(std::size_t left, std::size_t right, std::size_t replaced) const {
+        Polynomial result = *this;
+        // Only controls incident on the new midpoint change. These are the
+        // quadratic blossom at (midpoint, vertex) and (midpoint, midpoint).
+        for (std::size_t i = 0; i < vertices; ++i) {
+            auto &control = result.at(replaced, i);
+            for (std::size_t k = 0; k < control.size(); ++k) {
+                if (i == replaced)
+                    control[k] = .25 * at(left, left)[k] + .5 * at(left, right)[k] +
+                                 .25 * at(right, right)[k];
+                else
+                    control[k] = .5 * (at(left, i)[k] + at(right, i)[k]);
+            }
+        }
         return result;
     }
     Polynomial rotated(const Matrix &basis) const {
@@ -122,12 +131,6 @@ inline bool diagonal_center(const Matrix &center, std::size_t n) {
             if (i != j) off_diagonal += std::norm(center[i + j * n]);
     return std::sqrt(off_diagonal) <= 64 * std::numeric_limits<double>::epsilon() *
         std::max(1., norm(center));
-}
-
-inline std::vector<Weights> unit_weights(std::size_t vertices) {
-    std::vector<Weights> result(vertices, Weights(vertices));
-    for (std::size_t i = 0; i < vertices; ++i) result[i][i] = 1;
-    return result;
 }
 
 }  // namespace fermisimplex::occupation_detail

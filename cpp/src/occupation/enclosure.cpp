@@ -71,9 +71,9 @@ double volume_below(double volume, const Weights &values, bool upper) {
     return occupied_volume(volume, values, cut_tolerance, kind);
 }
 
-Polynomial center_frame(const Polynomial &polynomial, ChargeErrorStats &stats) {
+std::optional<Polynomial> rotated_center_frame(const Polynomial &polynomial, ChargeErrorStats &stats) {
     auto basis = polynomial.center();
-    if (diagonal_center(basis, polynomial.size)) return polynomial;
+    if (diagonal_center(basis, polynomial.size)) return std::nullopt;
     std::vector<double> eigenvalues;
     linalg::diagonalize_hermitian_in_place(basis, eigenvalues, polynomial.size,
         true, "occupation polynomial center");
@@ -149,7 +149,7 @@ Interval charge_interval(const AffineBounds &bounds,
         result.lower += lower;
         result.upper += upper;
         result.cut_error += cut_error::cut_disagreement(
-            volume, root, bound.energies, cut_tolerance) + std::max(0., upper - lower);
+            volume, root, bound.energies, 0.) + std::max(0., upper - lower);
     }
     return result;
 }
@@ -180,17 +180,18 @@ Interval traverse(const Polynomial &polynomial, const AffineBounds &bounds, doub
     Interval result;
     result.occupation_lower = polynomial.size;
     for (const auto replaced : {left, right}) {
-        auto weights = unit_weights(points.size());
-        weights[replaced][replaced] = 0;
-        weights[replaced][left] = weights[replaced][right] = .5;
         auto child_points = points, child_cuts = root_cuts;
         for (std::size_t axis = 0; axis < points[0].size(); ++axis)
             child_points[replaced][axis] = .5 * (points[left][axis] + points[right][axis]);
         if constexpr (IntegrateCharge)
             for (std::size_t band = 0; band < polynomial.size; ++band)
                 child_cuts[replaced][band] = .5 * (root_cuts[left][band] + root_cuts[right][band]);
-        const auto child_polynomial = polynomial.restrict_to(weights);
-        const auto child_bounds = affine_bounds(center_frame(child_polynomial, stats), epsilon);
+        const auto child_polynomial = polynomial.bisected(left, right, replaced);
+        AffineBounds child_bounds;
+        {
+            const auto rotated = rotated_center_frame(child_polynomial, stats);
+            child_bounds = affine_bounds(rotated ? *rotated : child_polynomial, epsilon);
+        }
         const auto child = traverse<IntegrateCharge>(child_polynomial, child_bounds, epsilon,
             child_points, child_cuts, volume / 2, remaining - 1, stats);
         result.lower += child.lower; result.upper += child.upper;
@@ -244,23 +245,36 @@ OccupationEnclosure enclosure(const SpectralMesh &mesh,
     result.remainder_is_sampled = !interpolation_error_bound;
     result.charge_lower = result.charge_upper = simplex.volume * model.safe_occupation;
     result.occupation_lower = result.occupation_upper = model.safe_occupation;
-    if (q == 0) return result;
-    std::vector<Weights> points, cuts;
-    for (const auto vertex : simplex.vertex_ids) {
-        points.push_back(mesh.geometry().vertices().dyadic_vertex(vertex).to_point());
-        if constexpr (IntegrateCharge) {
-            const auto &values = mesh.eigensystems().get(vertex).eigenvalues;
-            Weights energies(q);
-            for (std::size_t band = 0; band < q; ++band)
-                energies[band] = values[band + model.safe_occupation] - mu;
-            cuts.push_back(std::move(energies));
+    std::vector<Weights> cuts;
+    if constexpr (IntegrateCharge) {
+        cuts.assign(simplex.vertex_ids.size(), Weights(q));
+        Weights energies(simplex.vertex_ids.size());
+        for (std::size_t band = 0; band < mesh.ndof(); ++band) {
+            for (std::size_t i = 0; i < energies.size(); ++i)
+                energies[i] = mesh.eigensystems().get(simplex.vertex_ids[i]).eigenvalues[band] - mu;
+            const auto kind = snap_cut_to_level(energies, mesh.tolerance());
+            if (band >= model.safe_occupation && band < model.safe_occupation + q) {
+                for (std::size_t i = 0; i < energies.size(); ++i)
+                    cuts[i][band - model.safe_occupation] = energies[i];
+            } else {
+                // A strict safe sign can still be half occupied by the reported
+                // cut when its energies fall within the user's level tolerance.
+                const auto occupied = occupied_volume(simplex.volume, energies, 0., kind);
+                result.density_cut_error += band < model.safe_occupation
+                    ? simplex.volume - occupied : occupied;
+            }
         }
     }
+    if (q == 0) return result;
+    std::vector<Weights> points;
+    for (const auto vertex : simplex.vertex_ids)
+        points.push_back(mesh.geometry().vertices().dyadic_vertex(vertex).to_point());
     // A fixed polynomial can have a better block sign proof than row bounds.
     Sectors sectors;
     AffineBounds bounds;
     {
-        const auto framed = center_frame(model.polynomial, stats);
+        const auto rotated = rotated_center_frame(model.polynomial, stats);
+        const auto &framed = rotated ? *rotated : model.polynomial;
         sectors = sign_sectors(framed, model.epsilon, stats);
         bounds = affine_bounds(framed, model.epsilon);
     }
@@ -271,7 +285,7 @@ OccupationEnclosure enclosure(const SpectralMesh &mesh,
     if constexpr (IntegrateCharge) {
         result.charge_lower += std::max(simplex.volume * sectors.negative, interval.lower);
         result.charge_upper += std::min(simplex.volume * (q - sectors.positive), interval.upper);
-        result.density_cut_error = std::min(simplex.volume * q, interval.cut_error);
+        result.density_cut_error += std::min(simplex.volume * q, interval.cut_error);
     }
     return result;
 }

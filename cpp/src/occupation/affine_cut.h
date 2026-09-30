@@ -42,64 +42,62 @@ inline CutKind snap_cut_to_level(std::span<double> values, double tolerance) {
 }
 
 // Occupied fraction of a uniform simplex under one affine energy cut.
-// Sorted vertex energies are its knots. Both recurrences use nonnegative
-// terms and handle repeated knots without merging nearby distinct energies.
+// Sorted vertex energies are its knots. Differentiate the same cumulative
+// recurrence, holding tolerance-snapped knots at zero. Distinct off-level
+// energies remain distinct, including clustered knots.
 class AffineCut {
 public:
+    struct Integral { double fraction = 0, derivative = 0; };
+
     AffineCut(std::vector<double> values, double tolerance)
-        : knots_(std::move(values)) {
+        : knots_(std::move(values)), pin_level_(tolerance > 0) {
         std::sort(knots_.begin(), knots_.end());
-        outside_range_ = knots_.front() >= 0 || knots_.back() < 0;
         // Geometric clipping treats near-level vertices as lying on the cut.
         // Snap only to the cut, never merge nearby off-level knots.
         kind_ = snap_cut_to_level(knots_, tolerance);
     }
 
-    CutKind kind() const { return kind_; }
+    double fraction() const { return evaluate<false>().fraction; }
+    Integral fraction_and_derivative() const { return evaluate<true>(); }
 
-    double fraction() const {
-        if (kind_ == CutKind::full) return 1;
-        if (kind_ == CutKind::empty) return 0;
-        if (kind_ == CutKind::on_level) return .5;
+private:
+    template <bool Derivative>
+    Integral evaluate() const {
+        if (kind_ == CutKind::empty) return {};
+        if (kind_ == CutKind::on_level) return {.fraction = .5};
+        if (kind_ == CutKind::full && (!Derivative || pin_level_ || knots_.back() < 0))
+            return {.fraction = 1};
         std::vector<double> fractions(knots_.size());
+        std::vector<double> derivatives(Derivative ? knots_.size() : 0);
         for (std::size_t i = 0; i < knots_.size(); ++i)
-            fractions[i] = knots_[i] <= 0 ? 1. : 0.;
+            fractions[i] = knots_[i] < 0 ? 1. : 0.;
         for (std::size_t order = 1; order < knots_.size(); ++order)
             for (std::size_t i = 0; i + order < knots_.size(); ++i) {
                 const auto low = knots_[i], high = knots_[i + order];
-                if (high <= 0) fractions[i] = 1;
-                else if (low >= 0) fractions[i] = 0;
-                else fractions[i] = (-low / (high - low)) * fractions[i] +
-                                     (high / (high - low)) * fractions[i + 1];
+                // With zero tolerance, use the left derivative at an exact
+                // knot. A positive tolerance instead makes level knots fixed.
+                if (high < 0 || (pin_level_ && high == 0)) {
+                    fractions[i] = 1;
+                    if constexpr (Derivative) derivatives[i] = 0;
+                } else if (low >= 0) {
+                    fractions[i] = 0;
+                    if constexpr (Derivative) derivatives[i] = 0;
+                } else {
+                    const auto span = high - low;
+                    const auto left = -low / span, right = high / span;
+                    if constexpr (Derivative)
+                        derivatives[i] = left * derivatives[i] + right * derivatives[i + 1] +
+                            (fractions[i] - fractions[i + 1]) / span;
+                    fractions[i] = left * fractions[i] + right * fractions[i + 1];
+                }
             }
-        return std::clamp(fractions.front(), 0., 1.);
+        return {std::clamp(fractions.front(), 0., 1.),
+                Derivative ? derivatives.front() : 0.};
     }
 
-    double derivative() const {
-        if (kind_ == CutKind::on_level || outside_range_)
-            return 0;
-        const auto dimension = knots_.size() - 1;
-        std::vector<double> basis(dimension);
-        // Left derivative at a knot, including the upper endpoint in 1D.
-        for (std::size_t i = 0; i < dimension; ++i)
-            basis[i] = knots_[i] < 0 && knots_[i + 1] >= 0 ? 1. : 0.;
-        for (std::size_t degree = 1; degree < dimension; ++degree)
-            for (std::size_t i = 0; i + degree < dimension; ++i) {
-                double value = 0;
-                if (basis[i] != 0 && knots_[i + degree] > knots_[i])
-                    value += (-knots_[i] / (knots_[i + degree] - knots_[i])) * basis[i];
-                if (basis[i + 1] != 0 && knots_[i + degree + 1] > knots_[i + 1])
-                    value += (knots_[i + degree + 1] /
-                        (knots_[i + degree + 1] - knots_[i + 1])) * basis[i + 1];
-                basis[i] = value;
-            }
-        return dimension * basis.front() / (knots_.back() - knots_.front());
-    }
-
-private:
     std::vector<double> knots_;
     CutKind kind_;
-    bool outside_range_;
+    bool pin_level_;
 };
 
 inline double occupied_volume(double volume, std::span<const double> values,

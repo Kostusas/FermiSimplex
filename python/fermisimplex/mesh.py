@@ -283,6 +283,8 @@ class SpectralMesh:
             to ``mu``, sampled ``density_cut_error`` for the reported
             occupation cut, and integration and estimator statistics. The cut
             indicator does not enter the charge stopping test.
+            The derivative holds tolerance-snapped vertices on the level;
+            it is undefined at thresholds where that classification changes.
         """
         adaptive = _adaptive_parameters(
             target_error,
@@ -343,6 +345,8 @@ class SpectralMesh:
         This evaluates missing eigensystems at existing vertices and applies
         the linear-simplex charge rule. It performs no certification, error
         estimation, temporary subdivision, or persistent refinement.
+        The returned slope differentiates the reported charge with near-level
+        vertices held on the cut by the mesh tolerance.
         """
         return self._native.estimate_charge_on_current_mesh(
             _finite_float(mu, "mu"),

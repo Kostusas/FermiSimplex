@@ -639,11 +639,12 @@ $$
 \{k\in T:\widetilde E_n(k)\leq\mu\}.
 $$
 
-AdaptiveSimplex computes these affine cut-simplex volumes exactly. A band
-lying identically on the level is assigned half of the simplex volume.
+The scalar cut recurrence computes these affine cut-simplex volumes. A band
+lying identically on the level is assigned half of the simplex volume. The
+mesh level tolerance first snaps near-level vertex energies to the level.
 
 For distinct vertex energies $e_0,\ldots,e_d$, the derivative of one band
-contribution is
+contribution, away from tolerance-snapped vertices, is
 
 $$
 \frac{d\widetilde Q_T}{d\mu}
@@ -654,8 +655,11 @@ d|T|
 {\prod_{j\neq i}(e_j-e_i)}.
 $$
 
-The implementation uses the equivalent divided-difference expression and
-confluent divided differences for repeated numerical knots.
+The implementation differentiates the cumulative fraction recurrence directly,
+holding snapped vertices on the level. It therefore returns the slope of the
+reported charge, including zero on tolerance plateaus. The
+[occupation design](occupation-enclosure.md) gives the recurrence and its
+convention at exact knots when the level tolerance is zero.
 
 ## Shared occupation enclosure
 

@@ -215,14 +215,44 @@ def test_cut_indicator_covers_level_tolerance_despite_charge_cancellation(
     assert charge.density_cut_error < 2 * delta + 1e-10
 
 
-def test_cut_indicator_includes_tolerance_on_removed_safe_bands():
+@pytest.mark.parametrize("tight_binding", [False, True])
+def test_cut_indicator_includes_tolerance_on_removed_safe_bands(tight_binding):
     # Both signs are strictly safe, but the reported cut is half occupied.
-    mesh = SpectralMesh(lambda x: np.diag([-5e-4, 5e-4]), root_level=0, tolerance=1e-3)
+    h = np.diag([-5e-4, 5e-4])
+    model = {(0,): h} if tight_binding else lambda x: h
+    mesh = SpectralMesh(model, root_level=0, tolerance=1e-3)
     enclosure = mesh.occupation_enclosures(mu=0)[0]
     assert enclosure.active_dimension == 0
     assert enclosure.fixed_occupation
     assert enclosure.density_cut_error == 1
     assert mesh.estimate_charge_on_current_mesh(mu=0).value == 1
+
+
+@pytest.mark.parametrize("offset", [-5e-4, 0, 5e-4])
+@pytest.mark.parametrize("origin", [0, 100])
+def test_constant_enclosure_keeps_physical_charge_despite_level_rounding(
+    offset, origin
+):
+    mesh = SpectralMesh(
+        {(0,): np.array([[origin + offset]])}, root_level=0, tolerance=1e-3
+    )
+    exact = 1.0 if offset < 0 else 0.0 if offset > 0 else 0.5
+    enclosure = mesh.occupation_enclosures(mu=origin)[0]
+    charge = mesh.integrate_charge(mu=origin, target_error=1, max_refinements=0)
+    assert charge.value == 0.5
+    assert enclosure.charge_lower == enclosure.charge_upper == exact
+    assert enclosure.density_cut_error == charge.density_cut_error == abs(0.5 - exact)
+    assert charge.stopping_error == abs(0.5 - exact)
+    assert enclosure.fixed_occupation == (offset != 0)
+    assert enclosure.active_dimension == (1 if offset == 0 else 0)
+    assert not enclosure.remainder_is_sampled
+    if offset != 0:
+        with pytest.raises(RuntimeError, match="did not converge"):
+            mesh.integrate_charge(mu=origin, target_error=0, max_refinements=0)
+    else:
+        assert mesh.integrate_charge(
+            mu=origin, target_error=0, max_refinements=0
+        ).stats.target_reached
 
 
 def test_three_dimensional_spherical_pocket():

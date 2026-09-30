@@ -316,6 +316,7 @@ if(FERMISIMPLEX_BUILD_TESTING)
     certificate_validation
     simplex_certificate
     spectral_mesh
+    surface_classification
     evaluated_snapshot
     evaluated_partition
     charge_error

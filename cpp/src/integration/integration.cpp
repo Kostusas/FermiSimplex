@@ -4,6 +4,7 @@
 #include "integration/charge.h"
 #include "integration/density.h"
 #include "integration/density_error.h"
+#include "occupation/enclosure.h"
 
 #include <adaptivesimplex/adaptive/adaptive_loop.h>
 #include <adaptivesimplex/adaptive/evaluation.h>
@@ -146,7 +147,8 @@ auto charge_integrand(
                 std::abs(enclosure.charge_upper - result.value));
             result.density_cut_error = enclosure.density_cut_error;
             if (!enclosure.fixed_occupation()) {
-                if (visible_occupation_change(mesh, simplex_id, mu))
+                if (occupation_detail::vertex_occupation(mesh, simplex_id, mu) !=
+                    occupation_detail::VertexOccupation::uniform)
                     result.visible_gapless_simplices = 1;
                 else
                     result.inconclusive_simplices = 1;

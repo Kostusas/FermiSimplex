@@ -33,6 +33,11 @@ SimplexClassification classify_frontier(
     SimplexClassification result;
     for (const auto simplex_id : frontier) {
         const auto refinable = simplex_diameter(geometry, simplex_id) > min_feature_size;
+        const auto vertices = occupation_detail::vertex_occupation(mesh, simplex_id, mu);
+        if (vertices == occupation_detail::VertexOccupation::crossing) {
+            append_visible(simplex_id, refinable, result);
+            continue;
+        }
         std::optional<double> remainder;
         if (curvature_bound > 0) {
             // If ||H-L|| <= e for the affine interpolant L, the edge
@@ -44,7 +49,7 @@ SimplexClassification classify_frontier(
         ChargeErrorStats stats;
         if (occupation_detail::fixed_occupation(mesh, simplex_id, mu, 2, stats, remainder))
             continue;
-        if (visible_occupation_change(mesh, simplex_id, mu)) {
+        if (vertices == occupation_detail::VertexOccupation::touches_level) {
             append_visible(simplex_id, refinable, result);
         } else {
             if (refinable) {

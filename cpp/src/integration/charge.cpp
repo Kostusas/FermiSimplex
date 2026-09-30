@@ -61,8 +61,9 @@ ChargeContribution band_charge_on_simplex(
         for (const auto vertex_id : simplex.vertex_ids)
             energies.push_back(cache.get(vertex_id).eigenvalues[band] - mu);
         const occupation_detail::AffineCut cut(std::move(energies), mesh.tolerance());
-        result.value += simplex.volume * cut.fraction();
-        result.dcharge_dmu += simplex.volume * cut.derivative();
+        const auto integral = cut.fraction_and_derivative();
+        result.value += simplex.volume * integral.fraction;
+        result.dcharge_dmu += simplex.volume * integral.derivative;
     }
     return result;
 }

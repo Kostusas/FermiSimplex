@@ -100,13 +100,14 @@ Scalar affine cuts share one occupation rule, using vertex energies relative
 to `mu` for level classification, including structurally constant bands.
 Sorted energies are knots of the projected uniform simplex distribution.
 Its cumulative fraction is a convex recurrence on successive knot intervals;
-its derivative is the normalized B-spline of degree `dimension-1`, evaluated
-with the nonnegative Cox-de Boor recurrence. Equal knots need no division by
-zero and nearby distinct knots remain distinct. This avoids cancellation for
-partially occupied bands with clustered energies. The derivative is zero
-outside the vertex-energy range and retains the left derivative at endpoints.
-As in geometric clipping, vertices within the level tolerance lie on the cut;
-the derivative's outside-range check uses their original energies.
+differentiate that recurrence to obtain the reported charge's slope in the same
+pass. Snapped knots stay at zero while off-level knots move by `-dmu`. Thus
+a tolerance plateau has zero slope, including a rounded band endpoint. The
+derivative describes a fixed snapping classification; it is not defined at a
+threshold where that classification changes. With zero level tolerance, use
+the left derivative at exact knots. Equal knots need no division by zero and
+nearby distinct knots remain distinct, avoiding cancellation for clustered
+energies.
 These scalar calculations use `O(d^2)` work and `O(d)` storage and do not build
 barycentric moments. Density-weight integration still computes the moments
 it needs through AdaptiveSimplex.
@@ -114,16 +115,27 @@ it needs through AdaptiveSimplex.
 For sorted relative energies `t_i`, the cumulative fraction on knots `i..j`
 is zero if `t_i >= 0`, one if `t_j <= 0`, and otherwise
 `F[i,j] = (-t_i*F[i,j-1] + t_j*F[i+1,j])/(t_j-t_i)`.
-The derivative is `d*B[0,d-1](0)/(t_d-t_0)`. Both triangular recurrences use
-one linear workspace. Half occupation is handled separately when the entire
-simplex lies on the level.
+On a straddling interval, set `a=-t_i/(t_j-t_i)` and `b=t_j/(t_j-t_i)`.
+Its derivative is `D[i,j]=a*D[i,j-1]+b*D[i+1,j]+(F[i,j-1]-F[i+1,j])/(t_j-t_i)`.
+Full and empty intervals have zero derivative while their snapping class stays
+fixed. Fraction-only queries omit derivative work. Half occupation is handled
+separately when the entire simplex lies on the level.
 
 Strict occupation bounds are separate from integrated charge endpoints. An
-exactly constant tight-binding matrix has an exact charge, including half
-occupation at a flat band. Its charge interval can collapse while its strict
+exactly constant tight-binding matrix has an exact physical charge, including
+half occupation only when an energy equals `mu`. A nonzero energy rounded to
+the level contributes its discrepancy to the cut indicator and charge stopping
+error. Its charge interval can collapse while its strict
 gap test remains inconclusive. This structural constant case prevents endless
 refinement of a known flat band. A constant callable is not assumed exact from
 finitely many samples.
+
+Surface classification first compares cached vertex occupation intervals.
+Their lower counts exclude near-level bands; their upper counts include them.
+If the largest lower count exceeds the smallest upper count, continuity forces
+a crossing and no matrix model is needed. Mere proximity to the level is not
+such a witness. All other cells retain the full quartic model check, including
+hidden pockets and ambiguous contacts. This rule is dimension independent.
 
 For surface classification, a known affine-interpolation error `e` implies a
 quadratic remainder at most `(1+2*d/(d+1))*e`: the edge controls of `K2-L` are
@@ -160,5 +172,11 @@ bands. Density-only refinement must preserve the root particle number to
 the requested quadrature accuracy. Bisection tests evaluate both parent and
 child matrix polynomials at the same physical points in 1D through 8D, with
 an absolute tolerance of `2e-14` for unit-sized controls.
+Derivative tests use exact affine references and central differences away from
+snapping thresholds, through dimension 12 and across bandwidths from `1e-10`
+to `1e10`. The scaled exact-reference tolerance is `2e-12`; finite differences
+allow `2e-9` for subtraction and truncation error. Surface tests in 1D through
+5D require zero additional Hamiltonian calls for cached strict crossings and
+retain probing for near-level gaps, contacts and hidden quartic pockets.
 For measurements and separate-build reproduction, see the
 [MeanFi report](https://gitlab.kwant-project.org/qt/meanfi/-/blob/codex/occupation-enclosure/docs/occupation-enclosure.md).

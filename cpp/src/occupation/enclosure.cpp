@@ -27,21 +27,24 @@ std::optional<OccupationEnclosure> constant_enclosure(
         for (const auto component : term.lattice_vector)
             if (component != 0) return std::nullopt;
 
-    // Constant H has an exact occupied measure, including half-filled flat
-    // bands. Its charge interval can collapse without asserting a strict gap.
+    // Constant H has an exact physical charge. A nonzero energy rounded to
+    // the level by the reported cut still contributes an occupation error.
     const auto &simplex = mesh.geometry().simplices().simplex(id);
     OccupationEnclosure result;
     result.remainder_is_sampled = false;
     for (const auto energy : mesh.eigensystems().get(simplex.vertex_ids.front()).eigenvalues) {
-        const auto kind = classify_cut(std::array{energy - mu}, mesh.tolerance()).kind;
-        if (kind == CutKind::full) {
+        const std::array relative{energy - mu};
+        const auto kind = classify_cut(relative, mesh.tolerance()).kind;
+        const auto exact = energy < mu ? 1. : energy > mu ? 0. : .5;
+        const auto reported = occupied_volume(1., relative, mesh.tolerance(), kind);
+        result.charge_lower += simplex.volume * exact;
+        result.density_cut_error += simplex.volume * std::abs(reported - exact);
+        if (energy < mu) {
             ++result.occupation_lower;
             ++result.occupation_upper;
-            result.charge_lower += simplex.volume;
-        } else if (kind == CutKind::on_level) {
+        } else if (energy == mu) {
             ++result.occupation_upper;
             ++result.active_dimension;
-            result.charge_lower += .5 * simplex.volume;
         }
     }
     result.charge_upper = result.charge_lower;
@@ -204,19 +207,23 @@ Interval traverse(const Polynomial &polynomial, const AffineBounds &bounds, doub
 
 }  // namespace
 
-bool visible_occupation_change(const SpectralMesh &mesh, adaptivesimplex::core::SimplexId id, double mu) {
-    auto previous_count = mesh.ndof() + 1;
+occupation_detail::VertexOccupation occupation_detail::vertex_occupation(
+    const SpectralMesh &mesh, adaptivesimplex::core::SimplexId id, double mu
+) {
+    std::size_t maximum_lower = 0, minimum_upper = mesh.ndof();
+    bool touches_level = false;
     for (const auto vertex : mesh.geometry().simplices().simplex(id).vertex_ids) {
         const auto &values = mesh.eigensystems().get(vertex).eigenvalues;
         const auto tolerance = mesh.tolerance() * std::max(
             {1., std::abs(mu), std::abs(values.front()), std::abs(values.back())});
-        const auto first = std::lower_bound(values.begin(), values.end(), mu - tolerance);
-        if (first != values.end() && *first <= mu + tolerance) return true;
-        const auto count = static_cast<std::size_t>(first - values.begin());
-        if (previous_count <= mesh.ndof() && count != previous_count) return true;
-        previous_count = count;
+        const auto lower = std::lower_bound(values.begin(), values.end(), mu - tolerance);
+        const auto upper = std::upper_bound(lower, values.end(), mu + tolerance);
+        touches_level |= lower != upper;
+        maximum_lower = std::max(maximum_lower, static_cast<std::size_t>(lower - values.begin()));
+        minimum_upper = std::min(minimum_upper, static_cast<std::size_t>(upper - values.begin()));
+        if (maximum_lower > minimum_upper) return VertexOccupation::crossing;
     }
-    return false;
+    return touches_level ? VertexOccupation::touches_level : VertexOccupation::uniform;
 }
 
 namespace {

@@ -2,10 +2,24 @@
 #include "bindings.h"
 
 #include <fermisimplex/integration.h>
+#include <fermisimplex/occupation.h>
 
 namespace fermisimplex::bindings {
 
 void bind_integration_types(nb::module_ &module) {
+    nb::class_<OccupationEnclosure>(module, "OccupationEnclosure")
+        .def_ro("charge_lower", &OccupationEnclosure::charge_lower)
+        .def_ro("charge_upper", &OccupationEnclosure::charge_upper)
+        .def_ro("density_cut_error", &OccupationEnclosure::density_cut_error)
+        .def_ro("interpolation_error", &OccupationEnclosure::interpolation_error)
+        .def_ro("model_error", &OccupationEnclosure::model_error)
+        .def_ro("safe_gap", &OccupationEnclosure::safe_gap)
+        .def_ro("active_dimension", &OccupationEnclosure::active_dimension)
+        .def_ro("occupation_lower", &OccupationEnclosure::occupation_lower)
+        .def_ro("occupation_upper", &OccupationEnclosure::occupation_upper)
+        .def_ro("remainder_is_sampled", &OccupationEnclosure::remainder_is_sampled)
+        .def_prop_ro("fixed_occupation", &OccupationEnclosure::fixed_occupation);
+
     nb::class_<IntegrationStats>(module, "IntegrationStats")
         .def_ro("evaluations", &IntegrationStats::evaluations)
         .def_ro("simplex_visits", &IntegrationStats::simplex_visits)

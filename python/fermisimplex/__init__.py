@@ -17,6 +17,7 @@ from .mesh import (
     FermiSurfaceResult,
     FermiSurfaceStats,
     IntegrationStats,
+    OccupationEnclosure,
     SpectralMesh,
 )
 
@@ -33,6 +34,7 @@ __all__ = [
     "IntegrationStats",
     "MuInterval",
     "OccupationBounds",
+    "OccupationEnclosure",
     "SimplexCertificate",
     "SpectralMesh",
     "certify_simplex",

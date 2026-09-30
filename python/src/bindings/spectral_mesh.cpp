@@ -5,6 +5,8 @@
 #include <fermisimplex/fermi_surface.h>
 #include <fermisimplex/hamiltonian.h>
 #include <fermisimplex/integration.h>
+#include <fermisimplex/occupation.h>
+#include <nanobind/stl/vector.h>
 #include <fermisimplex/spectral_mesh.h>
 
 #include <nanobind/stl/optional.h>
@@ -391,7 +393,8 @@ void bind_spectral_mesh(nb::module_ &module) {
                std::int64_t max_refinements,
                std::uint32_t error_depth,
                std::size_t min_refinement_batch_size,
-               std::size_t max_refinement_batch_size) {
+               std::size_t max_refinement_batch_size,
+               bool quadratic) {
                 return fermisimplex::integrate_charge(
                     mesh,
                     mu,
@@ -402,7 +405,8 @@ void bind_spectral_mesh(nb::module_ &module) {
                         min_refinement_batch_size,
                         max_refinement_batch_size
                     ),
-                    error_depth
+                    error_depth,
+                    quadratic ? ChargeMethod::Quadratic : ChargeMethod::Legacy
                 );
             },
             "mu"_a,
@@ -411,6 +415,20 @@ void bind_spectral_mesh(nb::module_ &module) {
             "error_depth"_a,
             "min_refinement_batch_size"_a,
             "max_refinement_batch_size"_a,
+            "quadratic"_a = false,
+            nb::call_guard<nb::gil_scoped_release>()
+        )
+        .def(
+            "occupation_enclosures",
+            [](SpectralMesh &mesh, double mu, std::uint32_t depth, std::optional<double> bound) {
+                estimate_charge_on_current_mesh(mesh, mu);
+                std::vector<OccupationEnclosure> results;
+                ChargeErrorStats stats;
+                for (const auto id : mesh.geometry().simplices().active_simplices())
+                    results.push_back(enclose_occupation(mesh, id, mu, depth, stats, bound));
+                return results;
+            },
+            "mu"_a, "depth"_a, "interpolation_error_bound"_a,
             nb::call_guard<nb::gil_scoped_release>()
         )
         .def(

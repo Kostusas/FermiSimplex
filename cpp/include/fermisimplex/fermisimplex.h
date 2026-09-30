@@ -4,4 +4,5 @@
 #include <fermisimplex/fermi_surface.h>
 #include <fermisimplex/hamiltonian.h>
 #include <fermisimplex/integration.h>
+#include <fermisimplex/occupation.h>
 #include <fermisimplex/spectral_mesh.h>

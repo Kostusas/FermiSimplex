@@ -1,4 +1,5 @@
 #include <fermisimplex/integration.h>
+#include <fermisimplex/occupation.h>
 
 #include "integration/charge.h"
 #include "integration/charge_profile.h"
@@ -134,17 +135,13 @@ auto charge_integrand(
     std::uint32_t error_depth,
     std::int64_t &simplex_visits,
     ChargeErrorStats &error_stats,
-    integration_detail::ChargeProfile *profile
+    integration_detail::ChargeProfile *profile,
+    ChargeMethod method
 ) {
-    auto error_estimator = std::make_shared<
-        integration_detail::ChargeErrorEstimator
-    >(
-        mesh,
-        mu,
-        error_depth,
-        error_stats,
-        profile
-    );
+    std::shared_ptr<integration_detail::ChargeErrorEstimator> error_estimator;
+    if (method == ChargeMethod::Legacy)
+        error_estimator = std::make_shared<integration_detail::ChargeErrorEstimator>(
+            mesh, mu, error_depth, error_stats, profile);
     return adaptive::simplex_integrand(
         mesh.eigensystems(),
         [&mesh, profile](std::span<const double> point) {
@@ -159,12 +156,21 @@ auto charge_integrand(
                 ).count();
             return spectrum;
         },
-        [&mesh, mu, &simplex_visits, error_estimator, profile](
+        [&mesh, mu, &simplex_visits, &error_stats, error_depth, error_estimator, profile, method](
             const core::Geometry &geometry,
             core::SimplexId simplex_id,
             EigensystemCache &
         ) {
             ++simplex_visits;
+            if (method == ChargeMethod::Quadratic) {
+                auto result = integration_detail::band_charge_on_simplex(mu, mesh, geometry, simplex_id);
+                const auto enclosure = enclose_occupation(mesh, simplex_id, mu, error_depth, error_stats);
+                result.estimated_error = std::max(std::abs(result.value - enclosure.charge_lower),
+                    std::abs(enclosure.charge_upper - result.value));
+                result.density_cut_error = enclosure.density_cut_error;
+                if (!enclosure.fixed_occupation()) result.inconclusive_simplices = 1;
+                return result;
+            }
             return integration_detail::charge_on_simplex(
                 mu,
                 mesh,
@@ -340,7 +346,8 @@ ChargeResult integrate_charge_impl(
     double mu,
     const adaptive::Options &options,
     std::uint32_t error_depth,
-    integration_detail::ChargeProfile *profile
+    integration_detail::ChargeProfile *profile,
+    ChargeMethod method
 ) {
     validate_mu(mu);
     validate_options(options);
@@ -358,7 +365,8 @@ ChargeResult integrate_charge_impl(
         error_depth,
         simplex_visits,
         error_stats,
-        profile
+        profile,
+        method
     );
     auto charge_options = options;
     charge_options.preview_depth = 0;
@@ -387,14 +395,16 @@ ChargeResult integrate_charge(
     SpectralMesh &mesh,
     double mu,
     const adaptive::Options &options,
-    std::uint32_t error_depth
+    std::uint32_t error_depth,
+    ChargeMethod method
 ) {
     return integrate_charge_impl(
         mesh,
         mu,
         options,
         error_depth,
-        nullptr
+        nullptr,
+        method
     );
 }
 
@@ -407,7 +417,7 @@ ChargeResult integrate_charge_profiled(
     std::uint32_t error_depth,
     ChargeProfile &profile
 ) {
-    return integrate_charge_impl(mesh, mu, options, error_depth, &profile);
+    return integrate_charge_impl(mesh, mu, options, error_depth, &profile, ChargeMethod::Legacy);
 }
 
 }  // namespace integration_detail

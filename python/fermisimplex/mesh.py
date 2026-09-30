@@ -15,6 +15,7 @@ from ._native import (
     FermiSurfaceResult,
     FermiSurfaceStats,
     IntegrationStats,
+    OccupationEnclosure,
 )
 from .hamiltonian import _coordinates_array, _create_spectral_mesh
 from .snapshot import EvaluatedSnapshot
@@ -259,6 +260,7 @@ class SpectralMesh:
         target_error: float,
         max_refinements: int | None = None,
         error_depth: int = 2,
+        method: str = "legacy",
         min_refinement_batch_size: int = 1,
         max_refinement_batch_size: int = 100,
     ) -> ChargeResult:
@@ -280,6 +282,11 @@ class SpectralMesh:
             and can miss structure between sampled microvertices. The frozen
             safe-block approximation can also lose accuracy when its variation
             is comparable with the anchor gap or its inertia changes.
+        method
+            ``"legacy"`` selects the recursive sampled estimator. Experimental
+            ``"quadratic"`` shares a quadratic Schur occupation enclosure for
+            sign tests and charge intervals. Its remainder is sampled; hidden
+            features can still be missed. Subdivision uses only the polynomial.
         min_refinement_batch_size, max_refinement_batch_size
             Bounds on the number of simplices refined in one adaptive step.
 
@@ -291,6 +298,8 @@ class SpectralMesh:
             occupation cut, and integration and estimator statistics. The cut
             indicator does not enter the charge stopping test.
         """
+        if method not in ("legacy", "quadratic"):
+            raise ValueError("method must be 'legacy' or 'quadratic'")
         adaptive = _adaptive_parameters(
             target_error,
             max_refinements,
@@ -312,6 +321,31 @@ class SpectralMesh:
             _nonnegative_integer(error_depth, "error_depth"),
             minimum_batch,
             maximum_batch,
+            method == "quadratic",
+        )
+
+    def occupation_enclosures(
+        self,
+        *,
+        mu: float,
+        depth: int = 2,
+        interpolation_error_bound: float | None = None,
+    ) -> list[OccupationEnclosure]:
+        """Inspect quadratic enclosures in the order of ``simplices``.
+
+        Does not refine. With no bound the interpolation remainder is sampled;
+        a fixed occupation is then a conditional sign claim. A supplied bound
+        must uniformly bound the quadratic Hamiltonian interpolation error on
+        every current simplex. It is the caller's responsibility to establish it.
+        Returned charge endpoints include polynomial integration uncertainty.
+        """
+        bound = (
+            None
+            if interpolation_error_bound is None
+            else _nonnegative_float(interpolation_error_bound, "interpolation_error_bound")
+        )
+        return self._native.occupation_enclosures(
+            _finite_float(mu, "mu"), _nonnegative_integer(depth, "depth"), bound
         )
 
     def estimate_charge_on_current_mesh(
@@ -545,5 +579,6 @@ __all__ = [
     "FermiSurfaceResult",
     "FermiSurfaceStats",
     "IntegrationStats",
+    "OccupationEnclosure",
     "SpectralMesh",
 ]

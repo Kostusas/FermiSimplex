@@ -114,7 +114,7 @@ if(NOT TARGET adaptivesimplex::adaptive)
   FetchContent_Declare(
     adaptivesimplex
     GIT_REPOSITORY https://gitlab.kwant-project.org/qt/adaptivesimplex.git
-    GIT_TAG 57df88574cf9726c97b01fc29688ed4d8896e827
+    GIT_TAG 5ea4787abf801b15fc42c374da4c9418cba2f556
     ${_fs_adaptivesimplex_fetch_options}
   )
   FetchContent_MakeAvailable(adaptivesimplex)
@@ -241,6 +241,8 @@ set(
   src/certification/simplex/simplex_blocks.cpp
   src/certification/simplex/vertex_blocks.cpp
   src/certification/simplex_certificate.cpp
+  src/occupation/model.cpp
+  src/occupation/enclosure.cpp
   src/integration/charge.cpp
   src/integration/density.cpp
   src/integration/density_p.cpp
@@ -310,6 +312,7 @@ if(FERMISIMPLEX_BUILD_TESTING)
   foreach(_fs_test IN ITEMS
     simplex_cubature
     occupation_bounds
+    occupation_model
     certificate_validation
     simplex_certificate
     spectral_mesh

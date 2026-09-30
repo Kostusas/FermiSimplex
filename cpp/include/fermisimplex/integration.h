@@ -88,11 +88,14 @@ struct DensityMatrixResult {
     IntegrationStats stats;
 };
 
+enum class ChargeMethod { Legacy, Quadratic };
+
 ChargeResult integrate_charge(
     SpectralMesh &mesh,
     double mu,
     const adaptivesimplex::adaptive::Options &options,
-    std::uint32_t error_depth = 2
+    std::uint32_t error_depth = 2,
+    ChargeMethod method = ChargeMethod::Legacy
 );
 
 // Evaluates missing eigensystems at existing vertices and applies the

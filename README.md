@@ -250,3 +250,13 @@ coordinate keys support downstream midpoint/centroid deduplication. Temporary
 charge-error data is excluded. See the [snapshot design](docs/evaluated-snapshot.md)
 for fields and guarantees. This API works with the existing AdaptiveSimplex
 dependency; no changes to AdaptiveSimplex are required.
+
+## Experimental quadratic occupation enclosure
+
+`mesh.integrate_charge(..., method="quadratic")` uses one quadratic matrix
+model for occupation tests and charge error intervals. Inspect its per-simplex
+results with `mesh.occupation_enclosures(mu=...)`. The default `"legacy"`
+retains the recursive estimator. The remainder is sampled unless the inspection
+API receives a valid uniform interpolation bound. See the
+[design and measured comparisons](docs/occupation-enclosure.md) for assumptions,
+limitations, numerical tests and runtime tradeoffs.

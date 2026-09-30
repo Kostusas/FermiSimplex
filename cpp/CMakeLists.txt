@@ -310,6 +310,7 @@ if(FERMISIMPLEX_BUILD_TESTING)
     simplex_cubature
     occupation_bounds
     occupation_model
+    occupation_probes
     certificate_validation
     simplex_certificate
     spectral_mesh

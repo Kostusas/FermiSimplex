@@ -18,10 +18,15 @@ use it to classify the Hamiltonian.
 ## Algorithm
 
 1. On each simplex, interpolate `K = H - mu I` with a quadratic Bernstein matrix
-   polynomial `K2`, using cached vertex eigensystems and edge midpoints.
-2. Probe the remaining degree-four lattice nodes: quarter edges, the three
-   permutations of `(1/2,1/4,1/4)` on each triangular face, and the tetrahedron
-   center. Set `eta = 2**dimension * max_sample_defect + roundoff`.
+   polynomial `K2`, evaluating the Hamiltonian at vertices and edge midpoints.
+   Cached vertex eigenvectors still provide the anchor frame. Direct evaluation
+   removes cubic-cost spectral reconstruction, at the cost of repeated vertex
+   Hamiltonian calls; there is no additional matrix cache.
+2. Enumerate the degree-four barycentric lattice `alpha/4`, with nonnegative
+   integer `alpha` summing to four, in any dimension. Skip the vertices and edge
+   midpoints used by the interpolant. Cache these geometry-only probe weights
+   by vertex count. Set `eta = min(2**dimension,32)*max_sample_defect + roundoff`.
+   There is no per-dimension probe list or algorithm selector.
 3. In a vertex eigenbasis, establish negative and positive safe sectors by
    testing every Bernstein control with allowance `eta`. Gershgorin bounds
    precede matrix factorizations. A Cholesky failure at pivot `k` retains the
@@ -52,9 +57,16 @@ affine-band charge generally remains second order.
 The sampling factors are verified with exact rational Bernstein subdivision in
 [`verify_remainder_factor.py`](../benchmarks/verify_remainder_factor.py).
 For **any matrix polynomial of degree at most four**, the full interpolation
-remainder is bounded by these samples in dimensions one through three, in exact
-arithmetic. The verified cardinal-function bounds are `14/9 <= 2`, `4 <= 4`,
-and `71/9 <= 8`. This does not establish a uniform bound for general functions.
+remainder is bounded by these samples in every dimension, in exact arithmetic.
+The residual vanishes at the quadratic nodes; its other quartic lattice values
+multiply the corresponding Lagrange cardinal polynomials. Bound the sum of their
+absolute values. Exact subdivision gives `14/9 <= 2`, `4 <= 4`, `71/9 <= 8`,
+and `142/9 <= 16` in dimensions one through four. For any higher dimension,
+each degree-four Bernstein coefficient involves at most four vertices;
+cardinal polynomials supported outside those vertices contribute zero. The
+largest absolute coefficient row sum on four vertices is 32, so 32 bounds
+every dimension. Together these establish the single formula `min(2**d,32)`.
+This does not establish a uniform bound for general functions.
 Roundoff allowances are numerical safeguards, not interval arithmetic proofs.
 
 ## Charge, gaps and flat bands
@@ -78,6 +90,7 @@ at most `2e`, and their Bernstein weights sum to at most `d/(d+1)`.
 ## Code and verification
 
 - `occupation/model.cpp`: interpolation, safe sectors and Schur allowance.
+- `occupation/probes.h`: dimension-general quartic lattice and remainder factor.
 - `occupation/polynomial.h`: matrix polynomial restriction and frame changes.
 - `occupation/enclosure.cpp`: charge intervals and strict sign classification.
 - `occupation/cut_disagreement.h`: occupied-volume disagreement.

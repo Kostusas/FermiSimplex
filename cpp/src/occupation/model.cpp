@@ -1,4 +1,5 @@
 #include "occupation/model.h"
+#include "occupation/probes.h"
 
 #include <limits>
 #include <numeric>
@@ -9,19 +10,6 @@ namespace {
 std::vector<std::size_t> indices(std::size_t first, std::size_t last) {
     std::vector<std::size_t> result(last - first);
     std::iota(result.begin(), result.end(), first);
-    return result;
-}
-
-Matrix from_spectrum(const Eigensystem &spectrum, double mu) {
-    const auto n = spectrum.eigenvalues.size();
-    if (n == 1) return {spectrum.eigenvalues[0] - mu};
-    auto weighted = spectrum.eigenvectors;
-    for (std::size_t j = 0; j < n; ++j)
-        for (std::size_t i = 0; i < n; ++i)
-            weighted[i + j * n] *= spectrum.eigenvalues[j] - mu;
-    Matrix result(n * n);
-    linalg::matrix_multiply('N', 'C', n, n, n, 1., weighted.data(), n,
-        spectrum.eigenvectors.data(), n, 0., result.data(), n);
     return result;
 }
 
@@ -40,63 +28,41 @@ Interpolant interpolate(const SpectralMesh &mesh,
     for (std::size_t i = 0; i < v; ++i) {
         const auto vertex = simplex.vertex_ids[i];
         points.push_back(mesh.geometry().vertices().dyadic_vertex(vertex).to_point());
-        polynomial.at(i, i) = from_spectrum(mesh.eigensystems().get(vertex), mu);
     }
-    const auto evaluate = [&](const Weights &weights) {
-        Weights point(mesh.ndim());
-        for (std::size_t i = 0; i < v; ++i)
-            for (std::size_t axis = 0; axis < point.size(); ++axis)
-                point[axis] += weights[i] * points[i][axis];
+    const auto evaluate = [&](const Weights &point) {
         auto matrix = mesh.hamiltonian(point);
         ++stats.hamiltonian_evaluations;
         for (std::size_t i = 0; i < n; ++i) matrix[i + i * n] -= mu;
         return matrix;
     };
+    const auto at_weights = [&](const Weights &weights) {
+        Weights point(mesh.ndim());
+        for (std::size_t i = 0; i < v; ++i)
+            for (std::size_t axis = 0; axis < point.size(); ++axis)
+                point[axis] += weights[i] * points[i][axis];
+        return evaluate(point);
+    };
+    for (std::size_t i = 0; i < v; ++i) polynomial.at(i, i) = evaluate(points[i]);
     for (std::size_t i = 0; i < v; ++i)
         for (std::size_t j = i + 1; j < v; ++j) {
             Weights weights(v);
             weights[i] = weights[j] = .5;
-            auto midpoint = evaluate(weights);
+            auto midpoint = at_weights(weights);
             for (std::size_t k = 0; k < n * n; ++k)
                 midpoint[k] = 2. * midpoint[k] -
                     .5 * (polynomial.at(i, i)[k] + polynomial.at(j, j)[k]);
             polynomial.at(i, j) = std::move(midpoint);
         }
     double defect = 0;
-    const auto probe = [&](const Weights &weights) {
-        defect = std::max(defect, hermitian_norm_bound(difference(
-            evaluate(weights), polynomial.blossom(weights, weights)), n));
-    };
-    if (!bound) {
-        for (std::size_t i = 0; i < v; ++i)
-            for (std::size_t j = i + 1; j < v; ++j) {
-                Weights weights(v);
-                weights[i] = .25; weights[j] = .75;
-                probe(weights);
-                std::swap(weights[i], weights[j]);
-                probe(weights);
-                for (std::size_t k = j + 1; k < v; ++k) {
-                    // A face center misses quartic bubbles of the form
-                    // lambda_i lambda_j lambda_k (lambda_i-lambda_j).
-                    // These three degree-four lattice nodes resolve them.
-                    for (const auto doubled : {i, j, k}) {
-                        weights.assign(v, 0);
-                        weights[i] = weights[j] = weights[k] = .25;
-                        weights[doubled] = .5;
-                        probe(weights);
-                    }
-                }
-            }
-        // The tetrahedron center completes the degree-four lattice in 3D.
-        if (v > 3) probe(Weights(v, 1. / v));
-    }
+    if (!bound)
+        for (const auto &weights : probe_weights(v))
+            defect = std::max(defect, hermitian_norm_bound(difference(
+                at_weights(weights), polynomial.blossom(weights, weights)), n));
     double scale = std::max(1., std::abs(mu));
     for (const auto &control : polynomial.controls) scale = std::max(scale, norm(control));
     const auto roundoff = 64 * std::numeric_limits<double>::epsilon() * scale;
-    // The degree-four lattice has residual norming bounds 2, 4, 8 in 1D,
-    // 2D, 3D (see benchmarks/verify_remainder_factor.py). For general smooth
-    // Hamiltonians this remains a sampled allowance, not a uniform proof.
-    return {std::move(polynomial), bound.value_or(std::ldexp(defect, mesh.ndim())) + roundoff};
+    return {std::move(polynomial),
+            bound.value_or(probe_remainder_factor(mesh.ndim()) * defect) + roundoff};
 }
 
 }  // namespace

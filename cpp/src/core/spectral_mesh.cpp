@@ -1,6 +1,7 @@
 #include <fermisimplex/spectral_mesh.h>
 
 #include "core/simplex_geometry.h"
+#include "core/tight_binding_access.h"
 #include "linalg/blas_lapack.h"
 
 #include <adaptivesimplex/core/root_mesh.h>
@@ -9,6 +10,7 @@
 #include <algorithm>
 #include <cmath>
 #include <complex>
+#include <numeric>
 #include <stdexcept>
 #include <utility>
 
@@ -48,6 +50,22 @@ SpectralMesh::SpectralMesh(
 Eigensystem SpectralMesh::spectrum(std::span<const double> reduced_point) const {
     auto matrix = hamiltonian(reduced_point);
     auto result = Eigensystem{};
+    if (core_detail::TightBindingModelAccess::constant_spectrum_roundoff(*model_) == 0.) {
+        // The stored constant matrix is diagonal. Read its spectrum exactly,
+        // avoiding eigensolver scaling even for widely separated energies.
+        std::vector<std::size_t> order(ndof());
+        std::iota(order.begin(), order.end(), 0);
+        std::sort(order.begin(), order.end(), [&](auto left, auto right) {
+            return matrix[left + left * ndof()].real() < matrix[right + right * ndof()].real();
+        });
+        result.eigenvalues.reserve(ndof());
+        result.eigenvectors.assign(ndof() * ndof(), 0.);
+        for (std::size_t band = 0; band < ndof(); ++band) {
+            result.eigenvalues.push_back(matrix[order[band] + order[band] * ndof()].real());
+            result.eigenvectors[order[band] + band * ndof()] = 1.;
+        }
+        return result;
+    }
     linalg::diagonalize_hermitian_in_place(
         matrix,
         result.eigenvalues,

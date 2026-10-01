@@ -20,34 +20,33 @@ constexpr double cut_tolerance = 64 * std::numeric_limits<double>::epsilon();
 std::optional<OccupationEnclosure> constant_enclosure(
     const SpectralMesh &mesh, adaptivesimplex::core::SimplexId id, double mu
 ) {
-    const auto *tb = dynamic_cast<const TightBindingModel *>(&mesh.model());
-    if (!tb) return std::nullopt;
-    const auto hoppings = core_detail::TightBindingModelAccess::hoppings(*tb);
-    for (const auto &term : hoppings)
-        for (const auto component : term.lattice_vector)
-            if (component != 0) return std::nullopt;
+    const auto roundoff = core_detail::TightBindingModelAccess::constant_spectrum_roundoff(
+        mesh.model());
+    if (!roundoff) return std::nullopt;
 
-    // Constant H has an exact physical charge. A nonzero energy rounded to
-    // the level by the reported cut still contributes an occupation error.
+    // Constancy removes interpolation error, not eigensolver uncertainty.
+    // Keep near-level eigenvalues uncertain unless the spectrum is exact.
     const auto &simplex = mesh.geometry().simplices().simplex(id);
     OccupationEnclosure result;
     result.remainder_is_sampled = false;
+    result.model_error = *roundoff;
     for (const auto energy : mesh.eigensystems().get(simplex.vertex_ids.front()).eigenvalues) {
         const std::array relative{energy - mu};
         const auto kind = classify_cut(relative, mesh.tolerance()).kind;
-        const auto exact = energy < mu ? 1. : energy > mu ? 0. : .5;
+        const auto negative = relative[0] < -*roundoff;
+        const auto positive = relative[0] > *roundoff;
+        const auto exact_level = *roundoff == 0 && relative[0] == 0;
+        const auto lower = negative ? 1. : exact_level ? .5 : 0.;
+        const auto upper = positive ? 0. : exact_level ? .5 : 1.;
         const auto reported = occupied_volume(1., relative, mesh.tolerance(), kind);
-        result.charge_lower += simplex.volume * exact;
-        result.density_cut_error += simplex.volume * std::abs(reported - exact);
-        if (energy < mu) {
-            ++result.occupation_lower;
-            ++result.occupation_upper;
-        } else if (energy == mu) {
-            ++result.occupation_upper;
-            ++result.active_dimension;
-        }
+        result.charge_lower += simplex.volume * lower;
+        result.charge_upper += simplex.volume * upper;
+        result.density_cut_error += simplex.volume * std::max(
+            std::abs(reported - lower), std::abs(upper - reported));
+        result.occupation_lower += negative;
+        result.occupation_upper += !positive;
+        result.active_dimension += !negative && !positive;
     }
-    result.charge_upper = result.charge_lower;
     return result;
 }
 

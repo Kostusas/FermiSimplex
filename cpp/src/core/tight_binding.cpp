@@ -90,6 +90,32 @@ void canonicalize_partner(Matrix &matrix, Matrix &partner, std::size_t size) {
     }
 }
 
+std::optional<double> constant_spectrum_roundoff(
+    std::span<const HoppingTerm> hoppings, std::size_t size
+) {
+    if (hoppings.empty()) return 0.;
+    if (hoppings.size() != 1 || std::any_of(
+        hoppings.front().lattice_vector.begin(), hoppings.front().lattice_vector.end(),
+        [](auto component) { return component != 0; })) return std::nullopt;
+
+    const auto &matrix = hoppings.front().matrix;
+    bool diagonal = true;
+    double scale = 0;
+    for (std::size_t column = 0; column < size; ++column) {
+        double column_sum = 0;
+        for (std::size_t row = 0; row < size; ++row) {
+            const auto value = matrix[row + column * size];
+            column_sum += std::abs(value);
+            if (row != column && value != 0.) diagonal = false;
+        }
+        scale = std::max(scale, column_sum);
+    }
+    // Diagonal entries are exact eigenvalues of the stored matrix. Otherwise
+    // allow for the dense eigensolver's roundoff at the matrix's own scale.
+    return diagonal ? 0. : std::max(std::numeric_limits<double>::denorm_min(),
+        64 * std::numeric_limits<double>::epsilon() * size * scale);
+}
+
 }  // namespace
 
 TightBindingModel::TightBindingModel(std::vector<HoppingTerm> hoppings) {
@@ -177,6 +203,7 @@ TightBindingModel::TightBindingModel(std::vector<HoppingTerm> hoppings) {
             .matrix = std::move(matrix),
         });
     }
+    constant_spectrum_roundoff_ = constant_spectrum_roundoff(hoppings_, ndof_);
     packed_hoppings_.reserve(hoppings_.size() * ndof_ * ndof_);
     for (const auto &term : hoppings_) {
         packed_hoppings_.insert(

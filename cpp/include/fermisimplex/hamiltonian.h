@@ -3,6 +3,7 @@
 #include <complex>
 #include <cstddef>
 #include <cstdint>
+#include <optional>
 #include <span>
 #include <vector>
 
@@ -51,6 +52,8 @@ private:
     std::size_t ndof_ = 0;
     std::vector<HoppingTerm> hoppings_;
     std::vector<std::complex<double>> packed_hoppings_;
+    // Unset for k-dependent models; zero for a diagonal constant matrix.
+    std::optional<double> constant_spectrum_roundoff_;
 };
 
 }  // namespace fermisimplex

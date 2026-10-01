@@ -122,13 +122,31 @@ fixed. Fraction-only queries omit derivative work. Half occupation is handled
 separately when the entire simplex lies on the level.
 
 Strict occupation bounds are separate from integrated charge endpoints. An
-exactly constant tight-binding matrix has an exact physical charge, including
-half occupation only when an energy equals `mu`. A nonzero energy rounded to
-the level contributes its discrepancy to the cut indicator and charge stopping
-error. Its charge interval can collapse while its strict
-gap test remains inconclusive. This structural constant case prevents endless
-refinement of a known flat band. A constant callable is not assumed exact from
-finitely many samples.
+constant tight-binding matrix has no interpolation error, but its numerical
+eigenvalues can still be uncertain. At construction, cache an eigenvalue
+roundoff allowance `64*N*machine_epsilon*||H||_1`, independently of the mesh
+level tolerance. For a Hermitian matrix the maximum absolute column sum bounds
+its spectral norm. Eigenvalues within this allowance of `mu` contribute
+occupation intervals `[0,1]`, including when the cached value equals `mu`.
+Charge and cut-error bounds retain that uncertainty. This is a numerical
+safeguard, not a verified eigensolver error bound.
+
+A structurally diagonal constant matrix has exact stored eigenvalues, so its
+allowance is zero. Read and sort its diagonal directly, with the corresponding
+permutation basis, avoiding eigensolver scaling at large energy ranges.
+An exactly on-level diagonal entry has half occupation and
+does not certify a strict gap. For a resolved nonzero energy, rounding to the
+level still contributes its discrepancy to both error indicators. Matrix
+structure and scale are checked once; enclosure queries read the cached
+allowance and eigenvalues, without rescanning or diagonalizing the matrix.
+Constant charge integration never refines: if its irreducible error exceeds
+the target, it raises a nonconvergence error immediately after evaluating the
+current mesh. A constant callable is not assumed exact from finitely many
+samples.
+Surface classification also stops on the current cells of a constant matrix:
+a resolved spectrum is gapped, while an unresolved spectrum is inconclusive.
+A constant zero-energy band fills the cell and cannot be represented by a
+codimension-one surface. An empty extracted mesh must not certify its absence.
 
 Surface classification first compares cached vertex occupation intervals.
 Their lower counts exclude near-level bands; their upper counts include them.
@@ -172,6 +190,12 @@ bands. Density-only refinement must preserve the root particle number to
 the requested quadrature accuracy. Bisection tests evaluate both parent and
 child matrix polynomials at the same physical points in 1D through 8D, with
 an absolute tolerance of `2e-14` for unit-sized controls.
+Constant-spectrum regressions use rank-one matrices with exact zero bands,
+real and complex entries, and scales from `1e-8` to `1e8`. Their enclosures
+must contain the analytic half-filled charge without asserting a gap, and
+nearby positive/negative perturbations must remain enclosed too. Separate
+diagonal cases retain exact eigenvalues and particle number, including widely
+separated energies. Irreducible constant errors must leave the mesh unchanged.
 Derivative tests use exact affine references and central differences away from
 snapping thresholds, through dimension 12 and across bandwidths from `1e-10`
 to `1e10`. The scaled exact-reference tolerance is `2e-12`; finite differences

@@ -5,6 +5,7 @@
 #include "integration/density.h"
 #include "integration/density_error.h"
 #include "occupation/enclosure.h"
+#include "core/tight_binding_access.h"
 
 #include <adaptivesimplex/adaptive/adaptive_loop.h>
 #include <adaptivesimplex/adaptive/evaluation.h>
@@ -327,6 +328,10 @@ ChargeResult integrate_charge(
     auto integrand = charge_integrand(mesh, mu, error_depth, simplex_visits, error_stats);
     auto charge_options = options;
     charge_options.preview_depth = 0;
+    // Every cell of a constant matrix has the same error per unit volume.
+    // Refinement cannot reduce roundoff uncertainty or level-rounding error.
+    if (core_detail::TightBindingModelAccess::constant_spectrum_roundoff(mesh.model()))
+        charge_options.max_refinements = 0;
     const auto raw = adaptive::run(mesh.geometry(), integrand, charge_options);
     return charge_result(mesh, raw, simplex_visits, error_stats);
 }

@@ -259,6 +259,10 @@ class SpectralMesh:
     ) -> ChargeResult:
         """Adaptively integrate the zero-temperature charge.
 
+        Structurally constant tight-binding matrices do not refine. If their
+        eigenvalue uncertainty or level-rounding error exceeds the target,
+        integration raises a nonconvergence error on the current mesh.
+
         Parameters
         ----------
         mu
@@ -323,6 +327,8 @@ class SpectralMesh:
         must uniformly bound the quadratic Hamiltonian interpolation error on
         every current simplex. It is the caller's responsibility to establish it.
         Returned charge endpoints include polynomial integration uncertainty.
+        Constant tight-binding matrices also retain eigensolver roundoff near
+        ``mu``; constancy alone does not prove an exact flat-band occupation.
         """
         bound = (
             None

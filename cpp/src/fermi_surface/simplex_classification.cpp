@@ -3,6 +3,7 @@
 #include <fermisimplex/occupation.h>
 #include "occupation/enclosure.h"
 #include "core/simplex_geometry.h"
+#include "core/tight_binding_access.h"
 
 namespace fermisimplex::fermi_surface_detail {
 namespace {
@@ -30,10 +31,16 @@ SimplexClassification classify_frontier(
     double curvature_bound
 ) {
     const auto &geometry = mesh.geometry();
+    const auto constant = core_detail::TightBindingModelAccess::constant_spectrum_roundoff(
+        mesh.model()).has_value();
     SimplexClassification result;
     for (const auto simplex_id : frontier) {
-        const auto refinable = simplex_diameter(geometry, simplex_id) > min_feature_size;
-        const auto vertices = occupation_detail::vertex_occupation(mesh, simplex_id, mu);
+        // An unresolved constant spectrum cannot define a codimension-one
+        // surface or become more certain through spatial refinement.
+        const auto refinable = !constant &&
+            simplex_diameter(geometry, simplex_id) > min_feature_size;
+        const auto vertices = constant ? occupation_detail::VertexOccupation::uniform :
+            occupation_detail::vertex_occupation(mesh, simplex_id, mu);
         if (vertices == occupation_detail::VertexOccupation::crossing) {
             append_visible(simplex_id, refinable, result);
             continue;

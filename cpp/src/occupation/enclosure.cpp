@@ -291,7 +291,23 @@ OccupationEnclosure enclosure(const SpectralMesh &mesh,
     if constexpr (IntegrateCharge) {
         result.charge_lower += std::max(simplex.volume * sectors.negative, interval.lower);
         result.charge_upper += std::min(simplex.volume * (q - sectors.positive), interval.upper);
-        result.density_cut_error += std::min(simplex.volume * q, interval.cut_error);
+        if (result.fixed_occupation()) {
+            // A fixed rank determines every ordered occupation. Compare the
+            // reported cuts directly with those constants, including snapped
+            // half occupations, instead of retaining loose affine row bounds.
+            const auto occupied_count = result.occupation_lower - model.safe_occupation;
+            Weights energies(cuts.size());
+            for (std::size_t band = 0; band < q; ++band) {
+                for (std::size_t i = 0; i < cuts.size(); ++i)
+                    energies[i] = cuts[i][band];
+                const auto kind = classify_cut(energies, 0.).kind;
+                const auto reported = occupied_volume(simplex.volume, energies, 0., kind);
+                result.density_cut_error += band < occupied_count
+                    ? simplex.volume - reported : reported;
+            }
+        } else {
+            result.density_cut_error += std::min(simplex.volume * q, interval.cut_error);
+        }
     }
     return result;
 }

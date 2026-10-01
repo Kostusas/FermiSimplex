@@ -87,6 +87,20 @@ For reported local charge `Q`, the indicator is
 indicator also measures spatial disagreement of the affine occupied regions,
 so cancellation of total charge cannot hide displaced cuts.
 
+When the strict occupation bounds agree on a count `n`, every ordered band has
+a known occupation throughout the cell. Compare the reported cuts directly
+with those constants: sum `volume - reported_volume` for the occupied bands
+and `reported_volume` for the empty bands. Reuse the fixed count even when the
+block sign proof is tighter than the affine row bounds. Otherwise a gapped
+cell can retain a spurious uncertainty strip in its density-cut indicator.
+Keep the ordinary cut-disagreement calculation for unresolved cells; equality
+of integrated charge alone does not establish fixed occupation. Tolerance
+rounding can still give a nonzero indicator in a cell with fixed occupation.
+
+Smooth projector quadrature is a separate error source. MeanFi uses its
+requested density tolerance independently of this cut indicator. A resolved
+occupation does not imply constant projectors or remove their quadrature work.
+
 Apply the mesh's level tolerance once to each root band cut: replace relative
 vertex energies within that tolerance by zero. Charge, the cut indicator and
 density integration then refer to this same affine field. Temporary enclosure
@@ -121,7 +135,7 @@ Full and empty intervals have zero derivative while their snapping class stays
 fixed. Fraction-only queries omit derivative work. Half occupation is handled
 separately when the entire simplex lies on the level.
 
-Strict occupation bounds are separate from integrated charge endpoints. An
+Strict occupation bounds are separate from integrated charge endpoints. A
 constant tight-binding matrix has no interpolation error, but its numerical
 eigenvalues can still be uncertain. At construction, cache an eigenvalue
 roundoff allowance `64*N*machine_epsilon*||H||_1`, independently of the mesh

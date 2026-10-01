@@ -363,3 +363,37 @@ def test_quartic_lattice_requires_dimension_dependent_remainder(dimension):
     e = SpectralMesh(model, root_level=0).occupation_enclosures(mu=0)[0]
     assert not e.fixed_occupation
     assert e.interpolation_error >= 2**dimension - 1e-12
+
+
+@pytest.mark.parametrize("dimension", [1, 2])
+@pytest.mark.parametrize(
+    "scale,tolerance,expected_cut", [(1.0, 1e-14, 0.0), (1e-4, 1e-3, 1.0)]
+)
+def test_fixed_occupation_tightens_active_band_cut_indicator(
+    dimension, scale, tolerance, expected_cut
+):
+    sx = np.array([[0, 1], [1, 0]], complex)
+    sy = np.array([[0, -1j], [1j, 0]], complex)
+    sz = np.diag([1, -1]).astype(complex)
+    x = 0.5 * sz - 0.5j * sx
+    model = {(0,) * dimension: 0.7 * sx + 1.5 * sz}
+    model[(1,) + (0,) * (dimension - 1)] = x
+    model[(-1,) + (0,) * (dimension - 1)] = x.conj().T
+    if dimension == 2:
+        y = 0.15 * sx + 0.125 * sz - 0.25j * sy
+        model[(0, 1)] = y
+        model[(0, -1)] = y.conj().T
+    model = {key: scale * value for key, value in model.items()}
+    mesh = SpectralMesh(model, root_level=2, tolerance=tolerance)
+    result = mesh.integrate_charge(mu=0, target_error=1e-8, max_refinements=1000)
+    enclosures = mesh.occupation_enclosures(mu=0)
+    # dz >= scale * .25 in 2D (and scale * .5 in 1D), so exactly one
+    # ordered band is occupied. Root block proofs can beat affine row bounds.
+    assert all(e.fixed_occupation for e in enclosures)
+    if dimension == 2:
+        assert any(e.active_dimension > 0 for e in enclosures)
+    assert result.value == pytest.approx(1, abs=1e-12)
+    assert result.stopping_error == 0
+    # With the larger level tolerance both reported bands are half occupied.
+    # Equal total charge must not erase their unit occupation disagreement.
+    assert result.density_cut_error == pytest.approx(expected_cut, abs=1e-12)

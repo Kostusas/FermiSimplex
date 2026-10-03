@@ -46,6 +46,8 @@ void bind_integration_types(nb::module_ &module) {
         .def_ro("norm_eigensystems", &ChargeErrorStats::norm_eigensystems)
         .def_ro("schur_evaluations", &ChargeErrorStats::schur_evaluations)
         .def_ro("schur_reductions", &ChargeErrorStats::schur_reductions)
+        .def_ro("certificate_builds", &ChargeErrorStats::certificate_builds)
+        .def_ro("certificate_reuses", &ChargeErrorStats::certificate_reuses)
         .def_ro("micro_simplices", &ChargeErrorStats::micro_simplices)
         .def_ro("terminal_simplices", &ChargeErrorStats::terminal_simplices)
         .def_ro(

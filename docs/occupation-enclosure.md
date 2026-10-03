@@ -32,7 +32,7 @@ use it to classify the Hamiltonian.
 3. In a vertex eigenbasis, establish negative and positive safe sectors by
    testing every Bernstein control with allowance `eta`. Gershgorin bounds
    precede matrix factorizations. A Cholesky failure at pivot `k` retains the
-   first `k-1` directions; the positive suffix is visited in reverse order.
+   first `k-1` states; the positive suffix is visited in reverse order.
    This replaces a binary search with at most one factorization per control
    and sign, followed by at most one eigenvalue computation for its margin.
    Their minimum margin is `Delta`. Any states
@@ -79,6 +79,33 @@ largest absolute coefficient row sum on four vertices is 32, so 32 bounds
 every dimension. Together these establish the single formula `min(2**d,32)`.
 This does not establish a uniform bound for general functions.
 Roundoff allowances are numerical safeguards, not interval arithmetic proofs.
+
+## Reusing safe-subspace certificates
+
+One mesh owns scalar proof records keyed by its immutable simplex ids. The
+Hamiltonian must stay fixed while that mesh is used, as for the vertex spectra.
+A record contains the safe ranks, separate occupied/empty margins at `mu0`,
+the interpolation allowance, and the bounds on coupling curvature and safe-block
+variation. It contains no Hamiltonian, eigenvector, or reduced matrix. Retired
+cells retain small records alongside the existing geometry; children have new ids.
+Cache storage is constant per tested cell, independent of band count.
+
+At a new `mu`, the margins become `m_minus + (mu-mu0)` and
+`m_plus - (mu-mu0)`. Empty subspaces have infinite margins. Subtract a roundoff
+allowance for the changed diagonal-subtraction scale. If either margin ceases
+to be positive, or the supplied remainder contract changes, rebuild the proof.
+Otherwise reuse the ranks and sampled remainder. A fully safe cell needs no
+new Hamiltonian evaluations. A partially safe cell evaluates the quadratic
+nodes and projects only the active columns, costing `O(N^2 q)` rather than
+`O(N^3)` for full rotations. Recompute its small Schur model, inverse of the
+anchor safe diagonal, and error allowance at the new chemical potential.
+The bounds on `B-B1` and `D-D0` remain valid because scalar shifts cancel.
+
+This also applies to cut cells: only their safe subspaces are retained; their
+active occupation, charge interval, and cut discrepancy are recomputed.
+Reuse can retain fewer safe states than a fresh proof, making an enclosure
+wider. Measurements must compare accuracy and refinement work, not only time.
+Queries on the same mesh are serialized, as for its existing geometry/cache.
 
 ## Charge, gaps and flat bands
 
@@ -175,7 +202,9 @@ at most `2e`, and their Bernstein weights sum to at most `d/(d+1)`.
 
 ## Code and verification
 
-- `occupation/model.cpp`: interpolation, safe sectors and Schur allowance.
+- `occupation/model.cpp`: interpolation, certificate reuse and Schur allowance.
+- `occupation/sectors.cpp`: safe-subspace sign tests and their margins.
+- `occupation/certificate_cache.h`: scalar proof records owned by each mesh.
 - `occupation/probes.h`: dimension-general quartic lattice and remainder factor.
 - `occupation/polynomial.h`: matrix polynomial restriction and frame changes.
 - `occupation/enclosure.cpp`: charge intervals and strict sign classification.

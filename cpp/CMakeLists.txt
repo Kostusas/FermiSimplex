@@ -242,6 +242,7 @@ set(
   src/certification/simplex/vertex_blocks.cpp
   src/certification/simplex_certificate.cpp
   src/occupation/model.cpp
+  src/occupation/sectors.cpp
   src/occupation/enclosure.cpp
   src/integration/charge.cpp
   src/integration/density.cpp

@@ -34,6 +34,8 @@ struct ChargeErrorStats {
     std::int64_t norm_eigensystems = 0;
     std::int64_t schur_evaluations = 0;
     std::int64_t schur_reductions = 0;
+    std::int64_t certificate_builds = 0;
+    std::int64_t certificate_reuses = 0;
     std::int64_t micro_simplices = 0;
     std::int64_t terminal_simplices = 0;
     std::int64_t initial_active_dimension_sum = 0;

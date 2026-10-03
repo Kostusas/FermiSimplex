@@ -1,4 +1,6 @@
 #include "occupation/model.h"
+
+#include "occupation/certificate_cache.h"
 #include "occupation/probes.h"
 
 #include <limits>
@@ -20,7 +22,8 @@ struct Interpolant {
 
 Interpolant interpolate(const SpectralMesh &mesh,
                         adaptivesimplex::core::SimplexId simplex_id, double mu,
-                        ChargeErrorStats &stats, std::optional<double> bound) {
+                        ChargeErrorStats &stats, std::optional<double> bound,
+                        bool sample_remainder = true) {
     const auto &simplex = mesh.geometry().simplices().simplex(simplex_id);
     const auto v = simplex.vertex_ids.size(), n = mesh.ndof();
     Polynomial polynomial{v, n};
@@ -54,7 +57,7 @@ Interpolant interpolate(const SpectralMesh &mesh,
             polynomial.at(i, j) = std::move(midpoint);
         }
     double defect = 0;
-    if (!bound) {
+    if (sample_remainder && !bound) {
         std::vector<double> row_sums(n);
         for (const auto &weights : probe_weights(v)) {
             auto residual = at_weights(weights);
@@ -62,6 +65,7 @@ Interpolant interpolate(const SpectralMesh &mesh,
             defect = std::max(defect, hermitian_norm_bound(residual, row_sums));
         }
     }
+    if (!sample_remainder) return {std::move(polynomial), 0};
     double scale = std::max(1., std::abs(mu));
     for (const auto &control : polynomial.controls) scale = std::max(scale, norm(control));
     const auto roundoff = 64 * std::numeric_limits<double>::epsilon() * scale;
@@ -69,167 +73,174 @@ Interpolant interpolate(const SpectralMesh &mesh,
             bound.value_or(probe_remainder_factor(mesh.ndim()) * defect) + roundoff};
 }
 
-}  // namespace
+struct ActiveModel {
+    Polynomial polynomial;
+    std::vector<Matrix> coupling;
+};
 
-Sectors sign_sectors(const Polynomial &polynomial, double allowance,
-                     ChargeErrorStats &stats) {
-    const auto n = polynomial.size;
-    if (n == 0) return {};
-    const auto sector_indices = [&](std::size_t count, bool negative) {
-        auto sector = negative ? indices(0, count) : indices(n - count, n);
-        // Cholesky must visit the most positive states first for a suffix.
-        if (!negative) std::reverse(sector.begin(), sector.end());
-        return sector;
-    };
-    const auto row_margin = [&](const Matrix &control, std::size_t count,
-                                bool negative) {
-        const auto first = negative ? 0 : n - count;
-        std::vector<double> lower(count);
-        for (std::size_t row = 0; row < count; ++row)
-            lower[row] = (negative ? -1. : 1.) *
-                control[first + row + (first + row) * n].real() - allowance;
-        for (std::size_t col = 0; col < count; ++col)
-            for (std::size_t row = 0; row < count; ++row)
-                if (row != col)
-                    lower[row] -= std::abs(control[first + row + (first + col) * n]);
-        return lower.empty() ? std::numeric_limits<double>::infinity() :
-            *std::min_element(lower.begin(), lower.end());
-    };
-    const auto largest = [&](bool negative, std::size_t maximum) {
-        // Definiteness requires every diagonal to have the right sign.
-        for (const auto &control : polynomial.controls)
-            for (std::size_t rank = 0; rank < maximum; ++rank) {
-                const auto band = negative ? rank : n - 1 - rank;
-                const auto diagonal = control[band + band * n].real();
-                if ((negative ? -diagonal : diagonal) <= allowance) {
-                    maximum = rank;
-                    break;
-                }
-            }
-        auto margin = std::numeric_limits<double>::infinity();
-        bool needs_margin = false;
-        for (const auto &control : polynomial.controls) {
-            const auto lower = row_margin(control, maximum, negative);
-            if (lower > 0) {
-                margin = std::min(margin, lower);
-                continue;
-            }
-            auto sector = sector_indices(maximum, negative);
-            auto matrix = block(control, n, sector, sector);
-            if (negative) for (auto &value : matrix) value = -value;
-            for (std::size_t k = 0; k < maximum; ++k)
-                matrix[k + k * maximum] -= allowance;
-            const auto failure = linalg::cholesky_factor_lower(matrix.data(), maximum);
-            // A failed pivot k leaves exactly k-1 positive leading directions.
-            // Earlier controls stay definite on this smaller principal block.
-            if (failure > 0) maximum = static_cast<std::size_t>(failure - 1);
-            needs_margin = true;
-        }
-        // The common Gershgorin case needs only one pass. After any factorization,
-        // establish the final margin on the retained block, at most once/control.
-        if (needs_margin) {
-            margin = std::numeric_limits<double>::infinity();
-            const auto sector = sector_indices(maximum, negative);
-            for (const auto &control : polynomial.controls) {
-                auto lower = row_margin(control, maximum, negative);
-                if (lower <= 0) {
-                    auto matrix = block(control, n, sector, sector);
-                    if (negative) for (auto &value : matrix) value = -value;
-                    std::vector<double> eigenvalues;
-                    linalg::diagonalize_hermitian_in_place(matrix, eigenvalues,
-                        maximum, false, "occupation sector margin");
-                    ++stats.norm_eigensystems;
-                    lower = eigenvalues.front() - allowance;
-                }
-                margin = std::min(margin, lower);
-            }
-        }
-        return std::pair{maximum, margin};
-    };
-    const auto [negative, negative_gap] = largest(true, n);
-    const auto [positive, positive_gap] = largest(false, n - negative);
-    const auto gap = std::min(negative_gap, positive_gap);
-    // A near-singular Cholesky test and an eigenvalue-based margin can disagree
-    // at roundoff. Only a positive final margin permits a safe-block inverse.
-    if (!std::isfinite(gap) || gap <= 0) return {};
-    return {negative, positive, gap};
+std::vector<std::size_t> safe_indices(std::size_t n, const Certificate &proof) {
+    auto safe = indices(0, proof.negative);
+    const auto positive = indices(n - proof.positive, n);
+    safe.insert(safe.end(), positive.begin(), positive.end());
+    return safe;
 }
 
-Model build_model(const SpectralMesh &mesh,
-                  adaptivesimplex::core::SimplexId simplex_id, double mu,
-                  ChargeErrorStats &stats, std::optional<double> remainder) {
-    auto interpolation = interpolate(mesh, simplex_id, mu, stats, remainder);
-    const auto &simplex = mesh.geometry().simplices().simplex(simplex_id);
-    const auto &anchor = mesh.eigensystems().get(simplex.vertex_ids.front());
-    auto full = std::move(interpolation.polynomial);
-    // The anchor is already diagonal in its own frame. Avoid reconstructing
-    // its eigenvalues with two dense matrix products a second time.
-    for (std::size_t i = 0; i < full.vertices; ++i)
-        for (std::size_t j = i; j < full.vertices; ++j) {
-            if (i == 0 && j == 0) {
-                auto &control = full.at(0, 0);
-                std::fill(control.begin(), control.end(), 0.);
-                for (std::size_t band = 0; band < full.size; ++band)
-                    control[band + band * full.size] = anchor.eigenvalues[band] - mu;
-            } else {
-                full.at(i, j) = rotate(full.at(i, j), anchor.eigenvectors, full.size);
-            }
-        }
-    const auto eta = interpolation.remainder;
-    const auto sectors = sign_sectors(full, eta, stats);
+// Project only U* K U_active: O(N^2 q). Retain the active controls and
+// vertex couplings needed to construct the reduced model at this mu.
+ActiveModel active_model(const Polynomial &full, const Eigensystem &anchor,
+                         const Certificate &proof, double mu, bool rotated) {
     const auto n = full.size, v = full.vertices;
-    const auto q = n - sectors.negative - sectors.positive;
-    stats.initial_active_dimension_sum += q;
-    if (q == n) return {std::move(full), 0, eta, eta, 0};
-    if (q == 0) return {Polynomial{v, 0}, sectors.negative, eta, eta, sectors.gap};
+    const auto q = n - proof.negative - proof.positive;
+    const auto active = indices(proof.negative, n - proof.positive);
+    const auto safe = safe_indices(n, proof);
+    const auto columns = indices(0, q);
+    ActiveModel result{Polynomial{v, q}, std::vector<Matrix>(v)};
+    for (std::size_t i = 0; i < v; ++i)
+        for (std::size_t j = i; j < v; ++j) {
+            Matrix projected(n * q);
+            if (i == 0 && j == 0) {
+                for (std::size_t band = 0; band < q; ++band)
+                    projected[active[band] + band * n] = anchor.eigenvalues[active[band]] - mu;
+            } else if (rotated) {
+                std::copy_n(full.at(i, j).begin() + proof.negative * n,
+                            n * q, projected.begin());
+            } else {
+                Matrix temporary(n * q);
+                linalg::matrix_multiply('N', 'N', n, q, n, 1., full.at(i, j).data(), n,
+                    anchor.eigenvectors.data() + proof.negative * n, n, 0., temporary.data(), n);
+                linalg::matrix_multiply('C', 'N', n, q, n, 1., anchor.eigenvectors.data(), n,
+                    temporary.data(), n, 0., projected.data(), n);
+            }
+            result.polynomial.at(i, j) = block(projected, n, active, columns);
+            if (i == j) result.coupling[i] = block(projected, n, safe, columns);
+        }
+    return result;
+}
 
-    const auto active = indices(sectors.negative, n - sectors.positive);
-    auto safe = indices(0, sectors.negative);
-    const auto positive = indices(n - sectors.positive, n);
-    safe.insert(safe.end(), positive.begin(), positive.end());
+Model reduce_model(ActiveModel active, const Eigensystem &anchor,
+                   const Certificate &proof, double mu, double eta, double gap,
+                   ChargeErrorStats &stats) {
+    const auto v = active.polynomial.vertices, q = active.polynomial.size;
+    const auto safe = safe_indices(anchor.eigenvalues.size(), proof);
     const auto s = safe.size();
     std::vector<double> d0(s);
     for (std::size_t i = 0; i < s; ++i)
         d0[i] = anchor.eigenvalues[safe[i]] - mu;
-    std::vector<Matrix> coupling, solution;
-    double x = 0, b = 0, d = 0;
+    const auto &coupling = active.coupling;
+    std::vector<Matrix> solution;
+    double x = 0;
     for (std::size_t i = 0; i < v; ++i) {
-        coupling.push_back(block(full.at(i, i), n, safe, active));
-        auto solved = coupling.back();
+        auto solved = coupling[i];
         for (std::size_t col = 0; col < q; ++col)
             for (std::size_t row = 0; row < s; ++row)
                 solved[row + col * s] /= d0[row];
         x = std::max(x, norm(solved));
         solution.push_back(std::move(solved));
     }
-    Polynomial reduced{v, q};
-    std::vector<double> row_sums(s);
+    auto reduced = std::move(active.polynomial);
     for (std::size_t i = 0; i < v; ++i)
         for (std::size_t j = i; j < v; ++j) {
-            auto residual = block(full.at(i, j), n, safe, active);
-            for (std::size_t k = 0; k < residual.size(); ++k)
-                residual[k] -= .5 * (coupling[i][k] + coupling[j][k]);
-            b = std::max(b, norm(residual));
-            auto variation = block(full.at(i, j), n, safe, safe);
-            for (std::size_t row = 0; row < s; ++row)
-                variation[row + row * s] -= d0[row];
-            d = std::max(d, hermitian_norm_bound(variation, row_sums));
-            auto control = block(full.at(i, j), n, active, active);
+            auto &control = reduced.at(i, j);
             // Polarization of B1* D0^-1 B1 gives its quadratic controls.
             linalg::matrix_multiply('C', 'N', q, q, s, -.5, coupling[i].data(), s,
                 solution[j].data(), s, 1., control.data(), q);
             linalg::matrix_multiply('C', 'N', q, q, s, -.5, coupling[j].data(), s,
                 solution[i].data(), s, 1., control.data(), q);
-            reduced.at(i, j) = std::move(control);
         }
-    b += eta; d += eta;
+    const auto b = proof.coupling_remainder + eta;
+    const auto d = proof.safe_variation + eta;
     const auto f = b + d * x;
-    const auto epsilon = eta + 2 * b * x + d * x * x + f * f / sectors.gap;
+    const auto epsilon = eta + 2 * b * x + d * x * x + f * f / gap;
     ++stats.schur_reductions;
     stats.schur_evaluations += v * (v + 1) / 2;
     if (stats.minimum_active_dimension == 0 || q < stats.minimum_active_dimension)
         stats.minimum_active_dimension = q;
-    return {std::move(reduced), sectors.negative, epsilon, eta, sectors.gap};
+    return {std::move(reduced), proof.negative, epsilon, eta, gap};
+}
+
+// These two bounds do not depend on mu: the scalar shifts in D-D0 cancel,
+// and shifting the diagonal never changes the safe-active coupling.
+void bound_variation(Certificate &proof, const Polynomial &full,
+                     const Eigensystem &anchor) {
+    const auto n = full.size, v = full.vertices;
+    const auto active = indices(proof.negative, n - proof.positive);
+    const auto safe = safe_indices(n, proof);
+    std::vector<Matrix> coupling;
+    for (std::size_t i = 0; i < v; ++i)
+        coupling.push_back(block(full.at(i, i), n, safe, active));
+    std::vector<double> row_sums(safe.size());
+    for (std::size_t i = 0; i < v; ++i)
+        for (std::size_t j = i; j < v; ++j) {
+            auto residual = block(full.at(i, j), n, safe, active);
+            for (std::size_t k = 0; k < residual.size(); ++k)
+                residual[k] -= .5 * (coupling[i][k] + coupling[j][k]);
+            proof.coupling_remainder = std::max(proof.coupling_remainder, norm(residual));
+            auto variation = block(full.at(i, j), n, safe, safe);
+            for (std::size_t row = 0; row < safe.size(); ++row)
+                variation[row + row * safe.size()] -= anchor.eigenvalues[safe[row]] - proof.mu;
+            proof.safe_variation = std::max(proof.safe_variation,
+                                            hermitian_norm_bound(variation, row_sums));
+        }
+}
+
+}  // namespace
+
+Model build_model(const SpectralMesh &mesh,
+                  adaptivesimplex::core::SimplexId simplex_id, double mu,
+                  ChargeErrorStats &stats, std::optional<double> remainder) {
+    auto &cache = CertificateCache::get(mesh).entries;
+    const auto &simplex = mesh.geometry().simplices().simplex(simplex_id);
+    const auto &anchor = mesh.eigensystems().get(simplex.vertex_ids.front());
+    const auto n = mesh.ndof(), v = simplex.vertex_ids.size();
+    if (const auto found = cache.find(simplex_id); found != cache.end() &&
+        found->second.explicit_remainder == remainder) {
+        const auto &proof = found->second;
+        const auto shift = mu - proof.mu;
+        // Cover the changed diagonal-subtraction scale without resampling H.
+        // Keep the original reference: repeated queries must not erode margins.
+        const auto roundoff = 64 * std::numeric_limits<double>::epsilon() *
+                              (1 + std::sqrt(static_cast<double>(n))) * std::abs(shift);
+        const auto gap = std::min(proof.negative_margin + shift,
+                                  proof.positive_margin - shift) - roundoff;
+        if (std::isfinite(gap) && gap > 0) {
+            ++stats.certificate_reuses;
+            const auto q = n - proof.negative - proof.positive;
+            const auto eta = proof.eta + roundoff;
+            stats.initial_active_dimension_sum += q;
+            if (q == 0) return {Polynomial{v, 0}, proof.negative, eta, eta, gap};
+            auto full = interpolate(mesh, simplex_id, mu, stats, remainder, false).polynomial;
+            return reduce_model(active_model(full, anchor, proof, mu, false),
+                                anchor, proof, mu, eta, gap, stats);
+        }
+    }
+    ++stats.certificate_builds;
+    auto interpolation = interpolate(mesh, simplex_id, mu, stats, remainder);
+    auto full = std::move(interpolation.polynomial);
+    for (std::size_t i = 0; i < v; ++i)
+        for (std::size_t j = i; j < v; ++j) {
+            if (i == 0 && j == 0) {
+                auto &control = full.at(0, 0);
+                std::fill(control.begin(), control.end(), 0.);
+                for (std::size_t band = 0; band < n; ++band)
+                    control[band + band * n] = anchor.eigenvalues[band] - mu;
+            } else {
+                full.at(i, j) = rotate(full.at(i, j), anchor.eigenvectors, n);
+            }
+        }
+    const auto eta = interpolation.remainder;
+    const auto sectors = sign_sectors(full, eta, stats);
+    const auto q = n - sectors.negative - sectors.positive;
+    stats.initial_active_dimension_sum += q;
+    cache.erase(simplex_id);
+    if (q == n) return {std::move(full), 0, eta, eta, 0};
+    Certificate proof{sectors.negative, sectors.positive, mu,
+                      sectors.negative_margin, sectors.positive_margin,
+                      eta, 0, 0, remainder};
+    if (q != 0) bound_variation(proof, full, anchor);
+    cache.emplace(simplex_id, proof);
+    if (q == 0) return {Polynomial{v, 0}, sectors.negative, eta, eta, sectors.gap};
+    return reduce_model(active_model(full, anchor, proof, mu, true),
+                        anchor, proof, mu, eta, sectors.gap, stats);
 }
 
 }  // namespace fermisimplex::occupation_detail

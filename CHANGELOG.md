@@ -4,6 +4,11 @@ All notable changes to FermiSimplex are documented in this file.
 
 ## Unreleased
 
+- Retain scalar safe-subspace certificates across chemical-potential changes
+  while their occupied and empty margins remain positive. Partially certified
+  cells rebuild only the active model; fully certified cells skip Hamiltonian
+  sampling. Expose certificate build and reuse counts in charge-error statistics.
+
 - Reduced recursive charge-estimation cost by sharing sampled Hamiltonians and
   spectra across each root's microsimplices, reusing prepared
   root-certification data,

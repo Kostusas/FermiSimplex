@@ -9,6 +9,8 @@ struct Sectors {
     std::size_t negative = 0;
     std::size_t positive = 0;
     double gap = 0;
+    double negative_margin = 0;
+    double positive_margin = 0;
 };
 
 Sectors sign_sectors(const Polynomial &polynomial, double allowance,

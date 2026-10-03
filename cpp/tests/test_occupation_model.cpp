@@ -38,8 +38,8 @@ void check_occupation_queries() {
             // strictly between -5 and 5 everywhere (also by its row bounds).
             expect(fixed == (mu != 0), "sign query agrees with the known spectrum");
             expect(fixed == enclosure.fixed_occupation(), "consumers agree on occupation");
-            expect_eq(sign_stats.hamiltonian_evaluations, charge_stats.hamiltonian_evaluations,
-                      "consumers use the same Hamiltonian samples");
+            expect(sign_stats.hamiltonian_evaluations <= charge_stats.hamiltonian_evaluations,
+                   "the second consumer reuses the same proof");
             expect_eq(sign_stats.micro_simplices, charge_stats.micro_simplices,
                       "consumers traverse the same polynomial cells");
         }
@@ -105,10 +105,92 @@ void check_safe_sectors() {
     std::cout << "safe-sector maximum margin excess=" << worst_margin_excess << '\n';
 }
 
+void check_reused_certificate() {
+    auto mesh = SpectralMesh(std::make_shared<CoupledModel>(.2), 1e-14, 0);
+    estimate_charge_on_current_mesh(mesh, 0);
+    const auto id = first_active_simplex(mesh.geometry());
+    ChargeErrorStats initial;
+    const auto first = build_model(mesh, id, 0, initial, 0.);
+    expect_eq(initial.certificate_builds, 1, "initial proof built once");
+    const auto &simplex = mesh.geometry().simplices().simplex(id);
+    const auto &anchor = mesh.eigensystems().get(simplex.vertex_ids.front());
+    const auto left = mesh.geometry().vertices().dyadic_vertex(simplex.vertex_ids[0]).to_point()[0];
+    const auto right = mesh.geometry().vertices().dyadic_vertex(simplex.vertex_ids[1]).to_point()[0];
+    double worst_error = 0, worst_ratio = 0;
+    for (const auto mu : {-.03, .04, -.02, 0., .01}) {
+        ChargeErrorStats stats;
+        const auto model = build_model(mesh, id, mu, stats, 0.);
+        expect_eq(stats.certificate_reuses, 1, "partial certificate reused across mu changes");
+        expect_eq(stats.certificate_builds, 0, "no full proof on a cache hit");
+        expect_eq(model.polynomial.size, 1, "one active state retained");
+        expect(model.delta > 1, "shifted safe block remains invertible");
+        for (int i = 0; i <= 1000; ++i) {
+            const auto t = i / 1000.;
+            auto matrix = mesh.hamiltonian(Weights{left + (right-left)*t});
+            for (std::size_t j = 0; j < 3; ++j) matrix[j+j*3] -= mu;
+            matrix = rotate(matrix, anchor.eigenvectors, 3);
+            const std::vector<std::size_t> safe{0, 2}, active{1};
+            auto d = block(matrix, 3, safe, safe);
+            const auto coupling = block(matrix, 3, safe, active);
+            auto solution = coupling;
+            expect(linalg::solve_linear_system_in_place(d, solution, 2, 1,
+                       "shifted reference solve"), "reference invertible");
+            auto exact = matrix[4];
+            for (std::size_t j = 0; j < 2; ++j)
+                exact -= std::conj(coupling[j]) * solution[j];
+            const auto approximate = model.polynomial.blossom(Weights{1-t,t}, Weights{1-t,t})[0];
+            const auto error = std::abs(exact-approximate);
+            expect(error <= model.epsilon, "reused Schur bound contains exact matrix");
+            worst_error = std::max(worst_error, error);
+            worst_ratio = std::max(worst_ratio, error/model.epsilon);
+        }
+        // There is one monotone active band; locate its zero to machine precision.
+        double lo = 0, hi = 1;
+        for (int iteration = 0; iteration < 60; ++iteration) {
+            const auto middle = (lo+hi)/2;
+            if (mesh.spectrum(Weights{middle}).eigenvalues[1] < mu) lo = middle;
+            else hi = middle;
+        }
+        ChargeErrorStats enclosure_stats;
+        const auto enclosure = enclose_occupation(mesh, id, mu, 3, enclosure_stats, 0.);
+        const auto exact_charge = 1 + (lo+hi)/2;
+        expect(enclosure.charge_lower <= exact_charge + 1e-13 &&
+                   exact_charge <= enclosure.charge_upper + 1e-13,
+               "reused charge bounds contain the independently located crossing");
+        expect(!enclosure.fixed_occupation(), "crossing is never certified gapped");
+    }
+    ChargeErrorStats sampled, explicit_bound, changed_bound;
+    build_model(mesh, id, 0, sampled, std::nullopt);
+    build_model(mesh, id, 0, explicit_bound, 0.);
+    build_model(mesh, id, 0, changed_bound, .01);
+    expect_eq(sampled.certificate_builds, 1, "sampled remainder changes the contract");
+    expect_eq(explicit_bound.certificate_builds, 1, "explicit remainder changes the contract");
+    expect_eq(changed_bound.certificate_builds, 1, "larger explicit remainder refreshes proof");
+    ChargeErrorStats expired, empty;
+    const auto outside = build_model(mesh, id, -5., expired, .01);
+    const auto shifted = build_model(mesh, id, -4.9, empty, .01);
+    expect_eq(expired.certificate_builds, 1, "expired interval refreshes proof");
+    expect_eq(outside.polynomial.size, 0, "all states now safely empty");
+    expect_eq(empty.certificate_reuses, 1, "one-sided certificate reusable");
+    expect_eq(empty.hamiltonian_evaluations, 0, "fully safe cell requires no H calls");
+    expect_eq(shifted.safe_occupation, 0, "empty count unchanged");
+    const std::vector<adaptivesimplex::core::SimplexId> parents{id};
+    const auto children = mesh.geometry().refine_active(parents, 0);
+    estimate_charge_on_current_mesh(mesh, 0);
+    for (const auto child : children) {
+        ChargeErrorStats stats;
+        build_model(mesh, child, 0., stats, .01);
+        expect_eq(stats.certificate_builds, 1, "children need their own certificate");
+    }
+    std::cout << "reused Schur maximum error=" << worst_error
+              << " maximum error/allowance=" << worst_ratio << '\n';
+}
+
 int main() {
     try {
         check_occupation_queries();
         check_safe_sectors();
+        check_reused_certificate();
         double previous_error = 0, previous_allowance = 0;
         for (const auto h : {.2, .1, .05, .025}) {
             auto mesh = SpectralMesh(std::make_shared<CoupledModel>(h), 1e-14, 0);

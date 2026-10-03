@@ -15,6 +15,8 @@
 
 namespace fermisimplex {
 
+namespace occupation_detail { struct CertificateCache; }
+
 struct Eigensystem {
     std::vector<double> eigenvalues;
     // Eigenvectors are the columns of this column-major square matrix.
@@ -32,6 +34,10 @@ public:
         double tolerance = 1e-14,
         std::uint32_t root_level = 1
     );
+
+    ~SpectralMesh();
+    SpectralMesh(SpectralMesh &&) noexcept;
+    SpectralMesh &operator=(SpectralMesh &&) noexcept;
 
     std::size_t ndim() const noexcept { return model_->ndim(); }
     std::size_t ndof() const noexcept { return model_->ndof(); }
@@ -79,6 +85,9 @@ public:
     ) const;
 
 private:
+    friend struct occupation_detail::CertificateCache;
+    // Like the eigensystem cache, queries on one mesh are externally serialized.
+    std::unique_ptr<occupation_detail::CertificateCache> certificates_;
     std::shared_ptr<const HamiltonianModel> model_;
     adaptivesimplex::core::Geometry geometry_;
     EigensystemCache eigensystems_;

@@ -1,5 +1,6 @@
 #include <fermisimplex/spectral_mesh.h>
 
+#include "occupation/certificate_cache.h"
 #include "core/simplex_geometry.h"
 #include "core/tight_binding_access.h"
 #include "linalg/blas_lapack.h"
@@ -43,9 +44,14 @@ SpectralMesh::SpectralMesh(
     std::shared_ptr<const HamiltonianModel> model,
     double tolerance,
     std::uint32_t root_level
-) : model_(validate_model(std::move(model))),
+) : certificates_(std::make_unique<occupation_detail::CertificateCache>()),
+    model_(validate_model(std::move(model))),
     geometry_(core::root_geometry(model_->ndim(), root_level)),
     tolerance_(validate_tolerance(tolerance)) {}
+
+SpectralMesh::~SpectralMesh() = default;
+SpectralMesh::SpectralMesh(SpectralMesh &&) noexcept = default;
+SpectralMesh &SpectralMesh::operator=(SpectralMesh &&) noexcept = default;
 
 Eigensystem SpectralMesh::spectrum(std::span<const double> reduced_point) const {
     auto matrix = hamiltonian(reduced_point);

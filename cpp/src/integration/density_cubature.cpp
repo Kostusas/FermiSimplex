@@ -24,9 +24,8 @@
 #include <omp.h>
 #endif
 
-namespace fermisimplex {
+namespace fermisimplex::integration_detail {
 namespace {
-using namespace integration_detail;
 namespace core = adaptivesimplex::core;
 namespace cut = adaptivesimplex::cut;
 using Value = DensityRule::Value;
@@ -100,9 +99,8 @@ Value cubature_value(
 }
 }  // namespace
 
-DensityComponentsResult integrate_density_components_p(
-    SpectralMesh &mesh, double mu, std::vector<LatticeVector> lattice_vectors,
-    std::vector<DensityComponent> components, double target_error,
+DensityComponentsResult integrate_density_cubature(
+    SpectralMesh &mesh, double mu, const DensityRule &rule, double target_error,
     std::int64_t max_refinements, std::uint32_t max_degree,
     std::int64_t max_h_refinements
 ) {
@@ -111,8 +109,6 @@ DensityComponentsResult integrate_density_components_p(
         max_degree < 3 || max_degree > 21 || max_degree % 2 == 0) {
         throw std::invalid_argument("invalid density hp-cubature options");
     }
-    DensityRule rule(mesh.ndim(), mesh.ndof(), std::move(lattice_vectors),
-                     std::move(components));
     DensityComponentsResult result;
     auto &stats = result.stats;
     const core::Geometry *geometry = &mesh.geometry();
@@ -142,25 +138,12 @@ DensityComponentsResult integrate_density_components_p(
     std::vector<Cell> cells;
     cells.reserve(geometry->simplices().n_active());
     adaptivesimplex::adaptive::RefinementQueue pending;
-    DensityGlobalError error_policy;
-    double squared_p_error = 0;
-    Value p_correction_sum(rule.output_size());
-    long double roundoff_sum = 0;
+    DensityError error(rule.output_size());
     const auto add_error = [&](const Cell &cell) {
-        error_policy.add_local_estimate(squared_p_error, cell.correction);
-        p_correction_sum += cell.correction;
-        roundoff_sum += cell.roundoff;
+        error.update(cell.correction, cell.roundoff, 1);
     };
     const auto remove_error = [&](const Cell &cell) {
-        error_policy.remove_local_estimate(squared_p_error, cell.correction);
-        p_correction_sum -= cell.correction;
-        roundoff_sum -= cell.roundoff;
-    };
-    const auto global_error = [&]() {
-        return std::max({
-            error_policy.error(squared_p_error, p_correction_sum),
-            static_cast<double>(std::max(0.L, roundoff_sum))
-        });
+        error.update(cell.correction, cell.roundoff, -1);
     };
     const auto make_cell = [&](core::SimplexId id, const Cell *parent) -> std::optional<Cell> {
         const auto &simplex = geometry->simplices().simplex(id);
@@ -274,12 +257,12 @@ DensityComponentsResult integrate_density_components_p(
     if (mesh.ndof() >= 32) threads = std::min(omp_get_max_threads(), 16);
 #endif
     const auto batch_size = max_h_refinements == 0 && threads > 1 ? 16 : 1;
-    while (global_error() > target_error) {
+    while (error.estimate() > target_error) {
         const auto remaining_p = max_refinements < 0 ?
             -1 : max_refinements - stats.p_refinements;
         if (max_h_refinements == 0 && remaining_p == 0) break;
         const auto selected = pending.select_for_reduction(
-            global_error() - target_error,
+            error.estimate() - target_error,
             max_h_refinements == 0 ? remaining_p : -1, 1, batch_size
         );
         if (selected.empty()) break;
@@ -361,9 +344,7 @@ DensityComponentsResult integrate_density_components_p(
             enqueue(selected[i]);
         }
     }
-    squared_p_error = 0;
-    p_correction_sum = Value(rule.output_size());
-    roundoff_sum = 0;
+    error = DensityError(rule.output_size());
     Value total(rule.output_size());
     for (const auto &cell : cells) {
         if (!cell.active) continue;
@@ -372,11 +353,11 @@ DensityComponentsResult integrate_density_components_p(
         total += cell.cut_correction;
     }
     result.values = total.values();
-    result.stopping_error = global_error();
+    result.stopping_error = error.estimate();
     stats.target_reached = result.stopping_error <= target_error;
     stats.cached_vertices = mesh.cached_vertices();
     stats.active_simplices = geometry->simplices().n_active();
     stats.active_vertices = geometry->n_active_vertices();
     return result;
 }
-}  // namespace fermisimplex
+}  // namespace fermisimplex::integration_detail

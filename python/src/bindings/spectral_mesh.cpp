@@ -445,86 +445,42 @@ void bind_spectral_mesh(nb::module_ &module) {
             "mu"_a
         )
         .def(
-            "integrate_density_components_p",
+            "estimate_density_on_current_mesh",
+            [](SpectralMesh &mesh, double mu, LatticeVectorArray lattice_vectors,
+               LatticeVectorArray components) {
+                return fermisimplex::estimate_density_on_current_mesh(
+                    mesh, mu, copy_lattice_vectors(lattice_vectors),
+                    copy_density_components(components));
+            },
+            "mu"_a, "lattice_vectors"_a, "components"_a,
+            nb::call_guard<nb::gil_scoped_release>()
+        )
+        .def(
+            "integrate_density_components",
             [](SpectralMesh &mesh, double mu, LatticeVectorArray lattice_vectors,
                LatticeVectorArray components, double target_error,
                std::int64_t max_refinements, std::uint32_t max_degree,
                std::int64_t max_h_refinements) {
-                return fermisimplex::integrate_density_components_p(
+                return fermisimplex::integrate_density_components(
                     mesh, mu, copy_lattice_vectors(lattice_vectors),
                     copy_density_components(components), target_error,
-                    max_refinements, max_degree, max_h_refinements
-                );
+                    max_refinements, max_degree, max_h_refinements);
             },
             "mu"_a, "lattice_vectors"_a, "components"_a, "target_error"_a,
             "max_refinements"_a, "max_degree"_a, "max_h_refinements"_a,
             nb::call_guard<nb::gil_scoped_release>()
         )
         .def(
-            "integrate_density_components",
-            [](SpectralMesh &mesh,
-               double mu,
-               LatticeVectorArray lattice_vectors,
-               LatticeVectorArray components,
-               double target_error,
-               std::int64_t max_refinements,
-               std::uint32_t preview_depth,
-               std::size_t min_refinement_batch_size,
-               std::size_t max_refinement_batch_size) {
-                return fermisimplex::integrate_density_components(
-                    mesh,
-                    mu,
-                    copy_lattice_vectors(lattice_vectors),
-                    copy_density_components(components),
-                    adaptive_options(
-                        target_error,
-                        max_refinements,
-                        preview_depth,
-                        min_refinement_batch_size,
-                        max_refinement_batch_size
-                    )
-                );
-            },
-            "mu"_a,
-            "lattice_vectors"_a,
-            "components"_a,
-            "target_error"_a,
-            "max_refinements"_a,
-            "preview_depth"_a,
-            "min_refinement_batch_size"_a,
-            "max_refinement_batch_size"_a,
-            nb::call_guard<nb::gil_scoped_release>()
-        )
-        .def(
             "integrate_density_matrix",
-            [](SpectralMesh &mesh,
-               double mu,
-               LatticeVectorArray lattice_vectors,
-               double target_error,
-               std::int64_t max_refinements,
-               std::uint32_t preview_depth,
-               std::size_t min_refinement_batch_size,
-               std::size_t max_refinement_batch_size) {
+            [](SpectralMesh &mesh, double mu, LatticeVectorArray lattice_vectors,
+               double target_error, std::int64_t max_refinements,
+               std::uint32_t max_degree, std::int64_t max_h_refinements) {
                 return fermisimplex::integrate_density_matrix(
-                    mesh,
-                    mu,
-                    copy_lattice_vectors(lattice_vectors),
-                    adaptive_options(
-                        target_error,
-                        max_refinements,
-                        preview_depth,
-                        min_refinement_batch_size,
-                        max_refinement_batch_size
-                    )
-                );
+                    mesh, mu, copy_lattice_vectors(lattice_vectors), target_error,
+                    max_refinements, max_degree, max_h_refinements);
             },
-            "mu"_a,
-            "lattice_vectors"_a,
-            "target_error"_a,
-            "max_refinements"_a,
-            "preview_depth"_a,
-            "min_refinement_batch_size"_a,
-            "max_refinement_batch_size"_a,
+            "mu"_a, "lattice_vectors"_a, "target_error"_a,
+            "max_refinements"_a, "max_degree"_a, "max_h_refinements"_a,
             nb::call_guard<nb::gil_scoped_release>()
         )
         .def(

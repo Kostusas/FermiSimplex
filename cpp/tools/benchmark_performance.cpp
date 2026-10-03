@@ -975,13 +975,11 @@ void benchmark_density_contractions(
             });
         }
     }
-    const auto options = adaptivesimplex::adaptive::Options{
-        .target_error = 0.0,
-        .max_refinements = 0,
-        .preview_depth = 0,
-        .min_refinement_batch_size = 1,
-        .max_refinement_batch_size = 100,
-    };
+    std::vector<fermisimplex::DensityComponent> full_components;
+    for (std::size_t vector = 0; vector < lattice_vectors.size(); ++vector)
+        for (std::size_t row = 0; row < ndof; ++row)
+            for (std::size_t column = 0; column < ndof; ++column)
+                full_components.push_back({vector, row, column});
     auto mesh = fermisimplex::SpectralMesh(
         fixed_model(ndim, ndof), 1e-14, root_level
     );
@@ -990,11 +988,11 @@ void benchmark_density_contractions(
     auto full_visits = std::size_t{0};
     const auto full_timing = measure(config.samples, 1, [&](std::size_t) {
         const auto started = Clock::now();
-        const auto density = fermisimplex::integrate_density_matrix(
+        const auto density = fermisimplex::estimate_density_on_current_mesh(
             mesh,
             0.0,
             lattice_vectors,
-            options
+            full_components
         );
         const auto finished = Clock::now();
         require_stable_count(
@@ -1003,7 +1001,7 @@ void benchmark_density_contractions(
             "full-density simplex visits"
         );
         benchmark_sink = density.stopping_error +
-                         std::real(density.matrices.front());
+                         std::real(density.values.front());
         return elapsed_ns(started, finished);
     });
     auto full = make_result(
@@ -1033,12 +1031,11 @@ void benchmark_density_contractions(
         1,
         [&](std::size_t) {
             const auto started = Clock::now();
-            const auto density = fermisimplex::integrate_density_components(
+            const auto density = fermisimplex::estimate_density_on_current_mesh(
                 mesh,
                 0.0,
                 lattice_vectors,
-                components,
-                options
+                components
             );
             const auto finished = Clock::now();
             require_stable_count(

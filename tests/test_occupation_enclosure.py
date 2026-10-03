@@ -197,7 +197,7 @@ def test_cut_indicator_covers_level_tolerance_despite_charge_cancellation(
     charge = mesh.integrate_charge(
         mu=0, target_error=2 * tolerance, max_refinements=0, error_depth=depth
     )
-    density = mesh.integrate_density_components_p(
+    density = mesh.integrate_density_components(
         mu=0,
         lattice_vectors=[(0,) * dimension],
         components=[(0, 0, 0), (0, 1, 1)],

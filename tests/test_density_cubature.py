@@ -17,7 +17,7 @@ def integrate(mesh, *, keys=None, components=None, **kwargs):
         if components is None
         else components
     )
-    return mesh.integrate_density_components_p(
+    return mesh.integrate_density_components(
         mu=kwargs.pop("mu", 0.0),
         lattice_vectors=keys,
         components=components,
@@ -47,7 +47,9 @@ def test_half_occupation_and_duplicate_components():
 
 def test_initial_and_promoted_errors_compare_degrees_two_apart():
     mesh = SpectralMesh({(0,): np.array([[-1.0]])}, root_level=0)
-    request = dict(keys=[(1,)], components=[[0, 0, 0]], target_error=0)
+    request = dict(
+        keys=[(1,)], components=[[0, 0, 0]], target_error=0, max_h_refinements=0
+    )
     q3 = integrate(mesh, max_degree=3, **request)
     q5 = integrate(mesh, max_degree=5, **request)
     default = integrate(mesh, **request)
@@ -118,7 +120,9 @@ def test_cut_occupation_trace_preserves_charge_without_refinement():
 )
 def test_exhaustion_does_not_claim_convergence(budget):
     mesh = SpectralMesh({(0,): np.array([[-1.0]])})
-    result = integrate(mesh, keys=[(1,)], target_error=1e-12, **budget)
+    result = integrate(
+        mesh, keys=[(1,)], target_error=1e-12, max_h_refinements=0, **budget
+    )
     assert not result.stats.target_reached
     assert result.stopping_error > 1e-12
     assert result.stats.refinements == 0
@@ -205,6 +209,7 @@ def test_parallel_large_matrix_is_deterministic_and_respects_budget():
     mesh.estimate_charge_on_current_mesh(mu=0.0)
     geometry = mesh.simplices.copy()
     request = dict(
+        max_h_refinements=0,
         keys=[(0,), (1,)],
         components=[[0, 0, 0], [1, 0, 1], [1, 0, 0]],
         target_error=1e-9,
@@ -269,7 +274,7 @@ def test_hp_fallback_resolves_bulk_degree_cap_without_changing_charge_mesh(mass)
     # Adaptive charge may already resolve it before density starts.
     coarse.estimate_charge_on_current_mesh(mu=0.0)
     before = coarse.points.copy(), coarse.simplices.copy(), coarse.cached_vertices
-    p_only = integrate(coarse, **request)
+    p_only = integrate(coarse, **request, max_h_refinements=0)
     hp = integrate(coarse, **request, max_h_refinements=32)
     fine = SpectralMesh(tb, root_level=3)
     reference = integrate(fine, keys=keys, target_error=1e-9, max_degree=21)
@@ -350,3 +355,43 @@ def test_hp_preserves_root_cut_when_children_reach_level_tolerance(mu):
     assert abs(result.values[0] - charge.value) < 1e-12
     exact = np.expm1(2j * np.pi * 0.37) / (2j * np.pi)
     assert abs(result.values[1] - exact) < 1e-5
+
+
+@pytest.mark.parametrize("selected", [False, True])
+def test_public_density_defaults_bisect_and_preserve_exact_charge(selected):
+    """Both ordinary APIs enable the fallback without a special method/flag."""
+    mesh = SpectralMesh(lambda k: np.array([[k]], complex), root_level=0)
+    mu = 0.37
+    charge = mesh.integrate_charge(mu=mu, target_error=1e-8)
+    before = mesh.points.copy(), mesh.simplices.copy(), mesh.cached_vertices
+    request = dict(mu=mu, lattice_vectors=[(0,), (1,)], target_error=1e-5, max_degree=3)
+    if selected:
+        result = mesh.integrate_density_components(
+            components=[(0, 0, 0), (1, 0, 0)], **request
+        )
+        values = result.values
+    else:
+        result = mesh.integrate_density_matrix(**request)
+        values = result.matrices[:, 0, 0]
+    exact = np.array([mu, np.expm1(2j * np.pi * mu) / (2j * np.pi)])
+    assert result.stats.target_reached
+    assert result.stats.refinements > 0
+    assert abs(values[0] - charge.value) < 1e-13
+    assert np.max(np.abs(values - exact)) < 1e-5
+    np.testing.assert_array_equal(mesh.points, before[0])
+    np.testing.assert_array_equal(mesh.simplices, before[1])
+    assert mesh.cached_vertices == before[2]
+
+
+def test_replacing_large_corrections_does_not_leave_a_false_error_floor():
+    mesh = SpectralMesh({(0,): np.diag([-1.0, 1.0])})
+    request = dict(keys=[(0,), (1,), (-1,)], target_error=1e-9, max_degree=21)
+    capped = integrate(mesh, **request, max_h_refinements=0)
+    adaptive = integrate(mesh, **request, max_h_refinements=1)
+    assert capped.stats.target_reached and adaptive.stats.target_reached
+    # Degree promotion already meets the target. Subtracting earlier squared
+    # corrections must not leave a rounding residue that forces a bisection.
+    assert adaptive.stats.refinements == 0
+    assert adaptive.stats.cubature_evaluations == capped.stats.cubature_evaluations
+    np.testing.assert_array_equal(adaptive.values, capped.values)
+    np.testing.assert_allclose(adaptive.values.reshape(3, 2, 2)[1:], 0, atol=1e-9)

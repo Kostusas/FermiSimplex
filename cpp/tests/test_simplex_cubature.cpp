@@ -46,20 +46,25 @@ void moments(const Cubature &rule, unsigned d, unsigned degree) {
 
 int main() {
     using Value = adaptivesimplex::adaptive::DenseValue<std::complex<double>>;
-    DensityGlobalError policy;
-    double state = 0;
-    Value positive(2), negative(2), coherent(2), cancelled(2);
-    positive[0] = 3.; negative[0] = -3.; coherent[0] = 6.;
-    policy.add_local_estimate(state, positive);
-    policy.add_local_estimate(state, negative);
-    if (std::abs(policy.error(state, cancelled)-std::sqrt(18.)) > 1e-14 ||
-        policy.error(state, coherent) != 6.) {
-        throw std::runtime_error("statistical/coherent density error mismatch");
-    }
-    policy.remove_local_estimate(state, negative);
-    if (policy.error(state, positive) != 3.) {
-        throw std::runtime_error("density error removal mismatch");
-    }
+    DensityError error(2);
+    Value positive(2), negative(2), small(2);
+    positive[0] = 3.; negative[0] = -3.; small[1] = {1e-12, -2e-12};
+    error.update(positive, 0., 1);
+    error.update(negative, 0., 1);
+    if (std::abs(error.estimate() - std::sqrt(18.)) > 1e-14)
+        throw std::runtime_error("incoherent density error mismatch");
+    error.update(negative, 0., -1);
+    error.update(positive, 0., 1);
+    if (error.estimate() != 6.)
+        throw std::runtime_error("coherent density error mismatch");
+    error.update(small, 1e-15, 1);
+    error.update(positive, 0., -1);
+    error.update(positive, 0., -1);
+    if (std::abs(error.estimate() - std::abs(small[1])) > 1e-26)
+        throw std::runtime_error("large removed corrections left a false error floor");
+    error.update(small, 1e-15, -1);
+    if (error.estimate() > 1e-26)
+        throw std::runtime_error("density error did not return to zero");
     for (unsigned d = 1; d <= 3; ++d) {
         Cubature previous;
         for (unsigned s = 0; s <= 10; ++s) {

@@ -100,20 +100,21 @@ CurrentMeshChargeResult estimate_charge_on_current_mesh(
     double mu
 );
 
-// Components index entries in lattice_vectors as (vector, row, column).
-DensityComponentsResult integrate_density_components(
+// Integrate selected entries with the affine rule on the current mesh.
+// Evaluates missing vertex spectra; no refinement or error estimate.
+DensityComponentsResult estimate_density_on_current_mesh(
     SpectralMesh &mesh,
     double mu,
     std::vector<LatticeVector> lattice_vectors,
-    std::vector<DensityComponent> components,
-    const adaptivesimplex::adaptive::Options &options
+    std::vector<DensityComponent> components
 );
 
-// Integrates using nested polynomial cubature. If max_h_refinements is nonzero,
-// cells that exhaust the degree cap bisect on a private density geometry.
-// Child occupations restrict the parent charge simplex's linear band energies.
-// Higher-order cut and charge-geometry errors remain outside the p estimate.
-DensityComponentsResult integrate_density_components_p(
+// Resolve charge first with integrate_charge. Density uses nested cubature,
+// then bisects cells that exhaust max_degree on a private density geometry.
+// Child occupations restrict the charge simplex's linear band energies.
+// Higher-order cut and charge-geometry errors remain outside this estimate.
+// Components index entries in lattice_vectors as (vector, row, column).
+DensityComponentsResult integrate_density_components(
     SpectralMesh &mesh,
     double mu,
     std::vector<LatticeVector> lattice_vectors,
@@ -121,15 +122,18 @@ DensityComponentsResult integrate_density_components_p(
     double target_error,
     std::int64_t max_refinements = -1,
     std::uint32_t max_degree = 7,
-    std::int64_t max_h_refinements = 0
+    std::int64_t max_h_refinements = -1
 );
 
-// With preview_depth=0, integrates the current mesh without refinement.
+// Full matrices use the same cubature and stopping rule as selected entries.
 DensityMatrixResult integrate_density_matrix(
     SpectralMesh &mesh,
     double mu,
     std::vector<LatticeVector> lattice_vectors,
-    const adaptivesimplex::adaptive::Options &options
+    double target_error,
+    std::int64_t max_refinements = -1,
+    std::uint32_t max_degree = 7,
+    std::int64_t max_h_refinements = -1
 );
 
 }  // namespace fermisimplex

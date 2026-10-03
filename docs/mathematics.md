@@ -678,8 +678,8 @@ in the density cut.
 
 ## Density matrices
 
-Density matrices reuse the adaptive geometry and cached vertex eigensystems.
-For active parent-child corrections $\Delta_T$, their stopping estimate is
+Density matrices reuse the resolved charge geometry and cached vertex eigensystems.
+For differences $\Delta_T$ between successive cubature degrees, their stopping estimate is
 
 $$
 \max\left(
@@ -697,9 +697,11 @@ $(r,i,j)$. Requests with the same $(i,j)$ share the projector contraction and
 differ only by the lattice phase for $r$. The stopping estimate then covers
 only those requested entries. Full density matrices are the special case that
 requests every $(r,i,j)$.
-With `preview_depth=0`, no parent-child correction is sampled: the current mesh
-is integrated directly, `stopping_error` is zero by construction, and no
-refinement occurs.
+A separate roundoff floor is included. Cells reaching the degree cap bisect
+on a private density tree, preserving the charge-simplex occupations. See
+[the density algorithm](density-p-cubature.md) for the rules and cut correction.
+`estimate_density_on_current_mesh` applies the affine vertex rule without
+adaptation; its zero `stopping_error` does not estimate an integration error.
 
 ## What the reported quantities mean
 

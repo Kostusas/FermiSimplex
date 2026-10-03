@@ -125,7 +125,7 @@ void test_density_components_preserve_request_order() {
             {.lattice_vector_index = 0, .row = 0, .column = 0},
             {.lattice_vector_index = 0, .row = 0, .column = 0},
         },
-        fixed_options(0.0)
+        1e-12
     );
 
     expect_eq(result.values.size(), 3, "density component count");
@@ -143,7 +143,7 @@ void test_density_components_preserve_request_order() {
                 0.0,
                 {{0}},
                 {{.lattice_vector_index = 0, .row = 2, .column = 0}},
-                fixed_options(0.0)
+                1e-12
             );
         },
         "out of range",
@@ -170,7 +170,7 @@ void test_integration_rejects_nonfinite_mu() {
             "fixed-mesh charge should reject a non-finite chemical potential"
         );
         expect_runtime_error(
-            [&] { (void)integrate_density_matrix(mesh, mu, {{0}}, options); },
+            [&] { (void)integrate_density_matrix(mesh, mu, {{0}}, 1e-12); },
             "mu must be finite",
             "density integration should reject a non-finite chemical potential"
         );
@@ -181,7 +181,7 @@ void test_integration_rejects_nonfinite_mu() {
                     mu,
                     {{0}},
                     {{.lattice_vector_index = 0, .row = 0, .column = 0}},
-                    options
+                    1e-12
                 );
             },
             "mu must be finite",
@@ -189,13 +189,13 @@ void test_integration_rejects_nonfinite_mu() {
         );
     }
 
-    const auto density = integrate_density_matrix(mesh, 0.0, {{0}}, options);
-    expect_near(density.stopping_error, 0.0, kTol, "depth-zero density error");
-    expect_eq(density.stats.refinements, 0, "depth-zero density refinements");
+    const auto density = integrate_density_matrix(mesh, 0.0, {{0}}, 1e-12);
+    expect_near(density.stopping_error, 0.0, kTol, "constant density error");
+    expect_eq(density.stats.refinements, 0, "constant density refinements");
     expect_eq(
         density.stats.simplex_visits,
         density.stats.active_simplices,
-        "depth-zero density should visit each active simplex once"
+        "constant density should visit each active simplex once"
     );
 }
 

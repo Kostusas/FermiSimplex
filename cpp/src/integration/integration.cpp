@@ -3,7 +3,6 @@
 
 #include "integration/charge.h"
 #include "integration/density.h"
-#include "integration/density_error.h"
 #include "occupation/enclosure.h"
 #include "core/tight_binding_access.h"
 
@@ -24,7 +23,6 @@ namespace adaptive = adaptivesimplex::adaptive;
 namespace core = adaptivesimplex::core;
 using integration_detail::ChargeContribution;
 using integration_detail::DensityRule;
-using integration_detail::DensityGlobalError;
 
 namespace {
 
@@ -118,15 +116,6 @@ struct ChargeSimplexError {
     }
 };
 
-struct DensitySimplexError {
-    template <class Value, class Cache>
-    double operator()(
-        const adaptive::SimplexEstimateContext<Value, Cache> &estimate
-    ) const {
-        return estimate.correction.max_abs();
-    }
-};
-
 auto charge_integrand(
     SpectralMesh &mesh, double mu, std::uint32_t error_depth,
     std::int64_t &simplex_visits, ChargeErrorStats &error_stats
@@ -158,33 +147,6 @@ auto charge_integrand(
         },
         adaptive::estimation_policies<
             SumSimplexErrors<ChargeSimplexError>, ChargeSimplexError>{}
-    );
-}
-
-auto density_integrand(
-    SpectralMesh &mesh,
-    double mu,
-    DensityRule &rule,
-    std::int64_t &simplex_visits,
-    std::uint32_t preview_depth
-) {
-    return adaptive::simplex_integrand(
-        mesh.eigensystems(),
-        [&mesh](std::span<const double> point) {
-            return mesh.spectrum(point);
-        },
-        [&mesh, mu, &rule, &simplex_visits](
-            const core::Geometry &geometry,
-            core::SimplexId simplex_id,
-            EigensystemCache &
-        ) {
-            ++simplex_visits;
-            return rule.on_simplex(mu, mesh, geometry, simplex_id);
-        },
-        adaptive::estimation_policies{
-            DensityGlobalError{.has_preview = preview_depth > 0},
-            DensitySimplexError{},
-        }
     );
 }
 
@@ -259,62 +221,6 @@ ChargeResult charge_result(
     };
 }
 
-adaptive::IntegrationResult<DensityRule::Value> integrate_density_rule(
-    SpectralMesh &mesh,
-    double mu,
-    DensityRule &rule,
-    const adaptive::Options &options,
-    std::int64_t &simplex_visits
-) {
-    auto integrand = density_integrand(
-        mesh,
-        mu,
-        rule,
-        simplex_visits,
-        options.preview_depth
-    );
-    return adaptive::run(mesh.geometry(), integrand, options);
-}
-
-DensityComponentsResult density_components_result(
-    const SpectralMesh &mesh,
-    const adaptive::IntegrationResult<DensityRule::Value> &raw,
-    std::int64_t simplex_visits
-) {
-    return DensityComponentsResult{
-        .values = raw.integral.values(),
-        .stopping_error = raw.stopping_error,
-        .stats = stats(
-            mesh,
-            raw.evaluations,
-            simplex_visits,
-            raw.refinements,
-            raw.converged
-        ),
-    };
-}
-
-DensityMatrixResult density_matrix_result(
-    const SpectralMesh &mesh,
-    const adaptive::IntegrationResult<DensityRule::Value> &raw,
-    const DensityRule &rule,
-    std::int64_t simplex_visits
-) {
-    return DensityMatrixResult{
-        .matrices = raw.integral.values(),
-        .stopping_error = raw.stopping_error,
-        .lattice_vector_count = rule.lattice_vector_count(),
-        .ndof = rule.ndof(),
-        .stats = stats(
-            mesh,
-            raw.evaluations,
-            simplex_visits,
-            raw.refinements,
-            raw.converged
-        ),
-    };
-}
-
 }  // namespace
 
 ChargeResult integrate_charge(
@@ -344,54 +250,52 @@ CurrentMeshChargeResult estimate_charge_on_current_mesh(
     return current_mesh_charge(mesh, mu);
 }
 
-DensityComponentsResult integrate_density_components(
-    SpectralMesh &mesh,
-    double mu,
-    std::vector<LatticeVector> lattice_vectors,
-    std::vector<DensityComponent> components,
-    const adaptive::Options &options
+DensityComponentsResult estimate_density_on_current_mesh(
+    SpectralMesh &mesh, double mu, std::vector<LatticeVector> lattice_vectors,
+    std::vector<DensityComponent> components
 ) {
     validate_mu(mu);
-    validate_options(options);
-    auto rule = DensityRule(
-        mesh.ndim(),
-        mesh.ndof(),
-        std::move(lattice_vectors),
-        std::move(components)
-    );
-    auto simplex_visits = std::int64_t{0};
-    const auto raw = integrate_density_rule(
-        mesh,
-        mu,
-        rule,
-        options,
-        simplex_visits
-    );
-    return density_components_result(mesh, raw, simplex_visits);
+    const DensityRule rule(mesh.ndim(), mesh.ndof(), std::move(lattice_vectors),
+                           std::move(components));
+    std::int64_t evaluations = 0;
+    auto &cache = mesh.eigensystems();
+    for (const auto vertex : mesh.active_vertex_ids()) {
+        if (!cache.contains(vertex)) {
+            const auto point = mesh.geometry().vertices().dyadic_vertex(vertex).to_point();
+            cache.insert(vertex, mesh.spectrum(point));
+            ++evaluations;
+        }
+    }
+    DensityRule::Value total(rule.output_size());
+    for (const auto id : mesh.geometry().simplices().active_simplices())
+        total += rule.on_simplex(mu, mesh, mesh.geometry(), id);
+    return {total.values(), 0., stats(mesh, evaluations, mesh.active_simplices(), 0, true)};
+}
+
+DensityComponentsResult integrate_density_components(
+    SpectralMesh &mesh, double mu, std::vector<LatticeVector> lattice_vectors,
+    std::vector<DensityComponent> components, double target_error,
+    std::int64_t max_refinements, std::uint32_t max_degree,
+    std::int64_t max_h_refinements
+) {
+    validate_mu(mu);
+    const DensityRule rule(mesh.ndim(), mesh.ndof(), std::move(lattice_vectors),
+                           std::move(components));
+    return integration_detail::integrate_density_cubature(
+        mesh, mu, rule, target_error, max_refinements, max_degree, max_h_refinements);
 }
 
 DensityMatrixResult integrate_density_matrix(
-    SpectralMesh &mesh,
-    double mu,
-    std::vector<LatticeVector> lattice_vectors,
-    const adaptive::Options &options
+    SpectralMesh &mesh, double mu, std::vector<LatticeVector> lattice_vectors,
+    double target_error, std::int64_t max_refinements, std::uint32_t max_degree,
+    std::int64_t max_h_refinements
 ) {
     validate_mu(mu);
-    validate_options(options);
-    auto rule = DensityRule(
-        mesh.ndim(),
-        mesh.ndof(),
-        std::move(lattice_vectors)
-    );
-    auto simplex_visits = std::int64_t{0};
-    const auto raw = integrate_density_rule(
-        mesh,
-        mu,
-        rule,
-        options,
-        simplex_visits
-    );
-    return density_matrix_result(mesh, raw, rule, simplex_visits);
+    const DensityRule rule(mesh.ndim(), mesh.ndof(), std::move(lattice_vectors));
+    auto result = integration_detail::integrate_density_cubature(
+        mesh, mu, rule, target_error, max_refinements, max_degree, max_h_refinements);
+    return {std::move(result.values), result.stopping_error,
+            rule.lattice_vector_count(), rule.ndof(), result.stats};
 }
 
 }  // namespace fermisimplex

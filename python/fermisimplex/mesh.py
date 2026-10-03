@@ -132,6 +132,22 @@ def _adaptive_parameters(
     )
 
 
+def _density_parameters(target_error, max_refinements, max_degree, max_h_refinements):
+    degree = _positive_integer(max_degree, "max_degree")
+    if degree < 3 or degree > 21 or degree % 2 == 0:
+        raise ValueError("max_degree must be an odd integer in [3, 21]")
+    return (
+        _nonnegative_float(target_error, "target_error"),
+        -1
+        if max_refinements is None
+        else _nonnegative_integer(max_refinements, "max_refinements"),
+        degree,
+        -1
+        if max_h_refinements is None
+        else _nonnegative_integer(max_h_refinements, "max_h_refinements"),
+    )
+
+
 class SpectralMesh:
     """Adaptive simplex mesh and shared Hamiltonian spectrum cache.
 
@@ -377,6 +393,25 @@ class SpectralMesh:
             )
         )
 
+    def estimate_density_on_current_mesh(
+        self,
+        *,
+        mu: float,
+        lattice_vectors,
+        components,
+    ) -> DensityComponentsResult:
+        """Evaluate affine density moments on the current mesh.
+
+        Evaluates missing vertex spectra without refining or sampling interior
+        points. No quadrature error is estimated; ``stopping_error`` is zero.
+        ``components`` lists (lattice-vector index, row, column) entries.
+        """
+        return self._native.estimate_density_on_current_mesh(
+            _finite_float(mu, "mu"),
+            _lattice_vector_array(lattice_vectors, self.ndim),
+            _density_component_array(components),
+        )
+
     def integrate_density_matrix(
         self,
         *,
@@ -384,111 +419,25 @@ class SpectralMesh:
         lattice_vectors,
         target_error: float,
         max_refinements: int | None = None,
-        preview_depth: int = 1,
-        min_refinement_batch_size: int = 1,
-        max_refinement_batch_size: int = 100,
+        max_degree: int = 7,
+        max_h_refinements: int | None = None,
     ) -> DensityMatrixResult:
-        """Adaptively integrate real-space density-matrix components.
+        """Integrate full real-space density matrices on the resolved charge mesh.
 
-        Parameters
-        ----------
-        mu
-            Chemical potential.
-        lattice_vectors
-            Integer lattice vectors with shape ``(count, ndim)``.
-        target_error
-            Target for the adaptive quadrature estimate.
-        max_refinements
-            Maximum number of simplex refinements, or ``None`` for no limit.
-        preview_depth
-            Refinement depth used to estimate each simplex correction. Zero
-            integrates directly on the current mesh without preview samples
-            or refinement.
-        min_refinement_batch_size, max_refinement_batch_size
-            Bounds on the number of simplices refined in one adaptive step.
+        First call :meth:`integrate_charge` at the requested ``mu``. Density
+        uses the same adaptive cubature as :meth:`integrate_density_components`:
+        raise polynomial degree, then bisect unresolved density cells. Charge
+        geometry and occupation remain fixed. The error estimate covers smooth
+        quadrature, not the remaining occupation-cut error.
 
-        Returns
-        -------
-        DensityMatrixResult
-            Matrices with shape ``(count, ndof, ndof)``, their adaptive error
-            estimate, and integration statistics. Density matrices are not
-            currently certified.
+        Returns matrices with shape ``(len(lattice_vectors), ndof, ndof)``.
+        Limits and stopping behavior match :meth:`integrate_density_components`.
         """
-        adaptive = _adaptive_parameters(
-            target_error,
-            max_refinements,
-            _nonnegative_integer(preview_depth, "preview_depth"),
-            min_refinement_batch_size,
-            max_refinement_batch_size,
-        )
         return self._native.integrate_density_matrix(
             _finite_float(mu, "mu"),
             _lattice_vector_array(lattice_vectors, self.ndim),
-            *adaptive,
-        )
-
-    def integrate_density_components_p(
-        self,
-        *,
-        mu: float,
-        lattice_vectors,
-        components,
-        target_error: float,
-        max_refinements: int | None = None,
-        max_degree: int = 7,
-        max_h_refinements: int | None = 0,
-    ) -> DensityComponentsResult:
-        """Raise cubature degree, then bisect stalled cells on a density-only tree.
-
-        Starts with degree three compared to the vertex average (degree one).
-        Subsequent rules have degrees 5, 7, ..., up to ``max_degree`` and reuse nested
-        Grundmann-Moeller samples within this call. Only requested density
-        components are retained at interior nodes, not eigensystems.
-        ``max_degree`` is an odd integer from 3 through 21.
-        ``max_refinements`` limits p promotions beyond the initial Q3-Q1
-        estimate. ``max_h_refinements`` limits density-only bisections; zero
-        retains p-only behavior, and None permits unbounded bisection.
-        Exhaustion returns ``stats.target_reached == False``.
-
-        Each child uses the parent charge simplex's linearly interpolated band
-        energies for occupation, after applying its level tolerance once at
-        the root. Children preserve that cut without reapplying the tolerance.
-        This preserves charge across density-only bisections. The existing cut
-        barycentric moments correct the
-        vertex-linear contribution, removing the leading
-        occupation/projector correlation error without new samples. Higher-order cut and charge-geometry errors remain outside
-        the cubature estimate, which is not a rigorous bound.
-
-        The stopping estimate uses the same policy as h-refinement: the maximum
-        of the root-sum-square of local correction norms and the norm of their
-        coherent sum, with a separate floating-point floor. After a split,
-        the children replace the parent's contribution and p indicator. The
-        caller must first resolve charge on this mesh.
-
-        In p-only mode, multiple requested OpenMP threads enable batches of
-        up to 16 cells for Hamiltonians with at least 32 orbitals. The hp
-        controller currently processes one cell at a time. Worker exceptions
-        propagate to the caller.
-        """
-        degree = _positive_integer(max_degree, "max_degree")
-        if degree < 3 or degree > 21 or degree % 2 == 0:
-            raise ValueError("max_degree must be an odd integer in [3, 21]")
-        limit = (
-            -1
-            if max_refinements is None
-            else _nonnegative_integer(max_refinements, "max_refinements")
-        )
-        return self._native.integrate_density_components_p(
-            _finite_float(mu, "mu"),
-            _lattice_vector_array(lattice_vectors, self.ndim),
-            _density_component_array(components),
-            _nonnegative_float(target_error, "target_error"),
-            limit,
-            degree,
-            (
-                -1
-                if max_h_refinements is None
-                else _nonnegative_integer(max_h_refinements, "max_h_refinements")
+            *_density_parameters(
+                target_error, max_refinements, max_degree, max_h_refinements
             ),
         )
 
@@ -500,32 +449,40 @@ class SpectralMesh:
         components,
         target_error: float,
         max_refinements: int | None = None,
-        preview_depth: int = 1,
-        min_refinement_batch_size: int = 1,
-        max_refinement_batch_size: int = 100,
+        max_degree: int = 7,
+        max_h_refinements: int | None = None,
     ) -> DensityComponentsResult:
-        """Adaptively integrate selected real-space density components.
+        """Integrate selected entries on the resolved charge mesh.
 
-        ``components`` has shape ``(count, 3)``. Each row contains
-        ``(lattice_vector_index, matrix_row, matrix_column)``. Returned values
-        follow the request order; repeated components are allowed.
+        First call :meth:`integrate_charge` at the requested ``mu``. Components
+        are (lattice-vector index, row, column); request order and duplicates
+        are preserved. Only requested entries are retained at interior samples.
 
-        The adaptive arguments have the same meaning as for
-        :meth:`integrate_density_matrix`. The stopping error covers only the
-        requested components.
+        Compare degree three with the vertex average, then raise the degree
+        through 5, 7, ..., ``max_degree`` (odd, in [3, 21]). Nested samples are
+        reused within this call. Cells that exhaust the degree cap bisect on a
+        private density tree and restart at degree three. Their occupations
+        restrict the original charge-simplex cuts, preserving total charge.
+        Vertex moments correct the leading occupation/projector correlation.
+
+        ``max_refinements`` limits degree promotions and ``max_h_refinements``
+        limits bisections. Both are unlimited by default; zero forbids the
+        corresponding work. Budget exhaustion is reported by
+        ``stats.target_reached == False``. The stopping estimate combines
+        incoherent and coherent changes between rules with a roundoff floor.
+        Higher-order cut errors remain outside this empirical estimate.
+
+        Charge geometry and its retained spectra remain unchanged. When
+        bisections are disabled, OpenMP can parallelize promotion batches for
+        at least 32 orbitals. Worker exceptions propagate to the caller.
         """
-        adaptive = _adaptive_parameters(
-            target_error,
-            max_refinements,
-            _nonnegative_integer(preview_depth, "preview_depth"),
-            min_refinement_batch_size,
-            max_refinement_batch_size,
-        )
         return self._native.integrate_density_components(
             _finite_float(mu, "mu"),
             _lattice_vector_array(lattice_vectors, self.ndim),
             _density_component_array(components),
-            *adaptive,
+            *_density_parameters(
+                target_error, max_refinements, max_degree, max_h_refinements
+            ),
         )
 
     def fermi_surface(

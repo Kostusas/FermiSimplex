@@ -90,20 +90,18 @@ def test_occupied_weights_match_charge_density_and_band_energy(mu, occupation):
     charge = mesh.estimate_charge_on_current_mesh(mu=mu)
     weights = mesh.occupied_weights(mu)
     density_vectors = [
-        tuple(-component for component in lattice_vector)
-        for lattice_vector in hoppings
+        tuple(-component for component in lattice_vector) for lattice_vector in hoppings
     ]
-    density = mesh.integrate_density_matrix(
+    density = mesh.estimate_density_on_current_mesh(
         mu=mu,
         lattice_vectors=density_vectors,
-        target_error=0.0,
-        max_refinements=0,
-        preview_depth=0,
+        components=[(i, 0, 0) for i in range(len(density_vectors))],
     )
+    matrices = density.values.reshape(-1, 1, 1)
 
     band_energy = np.sum(weights * mesh.eigenvalues)
     density_band_energy = sum(
-        np.trace(hopping @ density.matrices[index])
+        np.trace(hopping @ matrices[index])
         for index, hopping in enumerate(hoppings.values())
     )
     projectors = np.einsum(
@@ -117,9 +115,7 @@ def test_occupied_weights_match_charge_density_and_band_energy(mu, occupation):
     assert weights.shape == (mesh.active_vertices, mesh.ndof)
     assert weights.sum() == pytest.approx(charge.value)
     assert band_energy == pytest.approx(density_band_energy)
-    assert onsite_density == pytest.approx(
-        density.matrices[zero_vector_index]
-    )
+    assert onsite_density == pytest.approx(matrices[zero_vector_index])
     if occupation == "empty":
         assert weights == pytest.approx(0.0)
     elif occupation == "full":
@@ -181,9 +177,7 @@ def test_public_mesh_arrays_are_read_only_and_do_not_evaluate():
         eigenvectors.conj(),
         eigenvectors,
     ) == pytest.approx(
-        np.broadcast_to(
-            np.eye(mesh.ndof), (mesh.active_vertices, mesh.ndof, mesh.ndof)
-        )
+        np.broadcast_to(np.eye(mesh.ndof), (mesh.active_vertices, mesh.ndof, mesh.ndof))
     )
     for array in (points, simplices, eigenvalues, eigenvectors):
         assert not array.flags.writeable
@@ -193,59 +187,34 @@ def test_public_mesh_arrays_are_read_only_and_do_not_evaluate():
     assert len(evaluations) == evaluations_before_access
     assert mesh.cached_vertices == cached_vertices
 
-def test_density_matrix_preview_zero_reuses_the_current_mesh():
-    mesh = SpectralMesh(constant_insulator(1))
-    mesh.estimate_charge_on_current_mesh(mu=0.0)
-    cached_vertices = mesh.cached_vertices
 
-    result = mesh.integrate_density_matrix(
-        mu=0.0,
-        lattice_vectors=[(0,)],
-        target_error=0.0,
-        max_refinements=0,
-        preview_depth=0,
-    )
-
-    assert result.matrices[0] == pytest.approx(np.diag([1.0, 0.0]))
-    assert result.stopping_error == pytest.approx(0.0)
-    assert result.stats.evaluations == 0
-    assert result.stats.refinements == 0
-    assert mesh.cached_vertices == cached_vertices
-
-
-def test_density_stopping_error_combines_l2_and_signed_correction():
-    hoppings = dimerized_chain()
+def test_density_stopping_error_covers_signed_correction():
+    mesh = SpectralMesh(dimerized_chain(), root_level=1)
     keys = [(0,), (1,), (-1,)]
-    common = {
-        "mu": 0.0,
-        "lattice_vectors": keys,
-        "target_error": 1e6,
-        "max_refinements": 0,
-    }
-
-    coarse = SpectralMesh(hoppings, root_level=1).integrate_density_matrix(
-        preview_depth=0,
-        **common,
+    components = [(k, i, j) for k in range(3) for i in range(2) for j in range(2)]
+    coarse = mesh.estimate_density_on_current_mesh(
+        mu=0.0,
+        lattice_vectors=keys,
+        components=components,
     )
-    preview = SpectralMesh(hoppings, root_level=1).integrate_density_matrix(
-        preview_depth=1,
-        **common,
+    cubature = mesh.integrate_density_matrix(
+        mu=0.0,
+        lattice_vectors=keys,
+        target_error=1e6,
     )
-    global_correction = np.max(np.abs(preview.matrices - coarse.matrices))
+    correction = np.max(np.abs(cubature.matrices.ravel() - coarse.values))
+    assert correction > 0
+    assert cubature.stopping_error >= correction - 1e-14
 
-    assert global_correction > 0.0
-    assert preview.stopping_error > global_correction
 
-
-def test_density_matrix_rejects_negative_preview_depth():
+def test_density_matrix_rejects_invalid_degree():
     mesh = SpectralMesh(constant_insulator(1))
-
-    with pytest.raises(ValueError, match="preview_depth"):
+    with pytest.raises(ValueError, match="max_degree"):
         mesh.integrate_density_matrix(
-            mu=0.0,
+            mu=0,
             lattice_vectors=[(0,)],
-            target_error=1.0,
-            preview_depth=-1,
+            target_error=1e-6,
+            max_degree=4,
         )
 
 
@@ -277,7 +246,6 @@ def test_density_matrix_matches_a_dense_reference():
         lattice_vectors=keys,
         target_error=5e-3,
         max_refinements=512,
-        preview_depth=2,
     )
 
     assert result.matrices.shape == (len(keys), 2, 2)
@@ -297,7 +265,6 @@ def test_adaptive_density_components_match_independently_refined_full_density():
         "mu": 0.0,
         "lattice_vectors": keys,
         "max_refinements": 250,
-        "preview_depth": 2,
     }
 
     selected = SpectralMesh(hoppings, root_level=1).integrate_density_components(
@@ -313,7 +280,7 @@ def test_adaptive_density_components_match_independently_refined_full_density():
         [full.matrices[key, row, column] for key, row, column in components]
     )
 
-    assert selected.stats.refinements > 0
+    assert selected.stats.p_refinements + selected.stats.refinements > 0
     assert selected.stats.evaluations > 0
     assert selected.stopping_error <= 5e-3
     assert full.stopping_error <= 5e-3
@@ -329,7 +296,6 @@ def test_density_components_match_full_matrices_in_request_order():
         "lattice_vectors": keys,
         "target_error": 1e6,
         "max_refinements": 0,
-        "preview_depth": 2,
     }
 
     full = SpectralMesh(hoppings).integrate_density_matrix(**options)
@@ -350,65 +316,35 @@ def test_density_components_match_full_matrices_in_request_order():
 
 def test_shared_mesh_charge_and_selected_density_workflow():
     mesh = SpectralMesh(qiwuzhang(), root_level=1)
-    charge = mesh.integrate_charge(
-        mu=0.2,
-        target_error=3e-2,
-        max_refinements=100,
-    )
+    charge = mesh.integrate_charge(mu=0.2, target_error=3e-2, max_refinements=100)
     assert charge.stats.refinements > 0
-
-    active_simplices = mesh.active_simplices
-    cached_vertices = mesh.cached_vertices
+    counts = mesh.active_simplices, mesh.cached_vertices
     current_charge = mesh.estimate_charge_on_current_mesh(mu=-0.1)
     assert np.isfinite(current_charge.value)
-    assert mesh.active_simplices == active_simplices
-    assert mesh.cached_vertices == cached_vertices
-
-    options = {
-        "mu": -0.1,
-        "lattice_vectors": [(0, 0), (1, 0)],
-        "components": [(0, 0, 0), (1, 0, 1)],
-        "target_error": 1e9,
-        "max_refinements": 0,
-    }
-    current_mesh_density = mesh.integrate_density_components(
-        preview_depth=0,
-        **options,
+    request = dict(
+        mu=-0.1, lattice_vectors=[(0, 0), (1, 0)], components=[(0, 0, 0), (1, 0, 1)]
     )
-    assert current_mesh_density.stats.evaluations == 0
-    assert current_mesh_density.stats.refinements == 0
-    assert mesh.active_simplices == active_simplices
-    assert mesh.cached_vertices == cached_vertices
-
-    preview_density = mesh.integrate_density_components(
-        preview_depth=1,
-        **options,
-    )
-    assert preview_density.stats.evaluations > 0
-    assert preview_density.stats.refinements == 0
-    assert mesh.active_simplices == active_simplices
-    assert np.all(np.isfinite(current_mesh_density.values))
-    assert np.all(np.isfinite(preview_density.values))
+    current = mesh.estimate_density_on_current_mesh(**request)
+    assert current.stats.evaluations == current.stats.refinements == 0
+    cubature = mesh.integrate_density_components(**request, target_error=1e9)
+    assert cubature.stats.evaluations > 0
+    assert cubature.stats.refinements == 0
+    assert (mesh.active_simplices, mesh.cached_vertices) == counts
+    assert np.all(np.isfinite(current.values))
+    assert np.all(np.isfinite(cubature.values))
 
 
-def test_density_components_preview_zero_reuses_the_current_mesh():
+def test_density_on_current_mesh_reuses_vertex_spectra():
     mesh = SpectralMesh(constant_insulator(1))
     mesh.estimate_charge_on_current_mesh(mu=0.0)
     cached_vertices = mesh.cached_vertices
-
-    result = mesh.integrate_density_components(
-        mu=0.0,
+    result = mesh.estimate_density_on_current_mesh(
+        mu=0,
         lattice_vectors=[(0,)],
         components=[(0, 0, 0)],
-        target_error=0.0,
-        max_refinements=0,
-        preview_depth=0,
     )
-
     assert result.values == pytest.approx([1.0])
-    assert result.stopping_error == pytest.approx(0.0)
-    assert result.stats.evaluations == 0
-    assert result.stats.refinements == 0
+    assert result.stats.evaluations == result.stats.refinements == 0
     assert mesh.cached_vertices == cached_vertices
 
 
@@ -434,7 +370,6 @@ def test_density_components_validate_indices(components, exception, message):
             components=components,
             target_error=1.0,
             max_refinements=0,
-            preview_depth=0,
         )
 
 
@@ -470,36 +405,20 @@ def test_public_charge_integration_paths(public_hamiltonian, path):
 
 
 @pytest.mark.parametrize("selected", (False, True), ids=("full", "components"))
-@pytest.mark.parametrize("preview_depth", (0, 1))
-def test_public_density_integration_paths(
-    public_hamiltonian,
-    selected,
-    preview_depth,
-):
+def test_public_density_integration_paths(public_hamiltonian, selected):
     mesh = SpectralMesh(public_hamiltonian)
-    mesh.estimate_charge_on_current_mesh(mu=0.0)
-    options = {
-        "mu": 0.0,
-        "lattice_vectors": [(0,), (1,)],
-        "target_error": 1e6,
-        "max_refinements": 0,
-        "preview_depth": preview_depth,
-    }
-
+    mesh.integrate_charge(mu=0.0, target_error=1e-3)
+    request = dict(mu=0.0, lattice_vectors=[(0,), (1,)], target_error=1e-3)
     if selected:
         result = mesh.integrate_density_components(
             components=[(0, 0, 0), (1, 0, 1)],
-            **options,
+            **request,
         )
         assert result.values.shape == (2,)
         assert np.all(np.isfinite(result.values))
     else:
-        result = mesh.integrate_density_matrix(**options)
+        result = mesh.integrate_density_matrix(**request)
         assert result.matrices.shape == (2, 2, 2)
         assert np.all(np.isfinite(result.matrices))
-
-    assert result.stats.refinements == 0
-    if preview_depth == 0:
-        assert result.stats.evaluations == 0
-    else:
-        assert result.stats.evaluations > 0
+    assert result.stats.target_reached
+    assert result.stats.cubature_evaluations > 0

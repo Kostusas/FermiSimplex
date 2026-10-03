@@ -13,9 +13,7 @@ from fermisimplex import SpectralMesh
 def test_installed_distribution_runs_a_native_surface_calculation():
     def hamiltonian(kx, ky):
         coordinate_sum = kx + ky
-        return np.diag(
-            [coordinate_sum - 1.5, coordinate_sum - 0.5]
-        ).astype(complex)
+        return np.diag([coordinate_sum - 1.5, coordinate_sum - 0.5]).astype(complex)
 
     mesh = SpectralMesh(hamiltonian)
     surface = mesh.fermi_surface(
@@ -29,9 +27,8 @@ def test_installed_distribution_runs_a_native_surface_calculation():
         mu=0.0,
         lattice_vectors=[(0, 0)],
         components=[(0, 0, 0), (0, 1, 1)],
-        target_error=0.0,
+        target_error=1e-10,
         max_refinements=0,
-        preview_depth=0,
     )
 
     assert version("FermiSimplex")

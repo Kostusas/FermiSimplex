@@ -82,7 +82,7 @@ def test_exact_diagonal_spectrum_retains_small_energies_and_band_vectors():
     result = mesh.integrate_charge(mu=0, target_error=0, max_refinements=0)
     np.testing.assert_array_equal(mesh.eigenvalues[0], np.sort(diagonal))
     assert result.value == 1.5 and result.stopping_error == 0
-    density = mesh.integrate_density_components_p(
+    density = mesh.integrate_density_components(
         mu=0,
         lattice_vectors=[(0,)],
         components=[(0, i, i) for i in range(3)],

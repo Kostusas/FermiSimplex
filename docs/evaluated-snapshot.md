@@ -4,8 +4,9 @@
 
 `mesh.evaluated_snapshot(include_eigenvectors=True)` copies all retained full
 spectra and the finest complete evaluated partition into a read-only snapshot.
-Density-preview spectra are included. Temporary charge-error workspaces and
-reduced-model spectra are excluded. Export performs no Hamiltonian evaluation,
+Any retained preview spectra are included. Density cubature and density-only
+bisections are transient: they do not enter this snapshot. Temporary charge-error
+workspaces and reduced-model spectra are also excluded. Export performs no Hamiltonian evaluation,
 diagonalization, refinement, or change to later integration behavior.
 
 The active mesh controls the integrator. Its preview tree may contain finer
@@ -78,6 +79,6 @@ and its tests live entirely in FermiSimplex. No new dependencies are introduced.
 Validation on the implementation: dimensions 1 through 4 have worst volume
 error 1.45e-15. For the polynomial x^2 - 2 on [0, 1], composite trapezoid error
 is 1/96 and Simpson error is zero in the test run. These illustrate sample reuse;
-they do not prescribe MeanFi's Q2/Q3 rules. A nonuniform 2D density-preview case
-has 48 midpoint/centroid requests, 40 unique coordinates, 4 existing preview hits
-and 36 genuinely missing coordinates.
+they do not prescribe MeanFi's Q2/Q3 rules. C++ tests construct mixed-depth preview trees directly to check incomplete
+coverings and extra retained spectra. Python tests verify that density-only
+bisection leaves the exported partition unchanged.

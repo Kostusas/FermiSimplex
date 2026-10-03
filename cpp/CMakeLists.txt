@@ -114,7 +114,7 @@ if(NOT TARGET adaptivesimplex::adaptive)
   FetchContent_Declare(
     adaptivesimplex
     GIT_REPOSITORY https://gitlab.kwant-project.org/qt/adaptivesimplex.git
-    GIT_TAG 5ea4787abf801b15fc42c374da4c9418cba2f556
+    GIT_TAG 57df88574cf9726c97b01fc29688ed4d8896e827
     ${_fs_adaptivesimplex_fetch_options}
   )
   FetchContent_MakeAvailable(adaptivesimplex)
@@ -246,7 +246,7 @@ set(
   src/occupation/enclosure.cpp
   src/integration/charge.cpp
   src/integration/density.cpp
-  src/integration/density_p.cpp
+  src/integration/density_cubature.cpp
   src/integration/integration.cpp
   src/fermi_surface/adaptive_refinement.cpp
   src/fermi_surface/fermi_surface.cpp
@@ -290,14 +290,14 @@ target_compile_definitions(
   FERMISIMPLEX_BLAS_ZHEMM=${FERMISIMPLEX_BLAS_ZHEMM_SYMBOL}
 )
 
-# Compile only density_p.cpp with OpenMP: leave charge and the generic adaptive
+# Compile only density_cubature.cpp with OpenMP: leave charge and the generic adaptive
 # engine's existing compilation/threading behavior unchanged. If OpenMP is not
 # available, the same source retains the serial controller.
 if(FERMISIMPLEX_ENABLE_DENSITY_OPENMP AND OpenMP_CXX_FOUND)
   separate_arguments(_fs_density_openmp_flags NATIVE_COMMAND "${OpenMP_CXX_FLAGS}")
-  set_property(SOURCE src/integration/density_p.cpp APPEND PROPERTY
+  set_property(SOURCE src/integration/density_cubature.cpp APPEND PROPERTY
     COMPILE_OPTIONS ${_fs_density_openmp_flags})
-  set_property(SOURCE src/integration/density_p.cpp APPEND PROPERTY
+  set_property(SOURCE src/integration/density_cubature.cpp APPEND PROPERTY
     INCLUDE_DIRECTORIES ${OpenMP_CXX_INCLUDE_DIRS})
   target_link_libraries(fermisimplex_core PRIVATE "$<LINK_ONLY:OpenMP::OpenMP_CXX>")
   set(FERMISIMPLEX_DENSITY_OPENMP_ENABLED ON)

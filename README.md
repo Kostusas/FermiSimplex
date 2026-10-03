@@ -184,10 +184,17 @@ additional Hamiltonian samples or persistent mesh refinement.
 `charge.error_stats` reports the resulting reductions, solves, eigensystems,
 and temporary simplices.
 
-Density matrices default to `preview_depth=1`. Setting `preview_depth=0`
-integrates directly on the existing mesh, adds no preview vertices, and performs
-no refinement. This is useful after charge integration has already established
-and populated the desired mean-field mesh.
+Density integration follows charge integration on the same mesh. Full matrices
+and selected entries use [adaptive polynomial cubature](docs/density-p-cubature.md):
+start with Q3-Q1, raise the degree through seven by default, then bisect unresolved
+density cells. The density tree preserves the charge cuts and does not change
+the retained charge mesh. `max_degree`, `max_refinements` (promotions), and
+`max_h_refinements` (bisections) bound the work; both refinement budgets are
+unlimited by default. The reported quadrature error excludes remaining cut error.
+
+`estimate_density_on_current_mesh` evaluates selected affine density moments
+without refinement or an error estimate. Use it for an explicitly prescribed
+mesh; it is not an adaptive integration method.
 
 See the [visual Python tour][visual-tour], runnable
 [quick start][quick-start], and

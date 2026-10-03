@@ -1,14 +1,17 @@
 # Density cubature on the charge mesh
 
-`SpectralMesh.integrate_density_components_p` is an additive alternative to
-`integrate_density_components`. The latter retains its existing h-refinement
-behavior for comparisons and existing callers. Call `integrate_charge` first
-to resolve occupations; at fixed filling use the converged chemical potential.
-With `max_h_refinements=0` (the native API default), cubature remains p-only.
-With a positive h budget, a cell that reaches `max_degree` without meeting the
-global target is bisected on a private copy of the charge geometry. Its children
-restart at the Q3-Q1 comparison. Neither the charge geometry nor its cached
-spectra are modified by these density-only splits.
+`SpectralMesh.integrate_density_components` and `integrate_density_matrix` use
+one adaptive density algorithm. First call `integrate_charge` to resolve
+occupations; at fixed filling use the converged chemical potential. Density
+raises the cubature degree, then bisects cells that exhaust `max_degree` on a
+private copy of the charge geometry. Both promotion and bisection budgets are
+unlimited by default. Children restart at Q3-Q1. Charge geometry and its
+retained spectra are unchanged.
+
+The current-mesh query `estimate_density_on_current_mesh` evaluates the affine
+vertex rule without adaptation or an error estimate. It supports explicitly
+prescribed meshes. The old adaptive density controller and `_p` entry point
+are removed; historical commits provide algorithm comparisons.
 
 For a simplex of dimension d and volume V, the vertex average is
 `Q1 = V/(d+1) * sum(f(vertex))`. The initial density estimate is the
@@ -64,7 +67,7 @@ not across calls, chemical potentials or component selections. The charge
 geometry and its persistent vertex cache do not gain density cubature nodes.
 
 For complex component correction vectors delta_sigma between successive rules,
-the stopping estimate reuses the h-adaptive density policy:
+the stopping estimate is:
 
 ```
 max(sqrt(sum_sigma ||delta_sigma||_infinity^2),
@@ -72,6 +75,8 @@ max(sqrt(sum_sigma ||delta_sigma||_infinity^2),
     sum_sigma roundoff_sigma).
 ```
 
+Compensated sums retain small remaining corrections when refined cells replace
+much larger earlier contributions, preventing a false error floor.
 The coherent term retains systematic error; the statistical term guards against
 cancellation between cells. This is less conservative than summing local norms,
 but remains empirical and can miss aliased features. AdaptiveSimplex's existing
@@ -92,7 +97,7 @@ The size threshold reflects the measured scheduling overhead for small eigensyst
 are private to each worker; global error updates and queue changes are serial.
 The batch cannot exceed the remaining promotion budget. One-cell batches use a
 serial fast path. Python callback exceptions are rethrown on the calling thread.
-Only density_p.cpp is compiled with OpenMP; charge threading stays unchanged.
+Only density_cubature.cpp is compiled with OpenMP; charge threading stays unchanged.
 Build with `FERMISIMPLEX_ENABLE_DENSITY_OPENMP=OFF` to disable this optional path;
 missing OpenMP also falls back to serial compilation. Control native threads via
 OpenMP or threadpoolctl; MeanFi's `num_threads=1` default keeps promotions serial.
@@ -108,3 +113,11 @@ h splits; `stats.p_refinements` counts order promotions,
 `stats.cubature_evaluations` counts new interior spectra. `stats.evaluations`
 also includes new density-only midpoint spectra. `cached_vertices` continues
 to count only spectra retained on the charge mesh.
+
+## Default API verification
+
+Both full-matrix and selected-entry tests integrate the scalar band H(k)=k at
+mu=0.37. With degree capped at three, the default controller must bisect without
+an extra flag. The exact onsite density is 0.37 and its first Fourier component
+is `(exp(2*pi*i*0.37)-1)/(2*pi*i)`. Tests require entry error below the requested
+1e-5 and charge conservation within 1e-13, with unchanged charge geometry.

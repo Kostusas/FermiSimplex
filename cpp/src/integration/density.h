@@ -69,4 +69,10 @@ private:
     std::vector<Contribution> contributions_;
 };
 
+DensityComponentsResult integrate_density_cubature(
+    SpectralMesh &mesh, double mu, const DensityRule &rule, double target_error,
+    std::int64_t max_refinements, std::uint32_t max_degree,
+    std::int64_t max_h_refinements
+);
+
 }  // namespace fermisimplex::integration_detail

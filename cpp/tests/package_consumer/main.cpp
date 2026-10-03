@@ -38,11 +38,7 @@ int main() {
         0.0,
         {{0}},
         {{.lattice_vector_index = 0, .row = 0, .column = 0}},
-        adaptivesimplex::adaptive::Options{
-            .target_error = 0.0,
-            .max_refinements = 0,
-            .preview_depth = 0,
-        }
+        1e-12
     );
     const auto snapshot = mesh.evaluated_snapshot();
     return snapshot.vertex_ids.size() == mesh.cached_vertices() &&

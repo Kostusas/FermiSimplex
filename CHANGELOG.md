@@ -4,6 +4,15 @@ All notable changes to FermiSimplex are documented in this file.
 
 ## Unreleased
 
+- Make polynomial cubature with density-only bisection the default for full and
+  selected density integrals. Remove the `_p` API and old adaptive controller;
+  retain a direct `estimate_density_on_current_mesh` query for fixed meshes.
+- Accumulate density-error corrections with compensated sums, avoiding spurious
+  refinement after replacing large corrections with small ones.
+- Pin AdaptiveSimplex main; the unused evaluated-partition extension is not
+  required by FermiSimplex.
+
+
 - Retain scalar safe-subspace certificates across chemical-potential changes
   while their occupied and empty margins remain positive. Partially certified
   cells rebuild only the active model; fully certified cells skip Hamiltonian

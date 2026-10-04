@@ -29,17 +29,12 @@ double minimum_eigenvalue(Matrix matrix, std::size_t n) {
     return values.front();
 }
 
-Matrix envelope_value(const ResidualMatrices &bounds, const Weights &point, bool upper) {
-    Matrix result(bounds.entries);
-    const auto &controls = upper ? bounds.upper : bounds.lower;
-    for (std::size_t c = 0; c < bounds.layout->indices.size(); ++c) {
-        const auto &index = bounds.layout->indices[c];
-        auto weight = multinomial(index);
-        for (std::size_t i = 0; i < point.size(); ++i)
-            weight *= std::pow(point[i], index[i]);
-        for (std::size_t k = 0; k < result.size(); ++k)
-            result[k] += weight * controls[c * bounds.entries + k];
-    }
+Matrix envelope_value(const ResidualBounds &bounds, const Polynomial &model,
+                      const Weights &point, bool upper) {
+    auto result = model.blossom(point, point);
+    const auto &correction = upper ? bounds.upper : bounds.lower;
+    for (std::size_t k = 0; k < result.size(); ++k)
+        result[k] += (upper ? 1. : -1.) * correction[k];
     return result;
 }
 
@@ -101,7 +96,7 @@ int main() {
                         solutions.push_back(std::move(b));
                     }
                     Polynomial fitted(v, q);
-                    ResidualMatrices bounds(v, q);
+                    ResidualBounds bounds(q);
                     ChargeErrorStats stats;
                     const auto epsilon = schur_allowance(full, safe, active, reference,
                         solutions, negative, eta, gap, stats, fitted, bounds);
@@ -124,8 +119,8 @@ int main() {
                         linalg::matrix_multiply('C', 'N', q, q, s, -1., b.data(), s,
                             solution.data(), s, 1., exact.data(), q);
                         const auto approximate = fitted.blossom(point, point);
-                        auto low = envelope_value(bounds, point, false);
-                        auto high = envelope_value(bounds, point, true);
+                        auto low = envelope_value(bounds, fitted, point, false);
+                        auto high = envelope_value(bounds, fitted, point, true);
                         auto error = exact;
                         for (std::size_t k = 0; k < exact.size(); ++k) {
                             low[k] = exact[k] - low[k];

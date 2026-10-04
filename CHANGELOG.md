@@ -5,8 +5,11 @@ All notable changes to FermiSimplex are documented in this file.
 ## Unreleased
 
 - Use vertex safe-block solves and retain residual Gram matrices in the shared
-  Schur occupation enclosure. Energy-scaled safe-sector margins and exact
-  polynomial subdivision sharpen the bounds without changing Hamiltonian probes.
+  Schur occupation enclosure. Constant matrix allowances replace degree-six
+  error polynomials during subdivision. Skip safe-block solves when their
+  correction is already below the Hamiltonian interpolation allowance.
+- Report zero density-cut error exactly once all nonzero contributions have
+  been removed from the adaptive sum.
 - Remove obsolete cached safe-block variation and coupling-curvature estimates.
 
 - Make polynomial cubature with density-only bisection the default for full and

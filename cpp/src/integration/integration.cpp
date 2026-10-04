@@ -136,6 +136,7 @@ auto charge_integrand(
                 std::abs(result.value - enclosure.charge_lower),
                 std::abs(enclosure.charge_upper - result.value));
             result.density_cut_error = enclosure.density_cut_error;
+            result.nonzero_density_cut_terms = result.density_cut_error > 0;
             if (!enclosure.fixed_occupation()) {
                 if (occupation_detail::vertex_occupation(mesh, simplex_id, mu) !=
                     occupation_detail::VertexOccupation::uniform)
@@ -205,7 +206,7 @@ ChargeResult charge_result(
         .value = value.value,
         .stopping_error = raw.stopping_error,
         .density_cut_error = integration_detail::validated_density_cut_error(
-            value.density_cut_error, value.value
+            value.nonzero_density_cut_terms == 0 ? 0. : value.density_cut_error, value.value
         ),
         .dcharge_dmu = value.dcharge_dmu,
         .visible_gapless_simplices = value.visible_gapless_simplices,

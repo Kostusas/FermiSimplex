@@ -8,24 +8,6 @@ namespace fermisimplex::occupation_detail {
 
 // Bernstein algebra for rectangular matrix polynomials of matching degree.
 using Index = std::vector<std::size_t>;
-inline std::vector<Index> bernstein_indices(std::size_t vertices, std::size_t degree) {
-    std::vector<Index> result;
-    Index index(vertices);
-    const auto enumerate = [&](auto &&self, std::size_t axis, std::size_t remaining) -> void {
-        if (axis + 1 == vertices) {
-            index[axis] = remaining;
-            result.push_back(index);
-            return;
-        }
-        for (std::size_t i = 0; i <= remaining; ++i) {
-            index[axis] = i;
-            self(self, axis + 1, remaining - i);
-        }
-    };
-    enumerate(enumerate, 0, degree);
-    return result;
-}
-
 struct BernsteinPolynomial {
     std::size_t vertices, rows, cols;
     std::map<Index, Matrix> controls;

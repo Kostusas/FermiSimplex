@@ -1,7 +1,7 @@
 #pragma once
 
 #include "occupation/polynomial.h"
-#include "occupation/residual_matrices.h"
+#include "occupation/residual_bounds.h"
 #include <fermisimplex/occupation.h>
 
 namespace fermisimplex::occupation_detail {
@@ -23,7 +23,7 @@ struct Model {
     double epsilon = 0;
     double eta = 0;
     double delta = 0;
-    std::optional<ResidualMatrices> residual;
+    std::optional<ResidualBounds> residual;
 };
 
 Model build_model(const SpectralMesh &mesh,

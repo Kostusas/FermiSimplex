@@ -28,6 +28,7 @@ ChargeContribution &ChargeContribution::operator+=(
     dcharge_dmu += other.dcharge_dmu;
     estimated_error += other.estimated_error;
     density_cut_error += other.density_cut_error;
+    nonzero_density_cut_terms += other.nonzero_density_cut_terms;
     visible_gapless_simplices += other.visible_gapless_simplices;
     inconclusive_simplices += other.inconclusive_simplices;
     return *this;
@@ -40,6 +41,7 @@ ChargeContribution &ChargeContribution::operator-=(
     dcharge_dmu -= other.dcharge_dmu;
     estimated_error -= other.estimated_error;
     density_cut_error -= other.density_cut_error;
+    nonzero_density_cut_terms -= other.nonzero_density_cut_terms;
     visible_gapless_simplices -= other.visible_gapless_simplices;
     inconclusive_simplices -= other.inconclusive_simplices;
     return *this;

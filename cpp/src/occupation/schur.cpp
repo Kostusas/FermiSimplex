@@ -18,6 +18,14 @@ double scaled_sector_margin(const Matrix &safe, const std::vector<double> &weigh
                 weights[start + row] * value * weights[start + col];
         }
     scale = std::max(scale, norm(sector));
+    double lower = std::numeric_limits<double>::infinity();
+    for (std::size_t row = 0; row < count; ++row) {
+        double margin = sector[row + row * count].real();
+        for (std::size_t col = 0; col < count; ++col)
+            if (row != col) margin -= std::abs(sector[row + col * count]);
+        lower = std::min(lower, margin);
+    }
+    if (lower > 0) return lower;
     std::vector<double> eigenvalues;
     linalg::diagonalize_hermitian_in_place(sector, eigenvalues, count,
         false, "scaled safe-sector margin");
@@ -53,17 +61,15 @@ BernsteinPolynomial fit_quadratic(const BernsteinPolynomial &source, Polynomial 
 }
 
 // The two safe signs give separate Loewner bounds on -F†D^-1 F.
-// Keep each weighted Gram polynomial; only interpolation uncertainty is padded.
+// Enclose each weighted residual Gram matrix by a constant diagonal matrix.
 void bound_residual_sector(const BernsteinPolynomial &residual,
     const std::vector<double> &weights, std::size_t start, std::size_t count,
-    double margin, double gap, double uncertainty, const ResidualLayout &layout,
-    Matrix &output) {
+    double margin, double gap, double uncertainty, Matrix &output) {
     const auto q = residual.cols, s = residual.rows;
-    std::vector<Matrix> weighted;
-    weighted.reserve(residual.controls.size());
+    Matrix sector(count * q), gram(q * q);
+    std::vector<double> radius(q);
     double maximum = 0, perturbation = 0;
     for (const auto &[key, control] : residual.controls) {
-        Matrix sector(count * q);
         for (std::size_t row = 0; row < count; ++row) {
             const auto weight = margin > 0 ? weights[start + row] / std::sqrt(margin)
                                           : 1 / std::sqrt(gap);
@@ -72,13 +78,22 @@ void bound_residual_sector(const BernsteinPolynomial &residual,
                 sector[row + col * count] = weight * control[start + row + col * s];
         }
         maximum = std::max(maximum, norm(sector));
-        weighted.push_back(std::move(sector));
+        // Jensen bounds the residual Gram matrix by the convex combination
+        // of the control Gram matrices. Diagonal dominance encloses each one.
+        linalg::matrix_multiply('C', 'N', q, q, count, 1.,
+            sector.data(), count, sector.data(), count, 0., gram.data(), q);
+        for (std::size_t row = 0; row < q; ++row) {
+            double bound = gram[row + row * q].real();
+            for (std::size_t col = 0; col < q; ++col)
+                if (row != col) bound += std::abs(gram[row + col * q]);
+            radius[row] = std::max(radius[row], bound);
+        }
     }
-    add_gram_controls(weighted, count, q, layout, output);
+    for (std::size_t band = 0; band < q; ++band)
+        output[band + band * q] += radius[band];
     const auto padding = 2 * maximum * perturbation + perturbation * perturbation;
-    for (std::size_t c = 0; c < layout.indices.size(); ++c)
-        for (std::size_t band = 0; band < q; ++band)
-            output[c * q * q + band + band * q] += padding;
+    for (std::size_t band = 0; band < q; ++band)
+        output[band + band * q] += padding;
 }
 
 }  // namespace
@@ -87,7 +102,7 @@ double schur_allowance(const Polynomial &full, const std::vector<std::size_t> &s
     const std::vector<std::size_t> &active, const std::vector<double> &d0,
     const std::vector<Matrix> &solution,
     std::size_t negative, double eta, double gap, ChargeErrorStats &stats, Polynomial &fitted,
-    ResidualMatrices &residual_matrices) {
+    ResidualBounds &residual_matrices) {
     const auto v = full.vertices, n = full.size, s = safe.size(), q = active.size();
     BernsteinPolynomial ap{v, q, q, {}}, bp{v, s, q, {}}, dp{v, s, s, {}}, xpoly{v, s, q, {}};
     std::vector<double> weights(s);
@@ -168,9 +183,8 @@ double schur_allowance(const Polynomial &full, const std::vector<std::size_t> &s
             256 * std::numeric_limits<double>::epsilon() * scaled_scale;
         auto &output = sector == 0 ? residual_matrices.upper : residual_matrices.lower;
         bound_residual_sector(fpoly, weights, start, count, margin, gap, e,
-                              *residual_matrices.layout, output);
+                              output);
     }
-    residual_matrices.add_model(fitted);
     return g + eta * (1 + x * x) + roundoff + correction;
 }
 }  // namespace fermisimplex::occupation_detail

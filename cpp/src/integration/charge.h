@@ -2,7 +2,6 @@
 
 #include <fermisimplex/integration.h>
 
-
 #include <adaptivesimplex/core/geometry.h>
 
 #include <cstdint>
@@ -14,6 +13,8 @@ struct ChargeContribution {
     double dcharge_dmu = 0.0;
     double estimated_error = 0.0;
     double density_cut_error = 0.0;
+    // Makes exact-zero reporting independent of running-sum cancellation.
+    std::int64_t nonzero_density_cut_terms = 0;
     std::int64_t visible_gapless_simplices = 0;
     std::int64_t inconclusive_simplices = 0;
 

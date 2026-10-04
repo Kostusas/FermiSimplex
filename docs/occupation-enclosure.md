@@ -37,28 +37,26 @@ use it to classify the Hamiltonian.
    and sign, followed by at most one eigenvalue computation for its margin.
    Their minimum margin is `Delta`. Any states
    that cannot be separated remain active, up to the full matrix.
-4. Write the quadratic active/safe blocks as `A2,B2,D2`. Solve
-   `D2 X=B2` at each vertex and linearly interpolate the solutions as `X1`.
-   Form the cubic solve residual `F3=B2-D2 X1` and the quartic matrix
+4. Write the quadratic active/safe blocks as `A2,B2,D2`. Let `b` bound
+   the coupling controls. If `b*b <= eta*Delta`, use `A2` with allowance
+   `eta+(b+eta)^2/Delta+roundoff`; the correction is included without solving
+   the safe block. Otherwise solve `D2 X=B2` at each vertex and interpolate
+   the solutions as `X1`. Form `F3=B2-D2 X1` and
    `Y4=A2-B2†X1-X1†B2+X1†D2 X1`. Fit a quadratic `P2` to `Y4` at the
-   vertices and edge midpoints. Bernstein products preserve the cancellations
-   in these expressions before taking norms.
+   vertices and edge midpoints. Bernstein products preserve cancellations
+   before taking norms.
 5. Enclose the exact Schur matrix using `S=Y-F†D^-1 F`. Bound `Y4-P2` by
-   its Bernstein control norms. Retain the residual Gram matrices for the
-   occupied and empty safe sectors as degree-six Bernstein polynomials.
-   Their separate signs give an upper and lower matrix envelope for `S`.
-   Use the anchor energies to scale the safe sectors before finding their
-   smallest eigenvalues. This weights distant safe bands by their energies
-   while preserving strong coupling contributions. A uniform unscaled gap
-   remains a valid fallback when the scaled margin is lost to roundoff.
-6. In each temporary cell's center eigenbasis, convert the scalar allowance
-   and matrix envelopes into affine row bounds. Intersect their occupation
-   and charge intervals. Restrict the quadratic model and degree-six envelopes
-   exactly when bisecting a cell; no Hamiltonian samples are added. The scalar
-   interpolation allowance remains unchanged under subdivision. Cached layout
-   and restriction weights depend only on simplex dimension.
-   Fully resolved cells terminate immediately. Surface classification uses
-   the same strict occupation bounds without integrating charge or cut error.
+   its Bernstein control norms. Bound each safe sector's weighted residual
+   Gram matrix by one constant diagonal matrix. Energy scaling retains the
+   effect of band separation and coupling. Positive Gershgorin margins avoid
+   eigenvalue calculations; otherwise compute the smallest eigenvalue. The
+   uniform gap remains a valid fallback if the scaled margin is lost to roundoff.
+6. In each temporary cell's center eigenbasis, construct one affine enclosure
+   of `P2`. Add scalar or matrix allowances to that common enclosure and
+   intersect their occupation and charge intervals. Bisection restricts only
+   `P2`; it reuses the two constant residual matrices and adds no Hamiltonian
+   samples. Fully resolved cells terminate immediately. Surface classification
+   uses the same strict occupation bounds without integrating charge or cut error.
 
 ## Schur bounds
 
@@ -87,17 +85,36 @@ follow by block elimination: subtracting either block-diagonal inverse bound
 leaves a positive or negative semidefinite Schur factorization. For an empty
 sector its Gram correction is zero.
 
-The implementation keeps `F3_minus†G_minus F3_minus` and
-`F3_plus†G_plus F3_plus` as matrices. If `a` bounds a sector's weighted
-residual norm and `e` bounds its weighted interpolation perturbation, add
-`2*a*e+e*e` to that envelope's diagonal. Add `g+eta*(1+x*x)` and roundoff
-allowances to both sides. A scalar norm allowance for the same `P2` provides
-an inexpensive first sign test; it is part of this one enclosure algorithm.
+For either sector, define the weighted residual `Z=G^(1/2) F3`. Its cubic
+Bernstein controls `Z_a` have nonnegative weights summing to one, so
+
+`Z(k)†Z(k) <= sum_a w_a(k) Z_a†Z_a`.
+
+Let `Q_a=Z_a†Z_a`. The constant diagonal matrix
+
+`C_jj=max_a [(Q_a)_jj + sum_(l!=j) |(Q_a)_jl|]`
+
+bounds every `Q_a` by diagonal dominance, hence bounds `Z(k)†Z(k)` throughout
+the simplex. The code accumulates these diagonal bounds without forming a
+degree-six polynomial. If `a` bounds `||Z||` and `e` bounds its weighted
+interpolation perturbation, add `2*a*e+e*e` to the diagonal. The two sectors give
+
+`P2-C_plus-kappa*I <= S <= P2+C_minus+kappa*I`,
+
+where `kappa=g+eta*(1+x*x)+roundoff`. These constant matrices can be reused
+on every temporary child. A scalar norm allowance for the same `P2` supplies
+an inexpensive first sign test within this one enclosure algorithm.
+
+The direct bound in step 4 follows from `||D^-1|| <= 1/Delta` and
+`||B|| <= b+eta`. Its inequality is valid regardless of the selection condition;
+`b*b <= eta*Delta` identifies when a more accurate Schur model is unnecessary.
+This criterion uses existing error scales and has no fitted threshold.
 
 With a uniform safe gap and smooth Hamiltonian, the quadratic model allowance
-remains cubic in cell size. Retaining the degree-six residual products improves
-constants and their spatial variation; it does not make the reported linear
-band charge sixth order. The reported charge generally remains second order.
+remains cubic in cell size. The residual contribution has fourth-order local
+scaling when the affine solve residual is second order. Constant bounds can
+require more outer refinement than spatially varying envelopes, but make each
+charge check cheaper. The reported affine-band charge remains generally second order.
 
 The sampling factors are verified with exact rational Bernstein subdivision in
 [`verify_remainder_factor.py`](../benchmarks/verify_remainder_factor.py).
@@ -239,7 +256,7 @@ at most `2e`, and their Bernstein weights sum to at most `d/(d+1)`.
 - `occupation/model.cpp`: Hamiltonian interpolation, certificate reuse and vertex solves.
 - `occupation/schur.cpp`: reduced quadratic fit and scalar/matrix Schur bounds.
 - `occupation/bernstein.h`: rectangular polynomial algebra and multi-indices.
-- `occupation/residual_matrices.h`: Gram envelopes, basis changes and restriction.
+- `occupation/residual_bounds.h`: the two constant matrix allowances.
 - `occupation/sectors.cpp`: safe-subspace sign tests and their margins.
 - `occupation/certificate_cache.h`: scalar proof records owned by each mesh.
 - `occupation/probes.h`: dimension-general quartic lattice and remainder factor.
@@ -284,3 +301,10 @@ allow `2e-9` for subtraction and truncation error. Surface tests in 1D through
 retain probing for near-level gaps, contacts and hidden quartic pockets.
 For measurements and separate-build reproduction, see the
 [MeanFi report](https://gitlab.kwant-project.org/qt/meanfi/-/blob/codex/occupation-enclosure/docs/occupation-enclosure.md).
+
+Schur regressions compare the envelopes with direct perturbed matrix solves in
+1D through 3D, including both safe signs and strong coupling between them.
+A separate complex-basis crossing checks weak and strong active-safe coupling
+against its analytic occupation boundary and converged Gauss-Legendre density
+integrals (64 versus 96 nodes, agreement within `2e-12`). Charge and density
+errors must lie within their reported allowances.

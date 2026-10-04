@@ -90,19 +90,36 @@ Model reduce_model(const Polynomial &full, const Eigensystem &anchor,
     const auto active = indices(proof.negative, full.size - proof.positive);
     const auto safe = safe_indices(anchor.eigenvalues.size(), proof);
     const auto s = safe.size();
+    double coupling = 0, scale = 1;
+    for (const auto &control : full.controls) {
+        coupling = std::max(coupling, norm(block(control, full.size, safe, active)));
+        scale = std::max(scale, norm(control));
+    }
+    // If the nominal Schur correction is already below interpolation error,
+    // use its direct norm bound. No inverse approximation is needed.
+    if (coupling * coupling <= eta * gap) {
+        Polynomial reduced(v, q);
+        for (std::size_t i = 0; i < v; ++i)
+            for (std::size_t j = i; j < v; ++j)
+                reduced.at(i, j) = block(full.at(i, j), full.size, active, active);
+        const auto roundoff = 256 * std::numeric_limits<double>::epsilon() * scale;
+        const auto error = eta + (coupling + eta) * (coupling + eta) / gap + roundoff;
+        return {std::move(reduced), proof.negative, error, eta, gap};
+    }
     std::vector<double> d0(s);
     for (std::size_t i = 0; i < s; ++i)
         d0[i] = anchor.eigenvalues[safe[i]] - mu;
     std::vector<Matrix> solution;
+    solution.reserve(v);
     for (std::size_t i = 0; i < v; ++i) {
         auto solved = block(full.at(i, i), full.size, safe, active);
-        auto d = block(full.at(i,i), full.size, safe, safe);
+        auto d = block(full.at(i, i), full.size, safe, safe);
         if (!linalg::solve_linear_system_in_place(d, solved, s, q, "vertex safe solve"))
             throw std::runtime_error("certified safe block solve failed");
         solution.push_back(std::move(solved));
     }
     Polynomial reduced{v, q};
-    ResidualMatrices residual{v, q};
+    ResidualBounds residual{q};
     const auto epsilon = schur_allowance(full, safe, active, d0,
         solution, proof.negative, eta, gap, stats, reduced, residual);
     ++stats.schur_reductions;

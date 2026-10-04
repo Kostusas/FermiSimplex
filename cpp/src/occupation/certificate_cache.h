@@ -15,8 +15,6 @@ struct Certificate {
     double negative_margin = 0;
     double positive_margin = 0;
     double eta = 0;
-    double coupling_remainder = 0;
-    double safe_variation = 0;
     std::optional<double> explicit_remainder;
 };
 

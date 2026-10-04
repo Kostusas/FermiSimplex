@@ -37,33 +37,67 @@ use it to classify the Hamiltonian.
    and sign, followed by at most one eigenvalue computation for its margin.
    Their minimum margin is `Delta`. Any states
    that cannot be separated remain active, up to the full matrix.
-4. Write the active/safe blocks as `A,B,D`, freeze the anchor's safe block
-   `D0`, and linearly interpolate the vertex coupling as `B1`. Set
-   `X = D0^-1 B1` and form the quadratic reduced model
-   `P = A2 - B1† D0^-1 B1`.
-5. Bound `b >= ||B-B1||`, `d >= ||D-D0||`, and `x >= ||X||` by Bernstein
-   controls. Use
-   `epsilon = eta + 2*b*x + d*x*x + (b+d*x)^2/Delta`.
-6. In each temporary cell's center eigenbasis, bound diagonal curvature and
-   off-diagonal row sums. These affine band bounds determine strict occupation
-   bounds and whether to subdivide. The root reuses this same center basis for
-   its block sign proof. Only retained terminal cells integrate the shifted
-   affine cuts and their disagreement with the reported cuts. Restrict the
-   original polynomial for each bisection, preserving the frame used to build
-   child models. Subdivision requires no new Hamiltonian samples and never
-   reduces `epsilon`.
-   An edge bisection copies unchanged controls and updates only controls incident
-   on the replaced vertex by midpoint averages. This rule applies in every
-   dimension. A center that is already diagonal borrows the original controls;
-   only a changed basis owns a rotated polynomial.
-   Surface classification consumes only the strict occupation bounds from this
-   same traversal; it does not integrate charge or cut disagreement.
+4. Write the quadratic active/safe blocks as `A2,B2,D2`. Solve
+   `D2 X=B2` at each vertex and linearly interpolate the solutions as `X1`.
+   Form the cubic solve residual `F3=B2-D2 X1` and the quartic matrix
+   `Y4=A2-B2†X1-X1†B2+X1†D2 X1`. Fit a quadratic `P2` to `Y4` at the
+   vertices and edge midpoints. Bernstein products preserve the cancellations
+   in these expressions before taking norms.
+5. Enclose the exact Schur matrix using `S=Y-F†D^-1 F`. Bound `Y4-P2` by
+   its Bernstein control norms. Retain the residual Gram matrices for the
+   occupied and empty safe sectors as degree-six Bernstein polynomials.
+   Their separate signs give an upper and lower matrix envelope for `S`.
+   Use the anchor energies to scale the safe sectors before finding their
+   smallest eigenvalues. This weights distant safe bands by their energies
+   while preserving strong coupling contributions. A uniform unscaled gap
+   remains a valid fallback when the scaled margin is lost to roundoff.
+6. In each temporary cell's center eigenbasis, convert the scalar allowance
+   and matrix envelopes into affine row bounds. Intersect their occupation
+   and charge intervals. Restrict the quadratic model and degree-six envelopes
+   exactly when bisecting a cell; no Hamiltonian samples are added. The scalar
+   interpolation allowance remains unchanged under subdivision. Cached layout
+   and restriction weights depend only on simplex dimension.
+   Fully resolved cells terminate immediately. Surface classification uses
+   the same strict occupation bounds without integrating charge or cut error.
 
-The Schur identity `S = Y - F† D^-1 F`, where
-`Y = A - B†X - X†B + X†DX` and `F = B-DX`, gives step 5. With a uniform safe
-gap and a smooth local Hamiltonian, `b=O(h^2)`, `d,x=O(h)`, `eta=O(h^3)`.
-The model allowance is cubic; its solve-residual term is quartic. The reported
-affine-band charge generally remains second order.
+## Schur bounds
+
+For the actual shifted Hamiltonian partitioned into active and safe blocks,
+
+`S = A-B†D^-1 B = Y-F†D^-1 F`,
+
+where `Y=A-B†X-X†B+X†DX` and `F=B-DX`. This identity holds for any `X`;
+vertex solves improve its residual without weakening the certificate.
+Let `||H-H2|| <= eta`, `x >= ||X1||`, and `g >= ||Y4-P2||`. Then
+`||Y-Y4|| <= eta*(1+x*x)` and `||F-F3|| <= eta*sqrt(1+x*x)`.
+
+Let `W=|D0|^-1/2`, using the diagonal safe energies at the anchor. The scaled
+sign tests, including `eta`, establish positive margins `gamma_minus` and
+`gamma_plus`. With `G_minus=W_minus^2/gamma_minus` and
+`G_plus=W_plus^2/gamma_plus`, the two block signs imply
+
+`diag(-G_minus,0) <= D^-1 <= diag(0,G_plus)`.
+
+Consequently,
+
+`Y-F_plus†G_plus F_plus <= S <= Y+F_minus†G_minus F_minus`.
+
+These inequalities allow arbitrary coupling between the safe signs. They
+follow by block elimination: subtracting either block-diagonal inverse bound
+leaves a positive or negative semidefinite Schur factorization. For an empty
+sector its Gram correction is zero.
+
+The implementation keeps `F3_minus†G_minus F3_minus` and
+`F3_plus†G_plus F3_plus` as matrices. If `a` bounds a sector's weighted
+residual norm and `e` bounds its weighted interpolation perturbation, add
+`2*a*e+e*e` to that envelope's diagonal. Add `g+eta*(1+x*x)` and roundoff
+allowances to both sides. A scalar norm allowance for the same `P2` provides
+an inexpensive first sign test; it is part of this one enclosure algorithm.
+
+With a uniform safe gap and smooth Hamiltonian, the quadratic model allowance
+remains cubic in cell size. Retaining the degree-six residual products improves
+constants and their spatial variation; it does not make the reported linear
+band charge sixth order. The reported charge generally remains second order.
 
 The sampling factors are verified with exact rational Bernstein subdivision in
 [`verify_remainder_factor.py`](../benchmarks/verify_remainder_factor.py).
@@ -85,8 +119,7 @@ Roundoff allowances are numerical safeguards, not interval arithmetic proofs.
 One mesh owns scalar proof records keyed by its immutable simplex ids. The
 Hamiltonian must stay fixed while that mesh is used, as for the vertex spectra.
 A record contains the safe ranks, separate occupied/empty margins at `mu0`,
-the interpolation allowance, and the bounds on coupling curvature and safe-block
-variation. It contains no Hamiltonian, eigenvector, or reduced matrix. Retired
+and the interpolation allowance. It contains no Hamiltonian, eigenvector, or reduced matrix. Retired
 cells retain small records alongside the existing geometry; children have new ids.
 Cache storage is constant per tested cell, independent of band count.
 
@@ -96,10 +129,11 @@ allowance for the changed diagonal-subtraction scale. If either margin ceases
 to be positive, or the supplied remainder contract changes, rebuild the proof.
 Otherwise reuse the ranks and sampled remainder. A fully safe cell needs no
 new Hamiltonian evaluations. A partially safe cell evaluates the quadratic
-nodes and projects only the active columns, costing `O(N^2 q)` rather than
-`O(N^3)` for full rotations. Recompute its small Schur model, inverse of the
-anchor safe diagonal, and error allowance at the new chemical potential.
-The bounds on `B-B1` and `D-D0` remain valid because scalar shifts cancel.
+nodes and rotates their controls into the anchor basis, including safe blocks.
+It rebuilds vertex solves, scaled safe margins, and reduced envelopes at the
+new chemical potential. These calculations depend on `mu`; only the original
+sign proof and sampled Hamiltonian remainder are reused. The cost of a full
+control rotation remains cubic in band count.
 
 This also applies to cut cells: only their safe subspaces are retained; their
 active occupation, charge interval, and cut discrepancy are recomputed.
@@ -202,7 +236,10 @@ at most `2e`, and their Bernstein weights sum to at most `d/(d+1)`.
 
 ## Code and verification
 
-- `occupation/model.cpp`: interpolation, certificate reuse and Schur allowance.
+- `occupation/model.cpp`: Hamiltonian interpolation, certificate reuse and vertex solves.
+- `occupation/schur.cpp`: reduced quadratic fit and scalar/matrix Schur bounds.
+- `occupation/bernstein.h`: rectangular polynomial algebra and multi-indices.
+- `occupation/residual_matrices.h`: Gram envelopes, basis changes and restriction.
 - `occupation/sectors.cpp`: safe-subspace sign tests and their margins.
 - `occupation/certificate_cache.h`: scalar proof records owned by each mesh.
 - `occupation/probes.h`: dimension-general quartic lattice and remainder factor.

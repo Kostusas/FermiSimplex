@@ -242,6 +242,7 @@ set(
   src/certification/simplex/vertex_blocks.cpp
   src/certification/simplex_certificate.cpp
   src/occupation/model.cpp
+  src/occupation/schur.cpp
   src/occupation/sectors.cpp
   src/occupation/enclosure.cpp
   src/integration/charge.cpp
@@ -312,6 +313,7 @@ if(FERMISIMPLEX_BUILD_TESTING)
     simplex_cubature
     occupation_bounds
     occupation_model
+    schur_bounds
     occupation_polynomial
     occupation_probes
     certificate_validation

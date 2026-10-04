@@ -2,9 +2,11 @@
 
 #include "occupation/certificate_cache.h"
 #include "occupation/probes.h"
+#include "occupation/schur.h"
 
 #include <limits>
 #include <numeric>
+#include <stdexcept>
 
 namespace fermisimplex::occupation_detail {
 namespace {
@@ -73,11 +75,6 @@ Interpolant interpolate(const SpectralMesh &mesh,
             bound.value_or(probe_remainder_factor(mesh.ndim()) * defect) + roundoff};
 }
 
-struct ActiveModel {
-    Polynomial polynomial;
-    std::vector<Matrix> coupling;
-};
-
 std::vector<std::size_t> safe_indices(std::size_t n, const Certificate &proof) {
     auto safe = indices(0, proof.negative);
     const auto positive = indices(n - proof.positive, n);
@@ -85,102 +82,34 @@ std::vector<std::size_t> safe_indices(std::size_t n, const Certificate &proof) {
     return safe;
 }
 
-// Project only U* K U_active: O(N^2 q). Retain the active controls and
-// vertex couplings needed to construct the reduced model at this mu.
-ActiveModel active_model(const Polynomial &full, const Eigensystem &anchor,
-                         const Certificate &proof, double mu, bool rotated) {
-    const auto n = full.size, v = full.vertices;
-    const auto q = n - proof.negative - proof.positive;
-    const auto active = indices(proof.negative, n - proof.positive);
-    const auto safe = safe_indices(n, proof);
-    const auto columns = indices(0, q);
-    ActiveModel result{Polynomial{v, q}, std::vector<Matrix>(v)};
-    for (std::size_t i = 0; i < v; ++i)
-        for (std::size_t j = i; j < v; ++j) {
-            Matrix projected(n * q);
-            if (i == 0 && j == 0) {
-                for (std::size_t band = 0; band < q; ++band)
-                    projected[active[band] + band * n] = anchor.eigenvalues[active[band]] - mu;
-            } else if (rotated) {
-                std::copy_n(full.at(i, j).begin() + proof.negative * n,
-                            n * q, projected.begin());
-            } else {
-                Matrix temporary(n * q);
-                linalg::matrix_multiply('N', 'N', n, q, n, 1., full.at(i, j).data(), n,
-                    anchor.eigenvectors.data() + proof.negative * n, n, 0., temporary.data(), n);
-                linalg::matrix_multiply('C', 'N', n, q, n, 1., anchor.eigenvectors.data(), n,
-                    temporary.data(), n, 0., projected.data(), n);
-            }
-            result.polynomial.at(i, j) = block(projected, n, active, columns);
-            if (i == j) result.coupling[i] = block(projected, n, safe, columns);
-        }
-    return result;
-}
-
-Model reduce_model(ActiveModel active, const Eigensystem &anchor,
+Model reduce_model(const Polynomial &full, const Eigensystem &anchor,
                    const Certificate &proof, double mu, double eta, double gap,
                    ChargeErrorStats &stats) {
-    const auto v = active.polynomial.vertices, q = active.polynomial.size;
+    const auto v = full.vertices;
+    const auto q = full.size - proof.negative - proof.positive;
+    const auto active = indices(proof.negative, full.size - proof.positive);
     const auto safe = safe_indices(anchor.eigenvalues.size(), proof);
     const auto s = safe.size();
     std::vector<double> d0(s);
     for (std::size_t i = 0; i < s; ++i)
         d0[i] = anchor.eigenvalues[safe[i]] - mu;
-    const auto &coupling = active.coupling;
     std::vector<Matrix> solution;
-    double x = 0;
     for (std::size_t i = 0; i < v; ++i) {
-        auto solved = coupling[i];
-        for (std::size_t col = 0; col < q; ++col)
-            for (std::size_t row = 0; row < s; ++row)
-                solved[row + col * s] /= d0[row];
-        x = std::max(x, norm(solved));
+        auto solved = block(full.at(i, i), full.size, safe, active);
+        auto d = block(full.at(i,i), full.size, safe, safe);
+        if (!linalg::solve_linear_system_in_place(d, solved, s, q, "vertex safe solve"))
+            throw std::runtime_error("certified safe block solve failed");
         solution.push_back(std::move(solved));
     }
-    auto reduced = std::move(active.polynomial);
-    for (std::size_t i = 0; i < v; ++i)
-        for (std::size_t j = i; j < v; ++j) {
-            auto &control = reduced.at(i, j);
-            // Polarization of B1* D0^-1 B1 gives its quadratic controls.
-            linalg::matrix_multiply('C', 'N', q, q, s, -.5, coupling[i].data(), s,
-                solution[j].data(), s, 1., control.data(), q);
-            linalg::matrix_multiply('C', 'N', q, q, s, -.5, coupling[j].data(), s,
-                solution[i].data(), s, 1., control.data(), q);
-        }
-    const auto b = proof.coupling_remainder + eta;
-    const auto d = proof.safe_variation + eta;
-    const auto f = b + d * x;
-    const auto epsilon = eta + 2 * b * x + d * x * x + f * f / gap;
+    Polynomial reduced{v, q};
+    ResidualMatrices residual{v, q};
+    const auto epsilon = schur_allowance(full, safe, active, d0,
+        solution, proof.negative, eta, gap, stats, reduced, residual);
     ++stats.schur_reductions;
     stats.schur_evaluations += v * (v + 1) / 2;
     if (stats.minimum_active_dimension == 0 || q < stats.minimum_active_dimension)
         stats.minimum_active_dimension = q;
-    return {std::move(reduced), proof.negative, epsilon, eta, gap};
-}
-
-// These two bounds do not depend on mu: the scalar shifts in D-D0 cancel,
-// and shifting the diagonal never changes the safe-active coupling.
-void bound_variation(Certificate &proof, const Polynomial &full,
-                     const Eigensystem &anchor) {
-    const auto n = full.size, v = full.vertices;
-    const auto active = indices(proof.negative, n - proof.positive);
-    const auto safe = safe_indices(n, proof);
-    std::vector<Matrix> coupling;
-    for (std::size_t i = 0; i < v; ++i)
-        coupling.push_back(block(full.at(i, i), n, safe, active));
-    std::vector<double> row_sums(safe.size());
-    for (std::size_t i = 0; i < v; ++i)
-        for (std::size_t j = i; j < v; ++j) {
-            auto residual = block(full.at(i, j), n, safe, active);
-            for (std::size_t k = 0; k < residual.size(); ++k)
-                residual[k] -= .5 * (coupling[i][k] + coupling[j][k]);
-            proof.coupling_remainder = std::max(proof.coupling_remainder, norm(residual));
-            auto variation = block(full.at(i, j), n, safe, safe);
-            for (std::size_t row = 0; row < safe.size(); ++row)
-                variation[row + row * safe.size()] -= anchor.eigenvalues[safe[row]] - proof.mu;
-            proof.safe_variation = std::max(proof.safe_variation,
-                                            hermitian_norm_bound(variation, row_sums));
-        }
+    return {std::move(reduced), proof.negative, epsilon, eta, gap, std::move(residual)};
 }
 
 }  // namespace
@@ -209,8 +138,10 @@ Model build_model(const SpectralMesh &mesh,
             stats.initial_active_dimension_sum += q;
             if (q == 0) return {Polynomial{v, 0}, proof.negative, eta, eta, gap};
             auto full = interpolate(mesh, simplex_id, mu, stats, remainder, false).polynomial;
-            return reduce_model(active_model(full, anchor, proof, mu, false),
-                                anchor, proof, mu, eta, gap, stats);
+            // Reuse the sign proof, then rebuild the mu-dependent safe solve
+            // and its residual envelopes in the same anchor basis.
+            for (auto &control : full.controls) control = rotate(control, anchor.eigenvectors, n);
+            return reduce_model(full, anchor, proof, mu, eta, gap, stats);
         }
     }
     ++stats.certificate_builds;
@@ -235,12 +166,10 @@ Model build_model(const SpectralMesh &mesh,
     if (q == n) return {std::move(full), 0, eta, eta, 0};
     Certificate proof{sectors.negative, sectors.positive, mu,
                       sectors.negative_margin, sectors.positive_margin,
-                      eta, 0, 0, remainder};
-    if (q != 0) bound_variation(proof, full, anchor);
+                      eta, remainder};
     cache.emplace(simplex_id, proof);
     if (q == 0) return {Polynomial{v, 0}, sectors.negative, eta, eta, sectors.gap};
-    return reduce_model(active_model(full, anchor, proof, mu, true),
-                        anchor, proof, mu, eta, sectors.gap, stats);
+    return reduce_model(full, anchor, proof, mu, eta, sectors.gap, stats);
 }
 
 }  // namespace fermisimplex::occupation_detail

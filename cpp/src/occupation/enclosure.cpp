@@ -57,7 +57,7 @@ struct Interval {
 
 struct AffineBand {
     Weights energies;
-    double radius;
+    double lower_radius, upper_radius;
     bool negative;
     bool positive;
 };
@@ -71,16 +71,6 @@ double volume_below(double volume, const Weights &values, bool upper) {
     const auto kind = classify_cut(values, cut_tolerance).kind;
     if (kind == CutKind::on_level) return upper ? volume : 0.;
     return occupied_volume(volume, values, cut_tolerance, kind);
-}
-
-std::optional<Polynomial> rotated_center_frame(const Polynomial &polynomial, ChargeErrorStats &stats) {
-    auto basis = polynomial.center();
-    if (diagonal_center(basis, polynomial.size)) return std::nullopt;
-    std::vector<double> eigenvalues;
-    linalg::diagonalize_hermitian_in_place(basis, eigenvalues, polynomial.size,
-        true, "occupation polynomial center");
-    ++stats.reduced_eigensystems;
-    return polynomial.rotated(basis);
 }
 
 AffineBounds affine_bounds(const Polynomial &polynomial, double epsilon) {
@@ -128,7 +118,7 @@ AffineBounds affine_bounds(const Polynomial &polynomial, double epsilon) {
             ++result.occupation_lower;
         if (!positive && above_nonpositive)
             ++result.occupation_upper;
-        result.bands.push_back({std::move(affine), radius, negative, positive});
+        result.bands.push_back({std::move(affine), radius, radius, negative, positive});
     }
     return result;
 }
@@ -142,8 +132,8 @@ Interval charge_interval(const AffineBounds &bounds,
     for (std::size_t band = 0; band < bounds.bands.size(); ++band) {
         const auto &bound = bounds.bands[band];
         for (std::size_t i = 0; i < root_cuts.size(); ++i) {
-            below[i] = bound.energies[i] + bound.radius;
-            above[i] = bound.energies[i] - bound.radius;
+            below[i] = bound.energies[i] + bound.upper_radius;
+            above[i] = bound.energies[i] - bound.lower_radius;
             root[i] = root_cuts[i][band];
         }
         const auto lower = bound.negative ? volume : volume_below(volume, below, false);
@@ -156,18 +146,122 @@ Interval charge_interval(const AffineBounds &bounds,
     return result;
 }
 
+AffineBounds residual_bounds(const Polynomial &polynomial,
+    const ResidualMatrices &residual, const Matrix *basis) {
+    const auto q = polynomial.size, v = polynomial.vertices;
+    const auto infinity = std::numeric_limits<double>::infinity();
+    std::vector<double> lower(q, -infinity), upper(q, -infinity);
+    std::vector<double> minimum(q, infinity), maximum(q, -infinity);
+    Matrix scratch, rotated_low, rotated_high;
+    if (basis) {
+        rotated_low = rotate_controls(residual.lower, *basis, q, scratch);
+        rotated_high = rotate_controls(residual.upper, *basis, q, scratch);
+    }
+    const auto &low_controls = basis ? rotated_low : residual.lower;
+    const auto &high_controls = basis ? rotated_high : residual.upper;
+    for (std::size_t c = 0; c < residual.layout->indices.size(); ++c) {
+        const auto *low = low_controls.data()+c*q*q;
+        const auto *high = high_controls.data()+c*q*q;
+        for (std::size_t band = 0; band < q; ++band) {
+            double low_row = 0, high_row = 0, affine = 0;
+            for (std::size_t other = 0; other < q; ++other)
+                if (other != band) {
+                    low_row += std::abs(low[band+other*q]);
+                    high_row += std::abs(high[band+other*q]);
+                }
+            for (std::size_t i = 0; i < v; ++i)
+                affine += double(residual.layout->indices[c][i])/6 *
+                          polynomial.at(i,i)[band+band*q].real();
+            const auto lo = low[band+band*q].real() - low_row;
+            const auto hi = high[band+band*q].real() + high_row;
+            lower[band] = std::max(lower[band], affine-lo);
+            upper[band] = std::max(upper[band], hi-affine);
+            minimum[band] = std::min(minimum[band], lo);
+            maximum[band] = std::max(maximum[band], hi);
+        }
+    }
+    AffineBounds result;
+    for (std::size_t band = 0; band < q; ++band) {
+        const auto scale = std::max({1., std::abs(minimum[band]), std::abs(maximum[band]),
+                                    residual.remainder, lower[band], upper[band]});
+        const auto slack = residual.remainder + 8*cut_tolerance*scale;
+        const auto lo = lower[band]+slack, hi = upper[band]+slack;
+        Weights affine(v);
+        bool below = true, above = false;
+        for (std::size_t i = 0; i < v; ++i) {
+            affine[i] = polynomial.at(i,i)[band+band*q].real();
+            below &= affine[i]+hi < 0;
+            above |= affine[i]-lo <= 0;
+        }
+        const auto negative = maximum[band]+slack < 0;
+        const auto positive = minimum[band]-slack > 0;
+        result.occupation_lower += negative || below;
+        result.occupation_upper += !positive && above;
+        result.bands.push_back({std::move(affine), lo, hi, negative, positive});
+    }
+    return result;
+}
+
+struct Bounds {
+    AffineBounds scalar;
+    std::optional<AffineBounds> residual;
+    std::size_t lower() const {
+        return residual ? std::max(scalar.occupation_lower, residual->occupation_lower)
+                        : scalar.occupation_lower;
+    }
+    std::size_t upper() const {
+        return residual ? std::min(scalar.occupation_upper, residual->occupation_upper)
+                        : scalar.occupation_upper;
+    }
+};
+
+Bounds framed_bounds(const Polynomial &polynomial, double epsilon,
+    const ResidualMatrices *residual, ChargeErrorStats &stats, Sectors *sectors = nullptr) {
+    auto basis = polynomial.center();
+    std::optional<Polynomial> rotated;
+    if (!diagonal_center(basis, polynomial.size)) {
+        std::vector<double> eigenvalues;
+        linalg::diagonalize_hermitian_in_place(basis, eigenvalues, polynomial.size,
+            true, "occupation polynomial center");
+        ++stats.reduced_eigensystems;
+        rotated = polynomial.rotated(basis);
+    }
+    const auto &framed = rotated ? *rotated : polynomial;
+    Bounds result{affine_bounds(framed, epsilon), std::nullopt};
+    if (sectors) *sectors = sign_sectors(framed, epsilon, stats);
+    if (residual && result.lower() != result.upper() &&
+        (!sectors || sectors->negative+sectors->positive != polynomial.size))
+        result.residual = residual_bounds(framed, *residual, rotated ? &basis : nullptr);
+    return result;
+}
+
+Interval charge_interval(const Bounds &bounds,
+                         const std::vector<Weights> &root_cuts, double volume) {
+    auto result = charge_interval(bounds.scalar, root_cuts, volume);
+    if (bounds.residual) {
+        const auto other = charge_interval(*bounds.residual, root_cuts, volume);
+        result.lower = std::max(result.lower, other.lower);
+        result.upper = std::min(result.upper, other.upper);
+        result.cut_error = std::min(result.cut_error, other.cut_error);
+        result.occupation_lower = bounds.lower();
+        result.occupation_upper = bounds.upper();
+    }
+    return result;
+}
+
 template <bool IntegrateCharge>
-Interval traverse(const Polynomial &polynomial, const AffineBounds &bounds, double epsilon,
+Interval traverse(const Polynomial &polynomial, const Bounds &bounds, double epsilon,
+                   const ResidualMatrices *residual,
                    const std::vector<Weights> &points,
                    const std::vector<Weights> &root_cuts, double volume,
                    std::uint32_t remaining, ChargeErrorStats &stats) {
     ++stats.micro_simplices;
-    if (remaining == 0 || bounds.occupation_lower == bounds.occupation_upper) {
+    if (remaining == 0 || bounds.lower() == bounds.upper()) {
         ++stats.terminal_simplices;
         stats.terminal_active_dimension_sum += polynomial.size;
         if constexpr (IntegrateCharge) return charge_interval(bounds, root_cuts, volume);
-        return {.occupation_lower = bounds.occupation_lower,
-                .occupation_upper = bounds.occupation_upper};
+        return {.occupation_lower = bounds.lower(),
+                .occupation_upper = bounds.upper()};
     }
     // Longest physical edge bisection; only the polynomial is evaluated below.
     double longest = -1;
@@ -189,13 +283,12 @@ Interval traverse(const Polynomial &polynomial, const AffineBounds &bounds, doub
             for (std::size_t band = 0; band < polynomial.size; ++band)
                 child_cuts[replaced][band] = .5 * (root_cuts[left][band] + root_cuts[right][band]);
         const auto child_polynomial = polynomial.bisected(left, right, replaced);
-        AffineBounds child_bounds;
-        {
-            const auto rotated = rotated_center_frame(child_polynomial, stats);
-            child_bounds = affine_bounds(rotated ? *rotated : child_polynomial, epsilon);
-        }
+        std::optional<ResidualMatrices> child_residual;
+        if (residual) child_residual = residual->bisected(left, right, replaced);
+        const auto child_pointer = child_residual ? &*child_residual : nullptr;
+        const auto child_bounds = framed_bounds(child_polynomial, epsilon, child_pointer, stats);
         const auto child = traverse<IntegrateCharge>(child_polynomial, child_bounds, epsilon,
-            child_points, child_cuts, volume / 2, remaining - 1, stats);
+            child_pointer, child_points, child_cuts, volume / 2, remaining - 1, stats);
         result.lower += child.lower; result.upper += child.upper;
         result.cut_error += child.cut_error;
         result.occupation_lower = std::min(result.occupation_lower, child.occupation_lower);
@@ -277,14 +370,9 @@ OccupationEnclosure enclosure(const SpectralMesh &mesh,
         points.push_back(mesh.geometry().vertices().dyadic_vertex(vertex).to_point());
     // A fixed polynomial can have a better block sign proof than row bounds.
     Sectors sectors;
-    AffineBounds bounds;
-    {
-        const auto rotated = rotated_center_frame(model.polynomial, stats);
-        const auto &framed = rotated ? *rotated : model.polynomial;
-        sectors = sign_sectors(framed, model.epsilon, stats);
-        bounds = affine_bounds(framed, model.epsilon);
-    }
-    const auto interval = traverse<IntegrateCharge>(model.polynomial, bounds, model.epsilon, points, cuts,
+    const auto residual = model.residual ? &*model.residual : nullptr;
+    const auto bounds = framed_bounds(model.polynomial, model.epsilon, residual, stats, &sectors);
+    const auto interval = traverse<IntegrateCharge>(model.polynomial, bounds, model.epsilon, residual, points, cuts,
         simplex.volume, sectors.negative + sectors.positive == q ? 0 : depth * mesh.ndim(), stats);
     result.occupation_lower += std::max(sectors.negative, interval.occupation_lower);
     result.occupation_upper += std::min(q - sectors.positive, interval.occupation_upper);

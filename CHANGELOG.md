@@ -4,6 +4,11 @@ All notable changes to FermiSimplex are documented in this file.
 
 ## Unreleased
 
+- Use vertex safe-block solves and retain residual Gram matrices in the shared
+  Schur occupation enclosure. Energy-scaled safe-sector margins and exact
+  polynomial subdivision sharpen the bounds without changing Hamiltonian probes.
+- Remove obsolete cached safe-block variation and coupling-curvature estimates.
+
 - Make polynomial cubature with density-only bisection the default for full and
   selected density integrals. Remove the `_p` API and old adaptive controller;
   retain a direct `estimate_density_on_current_mesh` query for fixed meshes.

@@ -5,7 +5,7 @@ preview = ["pixi-build"]
 
 [package]
 name = "fermisimplex"
-version = "0.2.0"
+version = "0.2.0b1"
 
 [package.build]
 backend = { name = "pixi-build-python", version = "*", channels = ["https://prefix.dev/conda-forge"] }
@@ -73,10 +73,11 @@ benchmark-cpp = { cmd = "cmake --build build/cpp-benchmarks --target fermisimple
 benchmark-charge-error = { cmd = "python benchmarks/charge_error.py --preset full --output build/benchmarks/charge-error.json --plot build/benchmarks/charge-error-scalar.png", depends-on = ["install-editable"] }
 
 check-metadata = "python ci/check_metadata.py"
+test-metadata = "pytest ci/test_metadata.py"
 parse-workflows = "python ci/check_workflows.py"
 lint-github-workflows = "actionlint"
 check-workflows = { depends-on = ["parse-workflows", "lint-github-workflows"] }
-ci-test = { depends-on = ["check-metadata", "check-workflows", "test", "smoke-test"] }
+ci-test = { depends-on = ["check-metadata", "test-metadata", "check-workflows", "test", "smoke-test"] }
 ci-benchmark = { depends-on = ["benchmark-cpp"] }
 build-sdist = { cmd = "python -m build --sdist --outdir dist", depends-on = ["check-metadata"] }
 check-sdist = { cmd = "python -m twine check dist/*.tar.gz", depends-on = ["build-sdist"] }

@@ -8,8 +8,11 @@ FermiSimplex uses SemVer-style versions:
 - After 1.0, minor releases add compatible APIs or examples.
 - Major releases may remove or change public APIs.
 
-Release tags use `vX.Y.Z`. The tag must match the version in `pyproject.toml`,
-`pixi.toml`, the CMake projects, and `CITATION.cff`.
+Release tags match the Python package version, including any pre-release suffix:
+for example, `v0.2.0b1` for a beta or `v0.2.0rc1` for a release candidate.
+`pyproject.toml`, `pixi.toml` and `CITATION.cff` contain that full version.
+The CMake projects use its numeric base, `0.2.0`, because CMake does not accept
+Python pre-release suffixes. `ci/check_metadata.py` checks both forms.
 
 ## Automation
 
@@ -28,6 +31,10 @@ No long-lived PyPI token is stored in the repository. The publishing jobs use
 PyPI Trusted Publishing and request an identity token only after every build
 has succeeded.
 
+Branches named `codex/beta-*` run the full Python 3.11–3.13 wheel matrix in CI
+without uploading packages. Use these checks when preparing a beta; neither a
+release tag nor the manual publishing workflow is needed for build verification.
+
 ## One-time repository setup
 
 1. In the GitHub mirror, create environments named `testpypi` and `pypi`.
@@ -41,8 +48,8 @@ has succeeded.
 
 ## Checklist
 
-1. Update the version in `pyproject.toml`, `pixi.toml`, the CMake projects, and
-   `CITATION.cff`.
+1. Update the full version in `pyproject.toml`, `pixi.toml` and `CITATION.cff`.
+   Update the CMake projects only when the numeric base version changes.
 2. Move the release notes in `CHANGELOG.md` under a dated version heading.
 3. Add `date-released` to `CITATION.cff`.
 4. Run:

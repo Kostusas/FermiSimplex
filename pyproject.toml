@@ -8,7 +8,7 @@ build-backend = "scikit_build_core.build"
 
 [project]
 name = "FermiSimplex"
-version = "0.2.0"
+version = "0.2.0b1"
 description = "Adaptive spectral calculations with simplex occupation certification"
 readme = "README.md"
 requires-python = ">=3.11,<3.14"
@@ -24,7 +24,7 @@ keywords = [
     "scientific computing",
 ]
 classifiers = [
-    "Development Status :: 3 - Alpha",
+    "Development Status :: 4 - Beta",
     "Intended Audience :: Science/Research",
     "Operating System :: MacOS",
     "Operating System :: Microsoft :: Windows",

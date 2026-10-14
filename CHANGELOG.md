@@ -4,6 +4,11 @@ All notable changes to FermiSimplex are documented in this file.
 
 ## Unreleased
 
+## 0.2.0b1 - 2026-10-15
+
+First PyPI beta of the 0.2 series, including the changes below. Requires Python
+3.11–3.13; this pre-1.0 release includes intentional API changes from 0.1.0.
+
 - Rename the explicit Hamiltonian interpolation allowance to `remainder_bound`
   in standalone certification and quadratic occupation-enclosure APIs. The
   standalone affine certificate and its eigensystem inputs are unchanged.
@@ -53,7 +58,7 @@ All notable changes to FermiSimplex are documented in this file.
   estimator a clear per-root memory bound while allowing temporary data to be
   shared throughout that root's recursive microsimplices.
 
-## 0.2.0 - 2026-08-07
+### Earlier 0.2 development changes
 
 - Replaced the projected charge-error heuristic with a fixed-depth recursive
   active-space estimator using corrected frozen-Schur reductions and actual

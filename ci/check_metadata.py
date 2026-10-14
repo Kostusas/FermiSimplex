@@ -1,11 +1,12 @@
 from __future__ import annotations
 
 import os
-from pathlib import Path
 import re
 import sys
 import tomllib
+from pathlib import Path
 
+from packaging.version import InvalidVersion, Version
 
 ROOT = Path(__file__).resolve().parents[1]
 EXPECTED_AUTHOR = "Kostas Vilkelis"
@@ -32,13 +33,19 @@ with (ROOT / "pixi.toml").open("rb") as file:
 
 project = pyproject["project"]
 version = project["version"]
+try:
+    parsed_version = Version(version)
+except InvalidVersion:
+    fail(f"invalid Python package version: {version!r}")
+
 versions = {
     "pyproject.toml": version,
     "pixi.toml": pixi["package"]["version"],
 }
+cmake_versions = {}
 for relative in ("CMakeLists.txt", "cpp/CMakeLists.txt", "python/CMakeLists.txt"):
     text = (ROOT / relative).read_text()
-    versions[relative] = one_match(
+    cmake_versions[relative] = one_match(
         rf"\bproject\s*\([^)]*?\bVERSION\s+({VERSION_PATTERN})",
         text,
         relative,
@@ -52,14 +59,27 @@ versions["CITATION.cff"] = one_match(
 )
 
 if set(versions.values()) != {version}:
-    fail("versions differ: " + ", ".join(f"{path}={value}" for path, value in versions.items()))
+    fail(
+        "versions differ: "
+        + ", ".join(f"{path}={value}" for path, value in versions.items())
+    )
+# CMake's VERSION accepts numeric components only. Python's pre-release suffix
+# belongs in the distribution metadata, while the C++ version stays numeric.
+if set(cmake_versions.values()) != {parsed_version.base_version}:
+    fail(
+        f"CMake versions must equal {parsed_version.base_version}: "
+        + ", ".join(f"{path}={value}" for path, value in cmake_versions.items())
+    )
 if project["name"].lower() != "fermisimplex":
     fail("the distribution name must normalize to fermisimplex")
 if project.get("authors") != [{"name": EXPECTED_AUTHOR}]:
     fail(f"pyproject author must be {EXPECTED_AUTHOR!r}")
 if project.get("license") != EXPECTED_LICENSE:
     fail(f"pyproject license must be {EXPECTED_LICENSE}")
-if f'given-names: "Kostas"' not in citation or f'family-names: "Vilkelis"' not in citation:
+if (
+    'given-names: "Kostas"' not in citation
+    or 'family-names: "Vilkelis"' not in citation
+):
     fail("CITATION.cff author does not match AdaptiveSimplex")
 if f'license: "{EXPECTED_LICENSE}"' not in citation:
     fail("CITATION.cff license does not match AdaptiveSimplex")

@@ -94,21 +94,21 @@ void test_certified_simplex_reports_mu_bounds() {
     );
 }
 
-void test_mesh_linearization_error_bound_matches_direct_error() {
+void test_mesh_remainder_bound_matches_direct_error() {
     auto mesh = fermisimplex::SpectralMesh(winding_model(1), kTol, 4);
     const auto &geometry = mesh.geometry();
     const auto simplex_id = first_active_simplex(geometry);
     auto &cache = mesh.eigensystems();
     fill_vertex_cache(geometry, simplex_id, mesh, cache);
 
-    const auto linearization_error_bound = 0.25;
+    const auto remainder_bound = 0.25;
     const auto spectra = simplex_spectra(geometry, simplex_id, cache);
-    const auto direct = certify_direct(spectra, 0.0, linearization_error_bound, kTol);
+    const auto direct = certify_direct(spectra, 0.0, remainder_bound, kTol);
     const auto mesh_certificate = certificate::certify_mesh_simplex(
         mesh,
         simplex_id,
         0.0,
-        linearization_error_bound,
+        remainder_bound,
         kTol
     );
 
@@ -191,7 +191,7 @@ void test_prepared_mesh_certificate_matches_one_shot_calls() {
     }
 }
 
-void test_large_linearization_error_bound_blocks_certification() {
+void test_large_remainder_bound_blocks_certification() {
     auto mesh = fermisimplex::SpectralMesh(winding_model(1), kTol, 4);
     const auto &geometry = mesh.geometry();
     const auto simplex_id = first_active_simplex(geometry);
@@ -353,9 +353,9 @@ void test_exact_occupation_bounds_promote_an_inconclusive_gap_proof() {
 int main() {
     try {
         test_certified_simplex_reports_mu_bounds();
-        test_mesh_linearization_error_bound_matches_direct_error();
+        test_mesh_remainder_bound_matches_direct_error();
         test_prepared_mesh_certificate_matches_one_shot_calls();
-        test_large_linearization_error_bound_blocks_certification();
+        test_large_remainder_bound_blocks_certification();
         test_occupation_bound_certificate_reports_mu_bounds();
         test_visible_gapless_reports_conservative_bounds();
         test_visible_gapless_estimates_occupation_bounds();

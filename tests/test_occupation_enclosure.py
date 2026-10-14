@@ -20,10 +20,10 @@ def interval(enclosures):
 def test_quadratic_pocket_reopens_false_vertex_certificate():
     hamiltonian = scalar(lambda x: (x - 0.37) ** 2 - 0.04**2)
     values, vectors = np.linalg.eigh(np.array([hamiltonian(0), hamiltonian(1)]))
-    old = certify_simplex(values, vectors, linearization_error_bound=0)
+    old = certify_simplex(values, vectors, remainder_bound=0)
     assert old.status is CertificateStatus.CertifiedGapped
     mesh = SpectralMesh(hamiltonian, root_level=0)
-    enclosures = mesh.occupation_enclosures(mu=0, depth=10, interpolation_error_bound=0)
+    enclosures = mesh.occupation_enclosures(mu=0, depth=10, remainder_bound=0)
     low, high = interval(enclosures)
     assert low <= 0.08 <= high
     assert high - low < 1e-4
@@ -68,7 +68,7 @@ def test_two_dimensional_pocket_charge_interval():
 
     mesh = SpectralMesh(hamiltonian, root_level=0)
     low, high = interval(
-        mesh.occupation_enclosures(mu=0, depth=6, interpolation_error_bound=0)
+        mesh.occupation_enclosures(mu=0, depth=6, remainder_bound=0)
     )
     exact = np.pi * 0.12**2
     assert low <= exact <= high
@@ -85,7 +85,7 @@ def test_two_dimensional_pocket_charge_interval():
 )
 def test_contacts_and_flat_bands_are_not_strict_gaps(function, charge):
     mesh = SpectralMesh(scalar(function), root_level=0)
-    enclosures = mesh.occupation_enclosures(mu=0, depth=6, interpolation_error_bound=0)
+    enclosures = mesh.occupation_enclosures(mu=0, depth=6, remainder_bound=0)
     low, high = interval(enclosures)
     assert low - 1e-14 <= charge <= high + 1e-14
     assert any(not e.fixed_occupation for e in enclosures)
@@ -100,7 +100,7 @@ def test_known_remainder_protects_an_unsampled_pocket():
     sampled = mesh.occupation_enclosures(mu=0)
     # Deliberate limitation: all interpolation and validation probes miss it.
     assert all(e.fixed_occupation and e.remainder_is_sampled for e in sampled)
-    bounded = mesh.occupation_enclosures(mu=0, interpolation_error_bound=1.0)
+    bounded = mesh.occupation_enclosures(mu=0, remainder_bound=1.0)
     assert all(not e.fixed_occupation and not e.remainder_is_sampled for e in bounded)
 
 
@@ -119,7 +119,7 @@ def test_adaptive_charge_meets_analytic_cosine_reference():
 def test_invalid_bound_rejected(bound):
     with pytest.raises((ValueError, RuntimeError)):
         SpectralMesh(scalar(lambda x: x)).occupation_enclosures(
-            mu=0, interpolation_error_bound=bound
+            mu=0, remainder_bound=bound
         )
 
 
@@ -261,7 +261,7 @@ def test_three_dimensional_spherical_pocket():
 
     mesh = SpectralMesh(hamiltonian, root_level=1)
     low, high = interval(
-        mesh.occupation_enclosures(mu=0, depth=3, interpolation_error_bound=0)
+        mesh.occupation_enclosures(mu=0, depth=3, remainder_bound=0)
     )
     exact = 4 * np.pi * 0.18**3 / 3
     assert low <= exact <= high

@@ -8,8 +8,8 @@ its error and drives refinement. Both `integrate_charge` and `fermi_surface`
 use this implementation; there is no algorithm selector.
 
 A sign claim is conditional on a uniform interpolation remainder. By default
-that remainder is sampled. Explicit uniform bounds can be supplied to
-`occupation_enclosures`; a positive surface `curvature_bound` also provides a
+that remainder is sampled. Explicit uniform bounds can be supplied as
+`occupation_enclosures(remainder_bound=...)`; a positive surface `curvature_bound` also provides a
 uniform allowance. Arbitrary features between samples can still be missed.
 The standalone vertex-only `certify_simplex` is a low-level affine-matrix
 primitive with an explicit remainder contract; adaptive calculations no longer

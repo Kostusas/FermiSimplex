@@ -53,7 +53,7 @@ SimplexCertificate certify_scalar_simplex(
     const detail::VertexSpectraAnalysis &analysis,
     std::span<const double> values,
     double mu,
-    double linearization_error_bound,
+    double remainder_bound,
     double tolerance
 ) {
     const auto nocc = analysis.anchor.nocc;
@@ -68,7 +68,7 @@ SimplexCertificate certify_scalar_simplex(
 
     const auto total_margin =
         detail::certificate_margin(tolerance) +
-        linearization_error_bound;
+        remainder_bound;
     const auto sector_radius = std::max(
         0.0,
         worst_oriented_value - total_margin
@@ -181,13 +181,13 @@ struct PreparedSimplexCertificate::Impl {
             frame_gram_row_bounds(occupied_rotation, nocc, nunocc);
     }
 
-    SimplexCertificate certify(double linearization_error_bound) const {
+    SimplexCertificate certify(double remainder_bound) const {
         using namespace detail;
 
-        if (linearization_error_bound < 0.0 ||
-            !std::isfinite(linearization_error_bound)) {
+        if (remainder_bound < 0.0 ||
+            !std::isfinite(remainder_bound)) {
             throw std::runtime_error(
-                "certify_simplex: linearization_error_bound must be finite and non-negative"
+                "certify_simplex: remainder_bound must be finite and non-negative"
             );
         }
         if (!scalar_values.empty()) {
@@ -195,7 +195,7 @@ struct PreparedSimplexCertificate::Impl {
                 analysis,
                 scalar_values,
                 mu,
-                linearization_error_bound,
+                remainder_bound,
                 tolerance
             );
         }
@@ -205,7 +205,7 @@ struct PreparedSimplexCertificate::Impl {
                 SimplexCertificateStatus::VisibleGapless,
                 mu,
                 blocks.vertices,
-                linearization_error_bound,
+                remainder_bound,
                 tolerance
             );
         }
@@ -223,14 +223,14 @@ struct PreparedSimplexCertificate::Impl {
                 vertex_blocks,
                 rotation_span,
                 std::span<const double>(unoccupied_gram_row_bounds),
-                linearization_error_bound,
+                remainder_bound,
                 tolerance
             );
             const auto occupied = check_occupied_sector(
                 vertex_blocks,
                 occupied_rotation_span,
                 std::span<const double>(occupied_gram_row_bounds),
-                linearization_error_bound,
+                remainder_bound,
                 tolerance
             );
 
@@ -239,7 +239,7 @@ struct PreparedSimplexCertificate::Impl {
                     SimplexCertificateStatus::Inconclusive,
                     mu,
                     blocks.vertices,
-                    linearization_error_bound,
+                    remainder_bound,
                     tolerance
                 );
             }
@@ -263,13 +263,13 @@ struct PreparedSimplexCertificate::Impl {
     }
 
     OccupationBounds occupation_bounds(
-        double linearization_error_bound
+        double remainder_bound
     ) const {
         using namespace detail;
-        if (linearization_error_bound < 0.0 ||
-            !std::isfinite(linearization_error_bound)) {
+        if (remainder_bound < 0.0 ||
+            !std::isfinite(remainder_bound)) {
             throw std::runtime_error(
-                "certify_simplex: linearization_error_bound must be finite and non-negative"
+                "certify_simplex: remainder_bound must be finite and non-negative"
             );
         }
         if (!scalar_values.empty()) {
@@ -277,14 +277,14 @@ struct PreparedSimplexCertificate::Impl {
                 analysis,
                 scalar_values,
                 mu,
-                linearization_error_bound,
+                remainder_bound,
                 tolerance
             ).occupation_bounds;
         }
         if (analysis.classification ==
             VertexSpectraClassification::VisibleGapless) {
             return make_unresolved_occupation_bounds(
-                blocks.vertices, linearization_error_bound, tolerance
+                blocks.vertices, remainder_bound, tolerance
             );
         }
         const auto rotation_span = std::span<const Complex>{rotation};
@@ -294,17 +294,17 @@ struct PreparedSimplexCertificate::Impl {
             if (!unoccupied_sector_passes(
                     vertex_blocks,
                     rotation_span,
-                    linearization_error_bound,
+                    remainder_bound,
                     tolerance
                 ) ||
                 !occupied_sector_passes(
                     vertex_blocks,
                     occupied_rotation_span,
-                    linearization_error_bound,
+                    remainder_bound,
                     tolerance
                 )) {
                 return make_unresolved_occupation_bounds(
-                    blocks.vertices, linearization_error_bound, tolerance
+                    blocks.vertices, remainder_bound, tolerance
                 );
             }
         }
@@ -323,27 +323,27 @@ PreparedSimplexCertificate::PreparedSimplexCertificate(
 }
 
 SimplexCertificate PreparedSimplexCertificate::certify(
-    double linearization_error_bound
+    double remainder_bound
 ) const {
-    return impl_->certify(linearization_error_bound);
+    return impl_->certify(remainder_bound);
 }
 
 OccupationBounds PreparedSimplexCertificate::occupation_bounds(
-    double linearization_error_bound
+    double remainder_bound
 ) const {
-    return impl_->occupation_bounds(linearization_error_bound);
+    return impl_->occupation_bounds(remainder_bound);
 }
 
 SimplexCertificate certify_simplex(
     std::span<const std::span<const double>> eigenvalues,
     std::span<const std::span<const std::complex<double>>> eigenvectors,
     double mu,
-    double linearization_error_bound,
+    double remainder_bound,
     double tolerance
 ) {
     return prepare_simplex_certificate(
         eigenvalues, eigenvectors, mu, tolerance
-    ).certify(linearization_error_bound);
+    ).certify(remainder_bound);
 }
 
 PreparedSimplexCertificate prepare_simplex_certificate(
@@ -400,12 +400,12 @@ SimplexCertificate certify_mesh_simplex(
     const SpectralMesh &mesh,
     core::SimplexId simplex_id,
     double mu,
-    double linearization_error_bound,
+    double remainder_bound,
     double tolerance
 ) {
     return prepare_mesh_simplex_certificate(
         mesh, simplex_id, mu, tolerance
-    ).certify(linearization_error_bound);
+    ).certify(remainder_bound);
 }
 
 }  // namespace fermisimplex::certification

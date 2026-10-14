@@ -20,14 +20,14 @@ def _spectra(hoppings, points):
     return np.asarray(values), np.asarray(vectors)
 
 
-def test_certifies_a_gapped_simplex_with_an_explicit_linearization_error_bound():
+def test_certifies_a_gapped_simplex_with_an_explicit_remainder_bound():
     eigenvalues = np.array([[-1.0, 1.0], [-1.0, 1.0]])
     eigenvectors = np.repeat(np.eye(2, dtype=complex)[None], 2, axis=0)
 
     certificate = certify_simplex(
         eigenvalues,
         eigenvectors,
-        linearization_error_bound=0.25,
+        remainder_bound=0.25,
     )
 
     assert certificate.status is CertificateStatus.CertifiedGapped
@@ -35,11 +35,11 @@ def test_certifies_a_gapped_simplex_with_an_explicit_linearization_error_bound()
     assert certificate.occupation_bounds.upper == 1
 
 
-def test_linearization_error_bound_is_required():
+def test_remainder_bound_is_required():
     eigenvalues = np.array([[-1.0, 1.0], [-1.0, 1.0]])
     eigenvectors = np.repeat(np.eye(2, dtype=complex)[None], 2, axis=0)
 
-    with pytest.raises(TypeError, match="linearization_error_bound"):
+    with pytest.raises(TypeError, match="remainder_bound"):
         certify_simplex(eigenvalues, eigenvectors)
 
 
@@ -50,7 +50,7 @@ def test_reports_a_visible_crossing():
     certificate = certify_simplex(
         eigenvalues,
         eigenvectors,
-        linearization_error_bound=0.0,
+        remainder_bound=0.0,
     )
 
     assert certificate.status is CertificateStatus.VisibleGapless
@@ -67,7 +67,7 @@ def test_reports_an_inconclusive_rotating_eigenspace():
     certificate = certify_simplex(
         eigenvalues,
         eigenvectors,
-        linearization_error_bound=0.0,
+        remainder_bound=0.0,
     )
 
     assert certificate.status is CertificateStatus.Inconclusive
@@ -82,12 +82,12 @@ def test_mu_interval_preserves_bounds_but_not_necessarily_status():
     certificate = certify_simplex(
         eigenvalues,
         eigenvectors,
-        linearization_error_bound=0.0,
+        remainder_bound=0.0,
     )
     shifted = certify_simplex(
         eigenvalues,
         eigenvectors,
-        linearization_error_bound=0.0,
+        remainder_bound=0.0,
         mu=0.5,
     )
 

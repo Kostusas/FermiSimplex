@@ -34,7 +34,7 @@ OccupationSectorCheck check_oriented_sector(
     std::span<const Complex> rotation,
     std::span<const double> gram_row_bounds,
     double quadratic_scale,
-    double linearization_error_bound,
+    double remainder_bound,
     double tolerance
 ) {
     const auto size = square_matrix_size(base_block);
@@ -61,7 +61,7 @@ OccupationSectorCheck check_oriented_sector(
         rotation,
         size,
         opposite_size,
-        linearization_error_bound
+        remainder_bound
     );
 
     const auto radius = occupation_block_mu_radius(
@@ -87,7 +87,7 @@ bool oriented_sector_passes(
     std::span<const Complex> coupling,
     std::span<const Complex> rotation,
     double quadratic_scale,
-    double linearization_error_bound,
+    double remainder_bound,
     double tolerance
 ) {
     const auto size = square_matrix_size(base_block);
@@ -108,7 +108,7 @@ bool oriented_sector_passes(
         rotation,
         size,
         opposite_size,
-        linearization_error_bound
+        remainder_bound
     );
     return positive_definite(
         std::move(block), size, certificate_margin(tolerance)
@@ -121,7 +121,7 @@ OccupationSectorCheck check_unoccupied_sector(
     const VertexBlocks &blocks,
     std::span<const Complex> rotation,
     std::span<const double> gram_row_bounds,
-    double linearization_error_bound,
+    double remainder_bound,
     double tolerance
 ) {
     return check_oriented_sector(
@@ -132,7 +132,7 @@ OccupationSectorCheck check_unoccupied_sector(
         rotation,
         gram_row_bounds,
         1.0,
-        linearization_error_bound,
+        remainder_bound,
         tolerance
     );
 }
@@ -141,7 +141,7 @@ OccupationSectorCheck check_occupied_sector(
     const VertexBlocks &blocks,
     std::span<const Complex> rotation,
     std::span<const double> gram_row_bounds,
-    double linearization_error_bound,
+    double remainder_bound,
     double tolerance
 ) {
     const auto occupied_size = square_matrix_size(blocks.occupied_block);
@@ -159,7 +159,7 @@ OccupationSectorCheck check_occupied_sector(
         rotation,
         gram_row_bounds,
         -1.0,
-        linearization_error_bound,
+        remainder_bound,
         tolerance
     );
 }
@@ -167,7 +167,7 @@ OccupationSectorCheck check_occupied_sector(
 bool unoccupied_sector_passes(
     const VertexBlocks &blocks,
     std::span<const Complex> rotation,
-    double linearization_error_bound,
+    double remainder_bound,
     double tolerance
 ) {
     return oriented_sector_passes(
@@ -177,7 +177,7 @@ bool unoccupied_sector_passes(
         blocks.coupling_block,
         rotation,
         1.0,
-        linearization_error_bound,
+        remainder_bound,
         tolerance
     );
 }
@@ -185,7 +185,7 @@ bool unoccupied_sector_passes(
 bool occupied_sector_passes(
     const VertexBlocks &blocks,
     std::span<const Complex> rotation,
-    double linearization_error_bound,
+    double remainder_bound,
     double tolerance
 ) {
     const auto occupied_size = square_matrix_size(blocks.occupied_block);
@@ -202,14 +202,14 @@ bool occupied_sector_passes(
         coupling,
         rotation,
         -1.0,
-        linearization_error_bound,
+        remainder_bound,
         tolerance
     );
 }
 
 OccupationBounds make_unresolved_occupation_bounds(
     const std::vector<VertexBlocks> &blocks,
-    double linearization_error_bound,
+    double remainder_bound,
     double tolerance
 ) {
     if (blocks.empty()) {
@@ -233,10 +233,10 @@ OccupationBounds make_unresolved_occupation_bounds(
         occupied_blocks.push_back(std::move(occupied_block));
     }
     const auto lower = estimate_ordered_subset_rank(
-        occupied_blocks, nocc, linearization_error_bound, tolerance
+        occupied_blocks, nocc, remainder_bound, tolerance
     );
     const auto upper = ndof - estimate_ordered_subset_rank(
-        unoccupied_blocks, nunocc, linearization_error_bound, tolerance
+        unoccupied_blocks, nunocc, remainder_bound, tolerance
     );
     return lower <= upper
         ? OccupationBounds{.lower = lower, .upper = upper}
@@ -247,7 +247,7 @@ SimplexCertificate make_unresolved_certificate(
     SimplexCertificateStatus status,
     double mu,
     const std::vector<VertexBlocks> &blocks,
-    double linearization_error_bound,
+    double remainder_bound,
     double tolerance
 ) {
     if (blocks.empty()) {
@@ -278,14 +278,14 @@ SimplexCertificate make_unresolved_certificate(
         estimate_ordered_subset_rank_with_mu_radius(
             occupied_blocks,
             nocc,
-            linearization_error_bound,
+            remainder_bound,
             tolerance
         );
     const auto unoccupied_estimate =
         estimate_ordered_subset_rank_with_mu_radius(
             unoccupied_blocks,
             nunocc,
-            linearization_error_bound,
+            remainder_bound,
             tolerance
         );
     const auto lower = occupied_estimate.rank;

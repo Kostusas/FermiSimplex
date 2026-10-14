@@ -82,7 +82,7 @@ double ordered_subset_mu_radius(
     std::span<const size_t> order,
     size_t size,
     size_t rank,
-    double linearization_error_bound,
+    double remainder_bound,
     double tolerance
 ) {
     if (rank == 0) {
@@ -91,7 +91,7 @@ double ordered_subset_mu_radius(
 
     auto radius = std::numeric_limits<double>::infinity();
     const auto total_margin =
-        certificate_margin(tolerance) + linearization_error_bound;
+        certificate_margin(tolerance) + remainder_bound;
     for (const auto &block : blocks) {
         const auto permuted = permuted_block(block, order, size);
         for (size_t row = 0; row < rank; ++row) {
@@ -108,7 +108,7 @@ double ordered_subset_mu_radius(
 OccupationRankEstimate estimate_ordered_subset_rank_with_mu_radius(
     const std::vector<std::vector<Complex>> &blocks,
     size_t size,
-    double linearization_error_bound,
+    double remainder_bound,
     double tolerance
 ) {
     if (size == 0 || blocks.empty()) {
@@ -130,7 +130,7 @@ OccupationRankEstimate estimate_ordered_subset_rank_with_mu_radius(
             positive_definite(
                 permuted,
                 size,
-                certificate_margin(tolerance) + linearization_error_bound
+                certificate_margin(tolerance) + remainder_bound
             ).accepted_rank
         );
     }
@@ -141,7 +141,7 @@ OccupationRankEstimate estimate_ordered_subset_rank_with_mu_radius(
             order_span,
             size,
             rank,
-            linearization_error_bound,
+            remainder_bound,
             tolerance
         ),
     };
@@ -150,7 +150,7 @@ OccupationRankEstimate estimate_ordered_subset_rank_with_mu_radius(
 size_t estimate_ordered_subset_rank(
     const std::vector<std::vector<Complex>> &blocks,
     size_t size,
-    double linearization_error_bound,
+    double remainder_bound,
     double tolerance
 ) {
     if (size == 0 || blocks.empty()) {
@@ -167,7 +167,7 @@ size_t estimate_ordered_subset_rank(
                 std::move(permuted),
                 size,
                 certificate_margin(tolerance) +
-                    linearization_error_bound
+                    remainder_bound
             ).accepted_rank
         );
     }

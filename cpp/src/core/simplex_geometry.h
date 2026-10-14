@@ -37,7 +37,7 @@ inline double simplex_diameter(
     return simplex_diameter(geometry, geometry.simplices().simplex(simplex_id));
 }
 
-inline double symmetric_linearization_error_bound(
+inline double symmetric_remainder_bound(
     double curvature_bound,
     double diameter
 ) {

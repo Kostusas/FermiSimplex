@@ -162,7 +162,7 @@ std::vector<double> SpectralMesh::occupied_weights(double mu) const {
     return result;
 }
 
-double SpectralMesh::linearization_error_bound(
+double SpectralMesh::remainder_bound(
     core::SimplexId simplex_id,
     double curvature_bound
 ) const {
@@ -171,7 +171,7 @@ double SpectralMesh::linearization_error_bound(
             "curvature_bound must be finite and non-negative"
         );
     }
-    return symmetric_linearization_error_bound(
+    return symmetric_remainder_bound(
         curvature_bound,
         simplex_diameter(geometry_, simplex_id)
     );

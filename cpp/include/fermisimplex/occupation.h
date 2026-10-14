@@ -28,7 +28,7 @@ OccupationEnclosure enclose_occupation(
     double mu,
     std::uint32_t depth,
     ChargeErrorStats &stats,
-    std::optional<double> interpolation_error_bound = std::nullopt
+    std::optional<double> remainder_bound = std::nullopt
 );
 
 }  // namespace fermisimplex

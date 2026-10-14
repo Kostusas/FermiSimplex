@@ -98,7 +98,7 @@ inline Eigensystem diagonal_spectra(std::initializer_list<double> eigenvalues) {
 inline certification::SimplexCertificate certify_direct(
     const std::vector<Eigensystem> &spectra,
     double mu = 0.0,
-    double linearization_error_bound = 0.0,
+    double remainder_bound = 0.0,
     double tolerance = certification::kDefaultTolerance
 ) {
     std::vector<std::span<const double>> eigenvalues;
@@ -110,7 +110,7 @@ inline certification::SimplexCertificate certify_direct(
         eigenvectors.emplace_back(entry.eigenvectors);
     }
     return certification::certify_simplex(eigenvalues, eigenvectors, mu,
-                                           linearization_error_bound, tolerance);
+                                           remainder_bound, tolerance);
 }
 
 inline std::vector<Complex> hermitian_2x2(double a, double b, double c) {

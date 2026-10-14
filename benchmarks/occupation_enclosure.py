@@ -189,7 +189,7 @@ def certification_runs():
 
                     values, vectors = np.linalg.eigh(np.array([model(0), model(1)]))
                     legacy = certify_simplex(
-                        values, vectors, linearization_error_bound=0
+                        values, vectors, remainder_bound=0
                     )
                     new = SpectralMesh(model, root_level=0).occupation_enclosures(
                         mu=0, depth=2

@@ -36,7 +36,7 @@ std::vector<std::complex<double>> column_major_vectors(
 cert::SimplexCertificate certify(
     EigenvalueArray eigenvalues,
     EigenvectorArray eigenvectors,
-    double linearization_error_bound,
+    double remainder_bound,
     double mu,
     double tolerance
 ) {
@@ -72,7 +72,7 @@ cert::SimplexCertificate certify(
         value_spans,
         vector_spans,
         mu,
-        linearization_error_bound,
+        remainder_bound,
         tolerance
     );
 }
@@ -134,7 +134,7 @@ void bind_certification(nb::module_ &module) {
         &certify,
         "eigenvalues"_a,
         "eigenvectors"_a,
-        "linearization_error_bound"_a,
+        "remainder_bound"_a,
         "mu"_a = 0.0,
         "tolerance"_a = cert::kDefaultTolerance
     );

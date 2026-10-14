@@ -57,7 +57,7 @@ SimplexCertificate certify_simplex(
     double mu,
     // Uniform spectral/operator-norm bound on the difference between the
     // actual Hamiltonian and its vertex-linear interpolant over this simplex.
-    double linearization_error_bound,
+    double remainder_bound,
     double tolerance = kDefaultTolerance
 );
 

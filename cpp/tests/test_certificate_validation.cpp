@@ -68,7 +68,7 @@ void test_empty_simplex_spectra_throws() {
     expect(threw, "empty simplex spectra should throw");
 }
 
-void test_invalid_linearization_error_bound_throws() {
+void test_invalid_remainder_bound_throws() {
     auto rejected_error = false;
     try {
         const auto spectra = std::vector<fermisimplex::Eigensystem>{
@@ -161,7 +161,7 @@ int main() {
     try {
         test_zero_width_mu_bounds_are_valid_only_at_the_endpoint();
         test_empty_simplex_spectra_throws();
-        test_invalid_linearization_error_bound_throws();
+        test_invalid_remainder_bound_throws();
         test_nonfinite_parameters_throw();
         test_invalid_spectrum_shapes_throw();
     } catch (const std::exception &error) {

@@ -51,7 +51,7 @@ SimplexClassification classify_frontier(
             // controls of Q-L have norm <= 2e and zero vertex controls.
             // Their weights sum to at most d/(d+1).
             remainder = (1. + 2. * mesh.ndim() / (mesh.ndim() + 1.)) *
-                mesh.linearization_error_bound(simplex_id, curvature_bound);
+                mesh.remainder_bound(simplex_id, curvature_bound);
         }
         ChargeErrorStats stats;
         if (occupation_detail::fixed_occupation(mesh, simplex_id, mu, 2, stats, remainder))

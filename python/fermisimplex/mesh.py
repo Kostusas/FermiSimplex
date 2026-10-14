@@ -334,7 +334,7 @@ class SpectralMesh:
         *,
         mu: float,
         depth: int = 2,
-        interpolation_error_bound: float | None = None,
+        remainder_bound: float | None = None,
     ) -> list[OccupationEnclosure]:
         """Inspect quadratic enclosures in the order of ``simplices``.
 
@@ -348,9 +348,9 @@ class SpectralMesh:
         """
         bound = (
             None
-            if interpolation_error_bound is None
+            if remainder_bound is None
             else _nonnegative_float(
-                interpolation_error_bound, "interpolation_error_bound"
+                remainder_bound, "remainder_bound"
             )
         )
         return self._native.occupation_enclosures(

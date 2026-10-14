@@ -15,14 +15,14 @@ struct OccupationRankEstimate {
 size_t estimate_ordered_subset_rank(
     const std::vector<std::vector<Complex>> &blocks,
     size_t size,
-    double linearization_error_bound,
+    double remainder_bound,
     double tolerance
 );
 
 OccupationRankEstimate estimate_ordered_subset_rank_with_mu_radius(
     const std::vector<std::vector<Complex>> &blocks,
     size_t size,
-    double linearization_error_bound,
+    double remainder_bound,
     double tolerance
 );
 

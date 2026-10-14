@@ -111,7 +111,7 @@ void test_mesh_converts_user_curvature_to_simplex_error() {
     auto mesh = SpectralMesh(model, kTol, 4);
     const auto simplex_id = first_active_simplex(mesh.geometry());
     expect_near(
-        mesh.linearization_error_bound(simplex_id, expected_curvature),
+        mesh.remainder_bound(simplex_id, expected_curvature),
         0.5 * expected_curvature / 256.0,
         1e-12,
         "mesh linearization error"

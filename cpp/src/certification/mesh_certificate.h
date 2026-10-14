@@ -15,8 +15,8 @@ public:
 
     explicit PreparedSimplexCertificate(std::shared_ptr<const Impl> impl);
 
-    SimplexCertificate certify(double linearization_error_bound) const;
-    OccupationBounds occupation_bounds(double linearization_error_bound) const;
+    SimplexCertificate certify(double remainder_bound) const;
+    OccupationBounds occupation_bounds(double remainder_bound) const;
 
 private:
     std::shared_ptr<const Impl> impl_;
@@ -40,7 +40,7 @@ SimplexCertificate certify_mesh_simplex(
     const SpectralMesh &mesh,
     core::SimplexId simplex_id,
     double mu,
-    double linearization_error_bound,
+    double remainder_bound,
     double tolerance = kDefaultTolerance
 );
 

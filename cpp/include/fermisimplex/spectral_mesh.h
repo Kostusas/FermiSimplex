@@ -79,7 +79,7 @@ public:
     // Throws if no evaluated covering exists; never evaluates or refines.
     EvaluatedSnapshot evaluated_snapshot(bool include_eigenvectors = true) const;
 
-    double linearization_error_bound(
+    double remainder_bound(
         adaptivesimplex::core::SimplexId simplex_id,
         double curvature_bound
     ) const;

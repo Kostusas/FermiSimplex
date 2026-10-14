@@ -4,6 +4,10 @@ All notable changes to FermiSimplex are documented in this file.
 
 ## Unreleased
 
+- Rename the explicit Hamiltonian interpolation allowance to `remainder_bound`
+  in standalone certification and quadratic occupation-enclosure APIs. The
+  standalone affine certificate and its eigensystem inputs are unchanged.
+
 - Use vertex safe-block solves and retain residual Gram matrices in the shared
   Schur occupation enclosure. Constant matrix allowances replace degree-six
   error polynomials during subdivision. Skip safe-block solves when their

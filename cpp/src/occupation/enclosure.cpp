@@ -300,16 +300,16 @@ namespace {
 template <bool IntegrateCharge>
 OccupationEnclosure enclosure(const SpectralMesh &mesh,
     adaptivesimplex::core::SimplexId simplex_id, double mu, std::uint32_t depth,
-    ChargeErrorStats &stats, std::optional<double> interpolation_error_bound) {
+    ChargeErrorStats &stats, std::optional<double> remainder_bound) {
     if (!std::isfinite(mu)) throw std::invalid_argument("mu must be finite");
     if (depth > 20 / mesh.ndim())
         throw std::invalid_argument("quadratic occupation depth * ndim must be <= 20");
-    if (interpolation_error_bound &&
-        (!std::isfinite(*interpolation_error_bound) || *interpolation_error_bound < 0))
+    if (remainder_bound &&
+        (!std::isfinite(*remainder_bound) || *remainder_bound < 0))
         throw std::invalid_argument("interpolation error bound must be finite and nonnegative");
     ++stats.root_simplices;
     if (const auto constant = constant_enclosure(mesh, simplex_id, mu)) return *constant;
-    const auto model = build_model(mesh, simplex_id, mu, stats, interpolation_error_bound);
+    const auto model = build_model(mesh, simplex_id, mu, stats, remainder_bound);
     const auto &simplex = mesh.geometry().simplices().simplex(simplex_id);
     const auto q = model.polynomial.size;
     OccupationEnclosure result;
@@ -317,7 +317,7 @@ OccupationEnclosure enclosure(const SpectralMesh &mesh,
     result.model_error = model.epsilon;
     result.safe_gap = model.delta;
     result.active_dimension = q;
-    result.remainder_is_sampled = !interpolation_error_bound;
+    result.remainder_is_sampled = !remainder_bound;
     result.charge_lower = result.charge_upper = simplex.volume * model.safe_occupation;
     result.occupation_lower = result.occupation_upper = model.safe_occupation;
     std::vector<Weights> cuts;
@@ -380,15 +380,15 @@ OccupationEnclosure enclosure(const SpectralMesh &mesh,
 
 OccupationEnclosure enclose_occupation(const SpectralMesh &mesh,
     adaptivesimplex::core::SimplexId simplex_id, double mu, std::uint32_t depth,
-    ChargeErrorStats &stats, std::optional<double> interpolation_error_bound) {
-    return enclosure<true>(mesh, simplex_id, mu, depth, stats, interpolation_error_bound);
+    ChargeErrorStats &stats, std::optional<double> remainder_bound) {
+    return enclosure<true>(mesh, simplex_id, mu, depth, stats, remainder_bound);
 }
 
 bool occupation_detail::fixed_occupation(const SpectralMesh &mesh,
     adaptivesimplex::core::SimplexId simplex_id, double mu, std::uint32_t depth,
-    ChargeErrorStats &stats, std::optional<double> interpolation_error_bound) {
+    ChargeErrorStats &stats, std::optional<double> remainder_bound) {
     return enclosure<false>(mesh, simplex_id, mu, depth, stats,
-                            interpolation_error_bound).fixed_occupation();
+                            remainder_bound).fixed_occupation();
 }
 
 }  // namespace fermisimplex

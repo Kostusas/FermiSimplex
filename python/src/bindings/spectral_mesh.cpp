@@ -425,7 +425,7 @@ void bind_spectral_mesh(nb::module_ &module) {
                     results.push_back(enclose_occupation(mesh, id, mu, depth, stats, bound));
                 return results;
             },
-            "mu"_a, "depth"_a, "interpolation_error_bound"_a,
+            "mu"_a, "depth"_a, "remainder_bound"_a,
             nb::call_guard<nb::gil_scoped_release>()
         )
         .def(

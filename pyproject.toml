@@ -2,13 +2,12 @@
 requires = [
     "nanobind==2.12.0",
     "scikit-build-core==0.12.1",
-    "scipy-openblas32==0.3.34.0.0",
 ]
 build-backend = "scikit_build_core.build"
 
 [project]
 name = "FermiSimplex"
-version = "0.2.0b1"
+version = "0.2.0b2"
 description = "Adaptive spectral calculations with simplex occupation certification"
 readme = "README.md"
 requires-python = ">=3.11,<3.14"
@@ -52,6 +51,8 @@ examples = [
 ]
 
 [tool.scikit-build]
+# Native wheel builds retain the same pinned BLAS dependency.
+build.requires = ["scipy-openblas32==0.3.34.0.0"]
 wheel.packages = ["python/fermisimplex"]
 cmake.source-dir = "."
 sdist.include = [
@@ -98,3 +99,10 @@ environment = { MACOSX_DEPLOYMENT_TARGET = "11.0" }
 # scipy-openblas32's DLL is deliberately installed beside the extension.
 # delvewheel does not search that already-bundled location during repair.
 repair-wheel-command = ""
+
+# Cross-build selection must use the build environment, not host platform markers.
+[[tool.scikit-build.overrides]]
+if.env.FERMISIMPLEX_PYODIDE = true
+build.requires = []
+inherit.cmake.define = "append"
+cmake.define.FERMISIMPLEX_PYODIDE = "ON"

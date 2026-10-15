@@ -1,0 +1,59 @@
+name: Build Pyodide wheel
+
+on:
+  workflow_call:
+
+permissions:
+  contents: read
+
+jobs:
+  pyodide:
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      - uses: actions/setup-python@ece7cb06caefa5fff74198d8649806c4678c61a1 # v6
+        with:
+          python-version: '3.13'
+
+      - uses: actions/setup-node@249970729cb0ef3589644e2896645e5dc5ba9c38 # v6
+        with:
+          node-version: '22'
+
+      - name: Install matching cross-build toolchain
+        env:
+          EMSDK_DIR: ${{ runner.temp }}/emsdk
+          PYODIDE_XBUILDENV_PATH: ${{ runner.temp }}/xbuildenv
+        run: |
+          python -m pip install pyodide-build==0.30.7 cmake==4.4.4 ninja==1.13.0
+          pyodide xbuildenv install 0.28.3
+          git init "$EMSDK_DIR"
+          git -C "$EMSDK_DIR" remote add origin https://github.com/emscripten-core/emsdk.git
+          git -C "$EMSDK_DIR" fetch --depth 1 origin 8f685c26ee9f672081e61e22c6aa60fa972d00a9
+          git -C "$EMSDK_DIR" checkout --detach FETCH_HEAD
+          "$EMSDK_DIR/emsdk" install 4.0.9
+          "$EMSDK_DIR/emsdk" activate 4.0.9
+
+      - name: Build browser wheel
+        env:
+          PYODIDE_XBUILDENV_PATH: ${{ runner.temp }}/xbuildenv
+          EMSDK_DIR: ${{ runner.temp }}/emsdk
+          CMAKE_BUILD_PARALLEL_LEVEL: '2'
+        run: |
+          # shellcheck disable=SC1091
+          source "$EMSDK_DIR/emsdk_env.sh"
+          python ci/build_pyodide.py
+
+      - name: Test wheel in WebAssembly
+        run: |
+          npm install --prefix build/pyodide-runtime --no-package-lock --no-save pyodide@0.28.3
+          node ci/test_pyodide.cjs dist/pyodide/*.whl build/pyodide-runtime/node_modules/pyodide
+
+      # Deliberately separate from distribution-* artifacts uploaded to PyPI.
+      - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: browser-wheel-pyodide-0.28.3
+          path: dist/pyodide/*.whl
+          if-no-files-found: error

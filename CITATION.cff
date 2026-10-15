@@ -1,7 +1,7 @@
 cff-version: 1.2.0
 message: "If you use FermiSimplex, please cite it using this metadata."
 title: "FermiSimplex"
-version: "0.2.0b1"
+version: "0.2.0b2"
 date-released: "2026-10-15"
 authors:
   - family-names: "Vilkelis"

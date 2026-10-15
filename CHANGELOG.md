@@ -4,6 +4,13 @@ All notable changes to FermiSimplex are documented in this file.
 
 ## Unreleased
 
+## 0.2.0b2 - 2026-10-15
+
+- Add an opt-in Pyodide build using the runtime's OpenBLAS ABI, with native
+  BLAS, OpenMP, numerical algorithms and Python APIs unchanged.
+- Build and smoke-test a Pyodide 0.28.3 wheel in CI and publish it as a GitHub
+  release asset alongside the native PyPI release.
+
 ## 0.2.0b1 - 2026-10-15
 
 First PyPI beta of the 0.2 series, including the changes below. Requires Python

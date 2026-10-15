@@ -68,3 +68,6 @@ jobs:
     uses: ./.github/workflows/build-distributions.yml
     with:
       build-selector: ${{ startsWith(github.ref, 'refs/heads/codex/beta-') && 'cp311-* cp312-* cp313-*' || 'cp313-*' }}
+
+  pyodide:
+    uses: ./.github/workflows/build-pyodide.yml

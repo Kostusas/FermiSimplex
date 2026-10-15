@@ -45,9 +45,26 @@ def test_bundled_openblas_notice_matches_platform_backend():
     package_dir = Path(fermisimplex.__file__).resolve().parent
     notice = package_dir / "licenses" / "scipy-openblas32.txt"
 
-    if sys.platform == "darwin":
+    if sys.platform in {"darwin", "emscripten"}:
         assert not notice.exists()
         return
 
     assert notice.is_file()
     assert "OpenBLAS" in notice.read_text()
+
+
+def test_complex_projector_matches_exact_occupied_state():
+    hamiltonian = np.array([[0.0, 1.0j], [-1.0j, 0.0]])
+    mesh = SpectralMesh(lambda kx, ky: hamiltonian)
+    mesh.fermi_surface(mu=0.0, min_feature_size=0.2, curvature_bound=0.0)
+    density = mesh.integrate_density_components(
+        mu=0.0,
+        lattice_vectors=[(0, 0)],
+        components=[(0, 0, 0), (0, 0, 1), (0, 1, 0), (0, 1, 1)],
+        target_error=1e-12,
+        max_refinements=0,
+    )
+    # H has eigenvalues +/-1, so the occupied projector is (I - H) / 2.
+    expected = (np.eye(2) - hamiltonian) / 2
+    np.testing.assert_allclose(density.values.reshape(2, 2), expected, atol=1e-12)
+    np.testing.assert_allclose(mesh.estimate_charge_on_current_mesh(mu=0.0).value, 1.0, atol=1e-12)

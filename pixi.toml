@@ -5,7 +5,7 @@ preview = ["pixi-build"]
 
 [package]
 name = "fermisimplex"
-version = "0.2.0b1"
+version = "0.2.0b2"
 
 [package.build]
 backend = { name = "pixi-build-python", version = "*", channels = ["https://prefix.dev/conda-forge"] }
@@ -73,7 +73,7 @@ benchmark-cpp = { cmd = "cmake --build build/cpp-benchmarks --target fermisimple
 benchmark-charge-error = { cmd = "python benchmarks/charge_error.py --preset full --output build/benchmarks/charge-error.json --plot build/benchmarks/charge-error-scalar.png", depends-on = ["install-editable"] }
 
 check-metadata = "python ci/check_metadata.py"
-test-metadata = "pytest ci/test_metadata.py"
+test-metadata = "pytest ci/test_metadata.py ci/test_pyodide_build.py"
 parse-workflows = "python ci/check_workflows.py"
 lint-github-workflows = "actionlint"
 check-workflows = { depends-on = ["parse-workflows", "lint-github-workflows"] }

@@ -66,3 +66,21 @@ release tag nor the manual publishing workflow is needed for build verification.
    repository.
 7. Approve the GitHub `pypi` environment after all distribution jobs pass.
 8. Verify the PyPI files and install FermiSimplex in a clean environment.
+
+## 0.2.0b2 browser-enabled beta
+
+The version metadata and release notes are prepared for `v0.2.0b2`. Merge the
+release preparation branch into main, wait for CI, and tag that merge commit:
+
+```sh
+git tag -a v0.2.0b2 -m "FermiSimplex 0.2.0b2"
+git push origin v0.2.0b2
+```
+
+The mirrored GitHub Release workflow builds the native distributions and a
+Pyodide 0.28.3 wheel. Approve the existing `pypi` environment when requested.
+After the native upload, the workflow attaches the browser wheel to the GitHub
+release automatically. No manual build or wheel upload is needed.
+
+Verify PyPI and the browser release asset before tagging MeanFi `v2.0.0b2`.
+See [WebAssembly](webassembly.md) for the asset URL and runtime requirements.

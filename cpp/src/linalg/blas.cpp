@@ -16,7 +16,7 @@
 #endif
 
 extern "C" {
-void FERMISIMPLEX_BLAS_ZGEMM(
+FERMISIMPLEX_FORTRAN_RETURN FERMISIMPLEX_BLAS_ZGEMM(
     const char *transa,
     const char *transb,
     const int *m,
@@ -32,7 +32,7 @@ void FERMISIMPLEX_BLAS_ZGEMM(
     const int *ldc
 );
 
-void FERMISIMPLEX_BLAS_ZHER2K(
+FERMISIMPLEX_FORTRAN_RETURN FERMISIMPLEX_BLAS_ZHER2K(
     const char *uplo,
     const char *trans,
     const int *n,
@@ -47,7 +47,7 @@ void FERMISIMPLEX_BLAS_ZHER2K(
     const int *ldc
 );
 
-void FERMISIMPLEX_BLAS_ZHEMM(
+FERMISIMPLEX_FORTRAN_RETURN FERMISIMPLEX_BLAS_ZHEMM(
     const char *side,
     const char *uplo,
     const int *m,

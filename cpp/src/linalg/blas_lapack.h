@@ -1,5 +1,9 @@
 #pragma once
 
+#ifndef FERMISIMPLEX_FORTRAN_RETURN
+#define FERMISIMPLEX_FORTRAN_RETURN void
+#endif
+
 #include <complex>
 #include <cstddef>
 #include <vector>

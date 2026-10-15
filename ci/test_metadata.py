@@ -5,11 +5,13 @@ import re
 import shutil
 import subprocess
 import sys
+import tomllib
 from pathlib import Path
 
 import pytest
 
 ROOT = Path(__file__).resolve().parents[1]
+VERSION = tomllib.loads((ROOT / "pyproject.toml").read_text())["project"]["version"]
 
 
 @pytest.fixture
@@ -45,7 +47,7 @@ def check(tree, tag=""):
 def test_release_version_accepts_numeric_cmake_base(release_tree, version):
     for relative in ("pyproject.toml", "pixi.toml", "CITATION.cff", "CHANGELOG.md"):
         path = release_tree / relative
-        path.write_text(path.read_text().replace("0.2.0b1", version))
+        path.write_text(path.read_text().replace(VERSION, version))
 
     result = check(release_tree, f"v{version}")
     assert result.returncode == 0, result.stderr
@@ -66,7 +68,7 @@ def test_release_rejects_wrong_cmake_base(release_tree, relative):
 @pytest.mark.parametrize("relative", ["pixi.toml", "CITATION.cff"])
 def test_release_rejects_mismatched_python_version(release_tree, relative):
     path = release_tree / relative
-    path.write_text(path.read_text().replace("0.2.0b1", "0.2.0b2"))
+    path.write_text(path.read_text().replace(VERSION, "9.9.9"))
 
     result = check(release_tree)
     assert result.returncode != 0
@@ -76,7 +78,7 @@ def test_release_rejects_mismatched_python_version(release_tree, relative):
 def test_release_rejects_wrong_tag(release_tree):
     result = check(release_tree, "v0.2.0")
     assert result.returncode != 0
-    assert "must equal v0.2.0b1" in result.stderr
+    assert f"must equal v{VERSION}" in result.stderr
 
 
 def test_release_rejects_invalid_python_version(release_tree):

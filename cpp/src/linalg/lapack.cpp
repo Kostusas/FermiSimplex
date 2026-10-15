@@ -24,7 +24,7 @@
 #endif
 
 extern "C" {
-void FERMISIMPLEX_LAPACK_ZHEEVD(
+FERMISIMPLEX_FORTRAN_RETURN FERMISIMPLEX_LAPACK_ZHEEVD(
     const char *jobz,
     const char *uplo,
     const int *n,
@@ -40,7 +40,7 @@ void FERMISIMPLEX_LAPACK_ZHEEVD(
     int *info
 );
 
-void FERMISIMPLEX_LAPACK_ZGESVD(
+FERMISIMPLEX_FORTRAN_RETURN FERMISIMPLEX_LAPACK_ZGESVD(
     const char *jobu,
     const char *jobvt,
     const int *m,
@@ -58,7 +58,7 @@ void FERMISIMPLEX_LAPACK_ZGESVD(
     int *info
 );
 
-void FERMISIMPLEX_LAPACK_ZGESV(
+FERMISIMPLEX_FORTRAN_RETURN FERMISIMPLEX_LAPACK_ZGESV(
     const int *n,
     const int *nrhs,
     std::complex<double> *a,
@@ -69,7 +69,7 @@ void FERMISIMPLEX_LAPACK_ZGESV(
     int *info
 );
 
-void FERMISIMPLEX_LAPACK_ZPOTRF(
+FERMISIMPLEX_FORTRAN_RETURN FERMISIMPLEX_LAPACK_ZPOTRF(
     const char *uplo,
     const int *n,
     std::complex<double> *a,

@@ -29,6 +29,21 @@ option(
   "${FERMISIMPLEX_CPP_TOP_LEVEL}"
 )
 
+# Explicitly select Pyodide's f2c BLAS ABI; Emscripten alone does not imply it.
+option(FERMISIMPLEX_PYODIDE "Use Pyodide's LP64 f2c OpenBLAS provider" OFF)
+set(FERMISIMPLEX_PYODIDE_OPENBLAS "" CACHE FILEPATH "Pyodide target libopenblas.so")
+if(FERMISIMPLEX_PYODIDE)
+  if(NOT EMSCRIPTEN)
+    message(FATAL_ERROR "FERMISIMPLEX_PYODIDE requires an Emscripten toolchain")
+  endif()
+  if(NOT EXISTS "${FERMISIMPLEX_PYODIDE_OPENBLAS}")
+    message(FATAL_ERROR "Set FERMISIMPLEX_PYODIDE_OPENBLAS to the target libopenblas.so")
+  endif()
+  add_library(LAPACK::LAPACK INTERFACE IMPORTED)
+  set_property(TARGET LAPACK::LAPACK PROPERTY
+    INTERFACE_LINK_LIBRARIES "${FERMISIMPLEX_PYODIDE_OPENBLAS}")
+endif()
+
 # Isolated Linux and Windows Python builds use SciPy's redistributable OpenBLAS
 # wheel. macOS uses the system Accelerate framework, which already provides the
 # required LP64 ABI without wheel-bundled runtime libraries. Standalone C++
@@ -36,7 +51,7 @@ option(
 set(_fs_blas_symbol_prefix "")
 set(FERMISIMPLEX_SCIPY_OPENBLAS_RUNTIME_LIBRARIES "" CACHE INTERNAL "" FORCE)
 set(FERMISIMPLEX_SCIPY_OPENBLAS_LICENSE "" CACHE INTERNAL "" FORCE)
-if(FERMISIMPLEX_BUILD_PYTHON AND NOT APPLE)
+if(FERMISIMPLEX_BUILD_PYTHON AND NOT APPLE AND NOT FERMISIMPLEX_PYODIDE)
   find_package(Python COMPONENTS Interpreter REQUIRED)
   execute_process(
     COMMAND
@@ -121,7 +136,12 @@ if(NOT TARGET adaptivesimplex::adaptive)
 endif()
 
 set(FERMISIMPLEX_DENSITY_OPENMP_ENABLED OFF)
-option(FERMISIMPLEX_ENABLE_DENSITY_OPENMP "Parallel density p-refinement batches" ON)
+set(_fs_density_openmp_default ON)
+if(FERMISIMPLEX_PYODIDE)
+  set(_fs_density_openmp_default OFF)
+endif()
+option(FERMISIMPLEX_ENABLE_DENSITY_OPENMP "Parallel density p-refinement batches"
+  "${_fs_density_openmp_default}")
 if(FERMISIMPLEX_ENABLE_DENSITY_OPENMP)
   find_package(OpenMP QUIET COMPONENTS CXX)
 endif()
@@ -159,8 +179,8 @@ if(_fs_blas_symbol_prefix)
   set(FERMISIMPLEX_BLAS_ZGEMM_SYMBOL scipy_zgemm_)
   set(FERMISIMPLEX_BLAS_ZHER2K_SYMBOL scipy_zher2k_)
   set(FERMISIMPLEX_BLAS_ZHEMM_SYMBOL scipy_zhemm_)
-elseif(APPLE)
-  # Accelerate exposes the conventional LP64 Fortran symbols. Older macOS
+elseif(APPLE OR FERMISIMPLEX_PYODIDE)
+  # Accelerate and Pyodide expose the conventional LP64 Fortran symbols. Older macOS
   # SDKs can reject CMake's isolated symbol probes even though normal targets
   # link successfully, so use the provider's documented ABI directly.
   set(FERMISIMPLEX_LAPACK_ZHEEVD_SYMBOL zheevd_)
@@ -290,6 +310,11 @@ target_compile_definitions(
   FERMISIMPLEX_BLAS_ZHER2K=${FERMISIMPLEX_BLAS_ZHER2K_SYMBOL}
   FERMISIMPLEX_BLAS_ZHEMM=${FERMISIMPLEX_BLAS_ZHEMM_SYMBOL}
 )
+
+if(FERMISIMPLEX_PYODIDE)
+  # WebAssembly requires exact function signatures for indirect calls.
+  target_compile_definitions(fermisimplex_core PRIVATE FERMISIMPLEX_FORTRAN_RETURN=int)
+endif()
 
 # Compile only density_cubature.cpp with OpenMP: leave charge and the generic adaptive
 # engine's existing compilation/threading behavior unchanged. If OpenMP is not

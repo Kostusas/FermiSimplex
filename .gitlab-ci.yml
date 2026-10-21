@@ -17,6 +17,7 @@ variables:
   image:
     name: ubuntu:24.04@sha256:4fbb8e6a8395de5a7550b33509421a2bafbc0aab6c06ba2cef9ebffbc7092d90
   before_script:
+    - !reference [.tls-trust, before_script]
     - apt-get update
     - apt-get install -y --no-install-recommends ca-certificates curl
     - curl --fail --location --silent --show-error --output /tmp/pixi.tar.gz https://github.com/prefix-dev/pixi/releases/download/v0.70.2/pixi-x86_64-unknown-linux-musl.tar.gz
@@ -55,6 +56,7 @@ distributions-linux-x86_64:
     PIXI_HOME: "/tmp/fermisimplex-pixi-home"
     XDG_CACHE_HOME: "/tmp/fermisimplex-cache"
   before_script:
+    - !reference [.tls-trust, before_script]
     - curl --fail --location --silent --show-error --output /tmp/pixi.tar.gz https://github.com/prefix-dev/pixi/releases/download/v0.70.2/pixi-x86_64-unknown-linux-musl.tar.gz
     - echo "9d0d72fc1fa1a8f87bfde943cf25d3575cb352cb516795d4dab21898bd98adea  /tmp/pixi.tar.gz" | sha256sum --check
     - tar --extract --gzip --file /tmp/pixi.tar.gz --directory /usr/local/bin
@@ -78,3 +80,12 @@ benchmark:
     paths:
       - build/cpp-benchmarks/benchmarks/fermisimplex-performance.json
     expire_in: 90 days
+
+include:
+- project: qt/ci
+  ref: 6206078f05b154de82c569a20aa6b3dff137212e
+  file: /TLS.gitlab-ci.yml
+
+default:
+  before_script:
+    - !reference [.tls-trust, before_script]
